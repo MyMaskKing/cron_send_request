@@ -54,7 +54,10 @@ function getNotificationConfig(env) {
   return {
     webhookUrl: env.WEBHOOK_URL || DEFAULT_WEBHOOK_URL,
     type: env.NOTIFICATION_TYPE || 'wechat', // 支持 wechat, webhook, email 等
-    enabled: env.NOTIFICATION_ENABLED !== 'false' // 默认启用通知
+    enabled: env.NOTIFICATION_ENABLED !== 'false', // 默认启用通知
+    // 邮件配置
+    mailto: env.MAILTO || '',
+    mailSubject: env.MAIL_SUBJECT || '定时任务执行报告'
   };
 }
 
@@ -392,9 +395,10 @@ function formatResultsAsText(results) {
  * @param {string} message - 要发送的消息
  * @param {Object} config - 通知配置
  * @param {string} returnType - 返回格式类型
+ * @param {Array} results - 原始结果数据（用于邮件HTML格式化）
  * @returns {Promise<Object>} 发送结果
  */
-async function sendNotification(message, config, returnType) {
+async function sendNotification(message, config, returnType, results = null) {
   if (!config.enabled) {
     return { success: true, message: '通知已禁用' };
   }
@@ -406,6 +410,7 @@ async function sendNotification(message, config, returnType) {
       case 'webhook':
         return await sendToWebhook(message, config.webhookUrl, returnType);
       case 'email':
+        // 邮件通知使用用户配置的格式，不强制转换
         return await sendToEmail(message, config);
       default:
         return await sendToWeChat(message, config.webhookUrl);
@@ -478,15 +483,61 @@ async function sendToWebhook(message, webhookUrl, returnType) {
 }
 
 /**
- * 发送邮件通知（示例实现）
- * @param {string} message - 要发送的消息
+ * 发送邮件通知（通过webhook方式）
+ * @param {string} message - 要发送的消息（HTML格式）
  * @param {Object} config - 邮件配置
  * @returns {Promise<Object>} 发送结果
  */
 async function sendToEmail(message, config) {
-  // 这里可以实现邮件发送逻辑
-  // 可以使用第三方邮件服务如 SendGrid, Mailgun 等
-  return { success: false, message: '邮件发送功能暂未实现' };
+  try {
+    // 检查邮件配置是否完整
+    if (!config.webhookUrl) {
+      return { success: false, message: 'Webhook地址未配置' };
+    }
+    
+    if (!config.mailto) {
+      return { success: false, message: '收件人邮箱地址未配置' };
+    }
+    
+    // 构建邮件数据
+    const emailData = {
+      to: config.mailto,
+      subject: config.mailSubject,
+      content: message
+    };
+    
+    // 发送到统一的webhook地址
+    const response = await fetch(config.webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(emailData)
+    });
+    
+    if (response.ok) {
+      const result = await response.json().catch(() => ({}));
+      return { 
+        success: true, 
+        message: '邮件发送成功',
+        details: result
+      };
+    } else {
+      const errorText = await response.text();
+      return { 
+        success: false, 
+        message: `邮件服务响应错误: ${response.status} ${response.statusText}`,
+        details: errorText
+      };
+    }
+    
+  } catch (error) {
+    return { 
+      success: false, 
+      message: `邮件发送异常: ${error.message}`,
+      error: error.stack
+    };
+  }
 }
 
 // 请求去重缓存（简单的内存缓存）
@@ -590,7 +641,7 @@ async function handleCronTask(env, ctx) {
     const formattedMessage = formatResults(results, returnType);
     
     // 发送通知
-    const sendResult = await sendNotification(formattedMessage, notificationConfig, returnType);
+    const sendResult = await sendNotification(formattedMessage, notificationConfig, returnType, results);
     
     return new Response(JSON.stringify({
       success: true,
@@ -665,7 +716,7 @@ async function handleManualTrigger(env, ctx) {
     const formattedMessage = formatResults(results, returnType);
     
     // 发送通知
-    const sendResult = await sendNotification(formattedMessage, notificationConfig, returnType);
+    const sendResult = await sendNotification(formattedMessage, notificationConfig, returnType, 0);
     
     return new Response(JSON.stringify({
       success: true,
