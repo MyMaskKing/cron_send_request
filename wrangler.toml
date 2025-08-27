@@ -1,0 +1,11 @@
+name = "cron-send-request"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[triggers]
+crons = ["0 6 * * *"]  # 每天早上6点执行
+
+# 环境变量示例（需要在 Cloudflare Dashboard 中设置）
+# ACCESS_URL1 = "https://example1.com"
+# ACCESS_URL2 = "https://example2.com"
+# ACCESS_URL3 = "https://example3.com"
