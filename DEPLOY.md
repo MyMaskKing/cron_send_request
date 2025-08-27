@@ -81,6 +81,11 @@ Deployed to https://cron-send-request.your-subdomain.workers.dev
 - **NOTIFICATION_TYPE**：通知类型，`wechat`、`webhook`、`email`
 - **NOTIFICATION_ENABLED**：是否启用通知，`true` 或 `false`
 
+#### 超时和并发配置
+- **REQUEST_TIMEOUT**：请求超时时间（毫秒），默认 30000
+- **CONCURRENCY_LIMIT**：并发请求数量限制，默认 5
+- **BATCH_DELAY**：批次间延迟时间（毫秒），默认 1000
+
 ### 支持的 URL 格式
 
 ```

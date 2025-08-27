@@ -12,6 +12,12 @@ const RETURN_TYPES = {
   HTML: 'html'
 };
 
+// 默认超时时间配置（毫秒）
+const DEFAULT_TIMEOUT = 30000; // 30秒 - 请求超时时间
+const DEFAULT_RESPONSE_TIMEOUT = 60000; // 60秒 - 响应体加载超时时间
+const DEFAULT_CONCURRENCY_LIMIT = 5; // 并发限制
+const DEFAULT_BATCH_DELAY = 1000; // 批次间延迟（毫秒）
+
 /**
  * 获取所有ACCESS_开头的环境变量
  * @param {Object} env - 环境变量对象
@@ -53,17 +59,38 @@ function getNotificationConfig(env) {
 }
 
 /**
+ * 获取超时配置
+ * @param {Object} env - 环境变量对象
+ * @returns {Object} 超时配置
+ */
+function getTimeoutConfig(env) {
+  return {
+    timeout: parseInt(env.REQUEST_TIMEOUT) || DEFAULT_TIMEOUT,
+    responseTimeout: parseInt(env.RESPONSE_TIMEOUT) || DEFAULT_RESPONSE_TIMEOUT,
+    concurrencyLimit: parseInt(env.CONCURRENCY_LIMIT) || DEFAULT_CONCURRENCY_LIMIT,
+    batchDelay: parseInt(env.BATCH_DELAY) || DEFAULT_BATCH_DELAY
+  };
+}
+
+/**
  * 访问单个URL并返回结果
  * @param {string} url - 要访问的URL
  * @param {string} name - 环境变量名称
+ * @param {Object} timeoutConfig - 超时配置
  * @returns {Promise<Object>} 访问结果
  */
-async function accessUrl(url, name) {
+async function accessUrl(url, name, timeoutConfig) {
   const startTime = Date.now();
+  const { timeout, responseTimeout } = timeoutConfig;
   
   try {
+    // 创建 AbortController 用于请求超时控制
+    const requestController = new AbortController();
+    const requestTimeoutId = setTimeout(() => requestController.abort(), timeout);
+    
     const response = await fetch(url, {
       method: 'GET',
+      signal: requestController.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -84,29 +111,103 @@ async function accessUrl(url, name) {
       }
     });
     
+    clearTimeout(requestTimeoutId);
+    
+    // 创建响应体加载超时控制
+    const responseController = new AbortController();
+    const responseTimeoutId = setTimeout(() => responseController.abort(), responseTimeout);
+    
+    // 等待响应体完全加载，确保获取完整内容
+    let responseBody = '';
+    let isComplete = false;
+    
+    try {
+      // 读取响应体，确保完整加载，并设置超时控制
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        responseBody += decoder.decode(value, { stream: true });
+        
+        // 检查是否超时
+        if (Date.now() - startTime > responseTimeout) {
+          responseController.abort();
+          throw new Error(`响应体加载超时 (${responseTimeout}ms)`);
+        }
+      }
+      
+      isComplete = true;
+    } catch (readError) {
+      // 如果读取响应体失败，标记为不完整
+      isComplete = false;
+      if (readError.name === 'AbortError') {
+        console.warn(`响应体加载超时: ${readError.message}`);
+      } else {
+        console.warn(`读取响应体失败: ${readError.message}`);
+      }
+    } finally {
+      clearTimeout(responseTimeoutId);
+    }
+    
     const endTime = Date.now();
     const responseTime = endTime - startTime;
+    
+    // 判断响应是否真正成功
+    const isTrulySuccessful = response.ok && isComplete && response.status !== 206;
+    
+    // 对于206状态码，需要特殊处理
+    let finalStatus = response.status;
+    let finalStatusText = response.statusText;
+    let finalSuccess = isTrulySuccessful;
+    
+    if (response.status === 206) {
+      if (isComplete) {
+        finalStatusText = 'Partial Content (已完整加载)';
+        finalSuccess = true; // 如果完整加载了，认为是成功的
+      } else {
+        finalStatusText = 'Partial Content (未完整加载)';
+        finalSuccess = false; // 如果未完整加载，认为是失败的
+      }
+    }
     
     return {
       name: name,
       url: url,
-      status: response.status,
-      statusText: response.statusText,
+      status: finalStatus,
+      statusText: finalStatusText,
       responseTime: responseTime,
-      success: response.ok,
+      success: finalSuccess,
+      isComplete: isComplete,
+      responseSize: responseBody.length,
       timestamp: new Date().toISOString()
     };
   } catch (error) {
+    clearTimeout(requestTimeoutId);
+    clearTimeout(responseTimeoutId);
     const endTime = Date.now();
     const responseTime = endTime - startTime;
+    
+    let errorMessage = error.message;
+    if (error.name === 'AbortError') {
+      if (error.message.includes('响应体加载超时')) {
+        errorMessage = `响应体加载超时 (${responseTimeout}ms)`;
+      } else {
+        errorMessage = `请求超时 (${timeout}ms)`;
+      }
+    }
     
     return {
       name: name,
       url: url,
       status: 'ERROR',
-      statusText: error.message,
+      statusText: errorMessage,
       responseTime: responseTime,
       success: false,
+      isComplete: false,
+      responseSize: 0,
       timestamp: new Date().toISOString()
     };
   }
@@ -115,25 +216,24 @@ async function accessUrl(url, name) {
 /**
  * 批量访问所有配置的URL
  * @param {Object} accessUrls - 包含所有ACCESS_开头的环境变量
+ * @param {Object} timeoutConfig - 超时配置
  * @returns {Promise<Array>} 所有访问结果
  */
-async function batchAccessUrls(accessUrls) {
+async function batchAccessUrls(accessUrls, timeoutConfig) {
   const results = [];
-  
-  // 并发访问所有URL，但限制并发数量避免过载
-  const concurrencyLimit = 5;
+  const { concurrencyLimit, batchDelay } = timeoutConfig;
   const urlEntries = Object.entries(accessUrls);
   
   for (let i = 0; i < urlEntries.length; i += concurrencyLimit) {
     const batch = urlEntries.slice(i, i + concurrencyLimit);
-    const batchPromises = batch.map(([name, url]) => accessUrl(url, name));
+    const batchPromises = batch.map(([name, url]) => accessUrl(url, name, timeoutConfig));
     
     const batchResults = await Promise.all(batchPromises);
     results.push(...batchResults);
     
     // 批次间稍作延迟，避免过于频繁的请求
     if (i + concurrencyLimit < urlEntries.length) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
   
@@ -225,6 +325,7 @@ function formatResultsAsHTML(results) {
     const itemClass = result.success ? 'result-item' : 'result-item error';
     const statusIcon = result.success ? '✅' : '❌';
     const statusText = result.success ? '成功' : '失败';
+    const completionStatus = result.isComplete ? '完整' : '不完整';
     
     html += `
       <div class="${itemClass}">
@@ -232,6 +333,8 @@ function formatResultsAsHTML(results) {
         <div class="result-url">URL: ${result.url}</div>
         <div class="result-status ${statusClass}">状态: ${result.status} ${result.statusText}</div>
         <div class="result-time">响应时间: ${result.responseTime}ms</div>
+        <div class="result-time">响应完整性: ${completionStatus}</div>
+        ${result.responseSize > 0 ? `<div class="result-time">响应大小: ${result.responseSize} 字符</div>` : ''}
         <div class="result-time">时间: ${result.timestamp}</div>
       </div>
     `;
@@ -268,11 +371,16 @@ function formatResultsAsText(results) {
   results.forEach((result, index) => {
     const statusIcon = result.success ? '✅' : '❌';
     const statusText = result.success ? '成功' : '失败';
+    const completionStatus = result.isComplete ? '完整' : '不完整';
     
     text += `${index + 1}. ${statusIcon} ${result.name}\n`;
     text += `   URL: ${result.url}\n`;
     text += `   状态: ${result.status} ${result.statusText}\n`;
     text += `   响应时间: ${result.responseTime}ms\n`;
+    text += `   响应完整性: ${completionStatus}\n`;
+    if (result.responseSize > 0) {
+      text += `   响应大小: ${result.responseSize} 字符\n`;
+    }
     text += `   时间: ${result.timestamp}\n\n`;
   });
   
@@ -416,12 +524,13 @@ export default {
         '/': '项目信息'
       },
       environment: '设置ACCESS_开头的环境变量来配置要访问的网址',
-      config: {
-        returnType: getReturnType(env),
-        notification: getNotificationConfig(env)
-      },
-      currentPath: path,
-      timestamp: new Date().toISOString()
+             config: {
+         returnType: getReturnType(env),
+         notification: getNotificationConfig(env),
+         timeout: getTimeoutConfig(env)
+       },
+       currentPath: path,
+       timestamp: new Date().toISOString()
     }), {
       headers: { 'Content-Type': 'application/json' }
     });
@@ -462,6 +571,7 @@ async function handleCronTask(env, ctx) {
     const accessUrls = getAccessUrls(env);
     const returnType = getReturnType(env);
     const notificationConfig = getNotificationConfig(env);
+    const timeoutConfig = getTimeoutConfig(env);
     
     if (Object.keys(accessUrls).length === 0) {
       const noConfigMessage = "⚠️ 定时任务执行：没有找到任何ACCESS_开头的环境变量配置";
@@ -474,7 +584,7 @@ async function handleCronTask(env, ctx) {
     }
     
     // 批量访问所有URL
-    const results = await batchAccessUrls(accessUrls);
+    const results = await batchAccessUrls(accessUrls, timeoutConfig);
     
     // 格式化结果
     const formattedMessage = formatResults(results, returnType);
@@ -489,7 +599,8 @@ async function handleCronTask(env, ctx) {
       sendResult: sendResult,
       config: {
         returnType: returnType,
-        notification: notificationConfig
+        notification: notificationConfig,
+        timeout: timeoutConfig
       }
     }), { headers: { 'Content-Type': 'application/json' } });
     
@@ -538,6 +649,7 @@ async function handleManualTrigger(env, ctx) {
     const accessUrls = getAccessUrls(env);
     const returnType = getReturnType(env);
     const notificationConfig = getNotificationConfig(env);
+    const timeoutConfig = getTimeoutConfig(env);
     
     if (Object.keys(accessUrls).length === 0) {
       return new Response(JSON.stringify({
@@ -547,7 +659,7 @@ async function handleManualTrigger(env, ctx) {
     }
     
     // 批量访问所有URL
-    const results = await batchAccessUrls(accessUrls);
+    const results = await batchAccessUrls(accessUrls, timeoutConfig);
     
     // 格式化结果
     const formattedMessage = formatResults(results, returnType);
@@ -564,7 +676,8 @@ async function handleManualTrigger(env, ctx) {
       formattedMessage: formattedMessage,
       config: {
         returnType: returnType,
-        notification: notificationConfig
+        notification: notificationConfig,
+        timeout: timeoutConfig
       }
     }), { headers: { 'Content-Type': 'application/json' } });
     

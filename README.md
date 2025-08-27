@@ -70,6 +70,11 @@ wrangler deploy
 - **NOTIFICATION_TYPE**：通知类型，可选值：`wechat`（微信机器人）、`webhook`（通用Webhook）、`email`（邮件）
 - **NOTIFICATION_ENABLED**：是否启用通知，可选值：`true`、`false`，默认为 `true`
 
+#### 超时和并发配置
+- **REQUEST_TIMEOUT**：请求超时时间（毫秒），默认 `30000`（30秒）
+- **CONCURRENCY_LIMIT**：并发请求数量限制，默认 `5`
+- **BATCH_DELAY**：批次间延迟时间（毫秒），默认 `1000`（1秒）
+
 ### 定时设置
 
 在 `wrangler.toml` 中配置：
