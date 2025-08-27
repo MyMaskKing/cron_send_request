@@ -381,6 +381,9 @@ async function sendToEmail(message, config) {
   return { success: false, message: '邮件发送功能暂未实现' };
 }
 
+// 请求去重缓存（简单的内存缓存）
+const requestCache = new Map();
+
 /**
  * 主处理函数
  * @param {Request} request - HTTP请求对象
@@ -390,17 +393,20 @@ async function sendToEmail(message, config) {
  */
 export default {
   async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    
     // 处理定时任务
-    if (request.url.includes('/cron')) {
+    if (path === '/cron') {
       return handleCronTask(env, ctx);
     }
     
     // 处理手动触发
-    if (request.url.includes('/manual')) {
+    if (path === '/manual') {
       return handleManualTrigger(env, ctx);
     }
     
-    // 默认返回项目信息
+    // 默认返回项目信息（根路径和其他路径）
     return new Response(JSON.stringify({
       name: '定时访问任务 Worker',
       description: '每天早上6点自动访问配置的网址并发送结果到指定目标',
@@ -413,7 +419,9 @@ export default {
       config: {
         returnType: getReturnType(env),
         notification: getNotificationConfig(env)
-      }
+      },
+      currentPath: path,
+      timestamp: new Date().toISOString()
     }), {
       headers: { 'Content-Type': 'application/json' }
     });
@@ -433,6 +441,23 @@ export default {
  */
 async function handleCronTask(env, ctx) {
   try {
+    // 定时任务去重检查（避免同一分钟内重复执行）
+    const cronCacheKey = `cron_task_${Math.floor(Date.now() / 60000)}`; // 1分钟内的请求视为重复
+    
+    if (requestCache.has(cronCacheKey)) {
+      return new Response(JSON.stringify({
+        success: false,
+        message: '定时任务已在执行中，请稍后再试',
+        lastExecutionTime: requestCache.get(cronCacheKey)
+      }), { 
+        headers: { 'Content-Type': 'application/json' },
+        status: 429 // Too Many Requests
+      });
+    }
+    
+    // 记录执行时间
+    requestCache.set(cronCacheKey, Date.now());
+    
     // 获取配置
     const accessUrls = getAccessUrls(env);
     const returnType = getReturnType(env);
@@ -490,6 +515,25 @@ async function handleCronTask(env, ctx) {
  */
 async function handleManualTrigger(env, ctx) {
   try {
+    // 请求去重检查
+    const requestId = `manual_${Date.now()}`;
+    const cacheKey = `manual_trigger_${Math.floor(Date.now() / 10000)}`; // 10秒内的请求视为重复
+    
+    if (requestCache.has(cacheKey)) {
+      return new Response(JSON.stringify({
+        success: false,
+        message: '请求过于频繁，请稍后再试',
+        requestId: requestId,
+        lastRequestTime: requestCache.get(cacheKey)
+      }), { 
+        headers: { 'Content-Type': 'application/json' },
+        status: 429 // Too Many Requests
+      });
+    }
+    
+    // 记录请求时间
+    requestCache.set(cacheKey, Date.now());
+    
     // 获取配置
     const accessUrls = getAccessUrls(env);
     const returnType = getReturnType(env);
@@ -514,6 +558,7 @@ async function handleManualTrigger(env, ctx) {
     return new Response(JSON.stringify({
       success: true,
       message: '手动触发执行完成',
+      requestId: requestId,
       results: results,
       sendResult: sendResult,
       formattedMessage: formattedMessage,
