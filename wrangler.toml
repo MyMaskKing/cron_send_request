@@ -3,7 +3,7 @@ main = "src/index.js"
 compatibility_date = "2024-01-01"
 
 [triggers]
-crons = ["0 6 * * *"]  # 每天早上6点执行
+crons = ["0 22 * * *"]  # 每天早上6点执行（UTC时间需要-8,目标[中国]时间为6点，UTC时间为22点）
 
 # 环境变量示例（需要在 Cloudflare Dashboard 中设置）
 # ACCESS_URL1 = "https://example1.com"

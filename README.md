@@ -66,12 +66,15 @@ wrangler deploy
 
 #### 可选配置
 - **RETURN_TYPE**：返回格式类型，可选值：`text`（纯文本）、`html`（美观的HTML报告）
-- **WEBHOOK_URL**：通知Webhook地址，如果不设置则使用默认的微信机器人地址
+- **WEBHOOK_URL**：通知 Webhook 地址；当 `NOTIFICATION_TYPE=email` 时，也作为邮件服务的 Webhook 使用
 - **NOTIFICATION_TYPE**：通知类型，可选值：`wechat`（微信机器人）、`webhook`（通用Webhook）、`email`（邮件）
 - **NOTIFICATION_ENABLED**：是否启用通知，可选值：`true`、`false`，默认为 `true`
+- **MAILTO**：当 `NOTIFICATION_TYPE=email` 时的收件人邮箱地址
+- **MAIL_SUBJECT**：当 `NOTIFICATION_TYPE=email` 时的邮件主题，默认“定时任务执行报告”
 
 #### 超时和并发配置
 - **REQUEST_TIMEOUT**：请求超时时间（毫秒），默认 `30000`（30秒）
+- **RESPONSE_TIMEOUT**：响应体加载超时时间（毫秒），默认 `60000`（60秒）
 - **CONCURRENCY_LIMIT**：并发请求数量限制，默认 `5`
 - **BATCH_DELAY**：批次间延迟时间（毫秒），默认 `1000`（1秒）
 
@@ -103,7 +106,23 @@ https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=d379c8ce-501f-4481-89e9-f35
 设置 `NOTIFICATION_TYPE=webhook` 和 `WEBHOOK_URL=你的webhook地址` 即可使用通用Webhook通知。
 
 #### 邮件通知
-设置 `NOTIFICATION_TYPE=email` 即可启用邮件通知功能（需要额外配置邮件服务）。
+设置 `NOTIFICATION_TYPE=email` 即可启用邮件通知功能（使用统一的 `WEBHOOK_URL` 作为邮件服务的 Webhook）。
+
+示例环境变量：
+
+```
+NOTIFICATION_TYPE=email
+
+# 使用统一的 WEBHOOK_URL 作为邮件服务的 Webhook 地址
+WEBHOOK_URL=https://your-email-service.com/webhook
+
+# 邮件收件人与主题
+MAILTO=your-email@example.com
+MAIL_SUBJECT=定时任务执行报告
+
+# 报告格式（可选：text 或 html）
+RETURN_TYPE=html
+```
 
 #### 禁用通知
 设置 `NOTIFICATION_ENABLED=false` 可以完全禁用通知功能。
