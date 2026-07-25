@@ -3375,9 +3375,10 @@ bindQuickLogin('asset');
 // 用 createElement + addEventListener，规避模板串内引号转义。
 const TODO_TREE_CORE = `
 // 视图三态循环: default(带页面 chrome 的默认页) → card(全屏卡片) → tree(全屏完整树) → default
-// localStorage 记忆; 老用户历史值 'card'/'tree' 直接沿用为对应全屏态
-var _todoView = 'default';
-try { var _v = localStorage.getItem('todoView'); if (_v === 'default' || _v === 'card' || _v === 'tree') _todoView = _v; } catch(e){}
+// 初始化统一进全屏(用户诉求): localStorage 记录 'tree' 时沿用完整树全屏, 其他情况一律 'card' 全屏卡片;
+// 退出全屏产生的 'default' 只在本会话生效, 下次页面加载再次回到全屏
+var _todoView = 'card';
+try { var _v = localStorage.getItem('todoView'); if (_v === 'tree') _todoView = 'tree'; } catch(e){}
 // ESC 键退全屏用: 保存 applyTodoView 每次传入的最新 getRowsFn / onDrawTree
 // 全局 keydown 只绑一次(_todoEscBound), 从这里读最新引用, 避免闭包旧值
 var _todoEscCtx = { getRows: null, onDraw: null };
