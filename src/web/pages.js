@@ -784,8 +784,8 @@ function todoPage(user) {
         <label style="float:right;margin-right:14px;font-weight:normal;color:#666;font-size:13px;"><input type="checkbox" id="hideDone" style="width:auto;" checked> 隐藏已完成</label>
       </h2>
       <div class="todo-range todo-filter" id="todoFilter">
-        <button data-filter="all" class="active">全部</button>
-        <button data-filter="cur">今日+逾期</button>
+        <button data-filter="all">全部</button>
+        <button data-filter="cur" class="active">今日+逾期</button>
         <button data-filter="today">今日</button>
         <button data-filter="overdue">逾期</button>
         <button data-filter="future">未来</button>
@@ -917,8 +917,8 @@ function todoReportPage() {
         </div>
         <div class="todo-filter-row" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 12px;">
           <div class="todo-range" id="todoFilter" style="margin:0;flex:1;min-width:0;">
-            <button data-filter="all" class="active">全部</button>
-            <button data-filter="cur">今日+逾期</button>
+            <button data-filter="all">全部</button>
+            <button data-filter="cur" class="active">今日+逾期</button>
             <button data-filter="today">今日</button>
             <button data-filter="overdue">逾期</button>
             <button data-filter="future">未来</button>

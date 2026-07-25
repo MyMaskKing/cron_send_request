@@ -601,7 +601,7 @@ body.todo-dragging { user-select: none; -webkit-user-select: none; touch-action:
 .todo-card__count { background: #eef1ff; color: #A855F7; font-weight: 600; }
 .todo-card__count.done { background: #f6ffed; color: #389e0d; }
 
-/* 内联子任务添加行: 卡片视图挂在卡片下方; 详情页挂在 #todoTree 顶部 */
+/* 内联子任务添加行: 卡片视图挂在卡片下方; 完整树视图挂在该行下方 */
 .todo-inline-add {
   background: #fff; border: 1px solid #dfe4fb; border-left: 4px solid #A855F7;
   border-radius: 10px; padding: 10px 12px; margin: 6px 0 10px;
@@ -610,15 +610,65 @@ body.todo-dragging { user-select: none; -webkit-user-select: none; touch-action:
   animation: todoInlineAddIn .18s ease-out;
 }
 @keyframes todoInlineAddIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+/* textarea 自身 min-height 由 JS autoGrowTextarea 控制(默认 44px), 这里不设 min-height 避免重复叠加 */
 .todo-inline-add__title, .todo-inline-add__note {
   width: 100%; border: 1px solid #e6e8ef; border-radius: 6px;
   padding: 8px 10px; font-size: 14px; font-family: inherit; resize: vertical;
-  min-height: 34px;
+  line-height: 1.5;
 }
 .todo-inline-add__title { font-weight: 600; }
 .todo-inline-add__title:focus, .todo-inline-add__note:focus { outline: none; border-color: #A855F7; box-shadow: 0 0 0 2px rgba(168,85,247,.12); }
-.todo-inline-add__actions { display: flex; align-items: center; gap: 8px; }
-.todo-inline-add__actions .btn.sm { padding: 5px 14px; }
+.todo-inline-add__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.todo-inline-add__actions .btn.sm { padding: 6px 16px; min-height: 34px; }
+.todo-inline-add__hint { font-size: 12px; margin-left: auto; }
+
+/* 详情页底部常驻"+ 添加子任务"行(MS To Do 风格): 折叠时是占位按钮, 展开时是内联输入 */
+.todo-detail-adder { margin-top: 8px; }
+.todo-detail-adder__placeholder {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 12px 14px; background: transparent; color: #A855F7;
+  border: 1px dashed #d7cdf5; border-radius: 8px; cursor: pointer;
+  font-size: 14px; text-align: left; transition: background .18s, border-color .18s;
+  min-height: 44px;
+}
+.todo-detail-adder__placeholder:hover { background: rgba(168,85,247,.06); border-color: #A855F7; }
+.todo-detail-adder__plus { font-weight: 700; font-size: 18px; line-height: 1; }
+.todo-detail-adder.editing .todo-detail-adder__placeholder { display: none; }
+.todo-detail-adder__editor { display: none; }
+.todo-detail-adder.editing .todo-detail-adder__editor {
+  display: flex; flex-direction: column; gap: 8px;
+  background: #fff; border: 1px solid #A855F7; border-radius: 8px;
+  padding: 10px 12px; box-shadow: 0 4px 16px rgba(168,85,247,.08);
+  animation: todoInlineAddIn .18s ease-out;
+}
+.todo-detail-adder__title, .todo-detail-adder__note {
+  width: 100%; border: 1px solid #e6e8ef; border-radius: 6px;
+  padding: 8px 10px; font-size: 14px; font-family: inherit; resize: vertical;
+  line-height: 1.5;
+}
+.todo-detail-adder__title { font-weight: 600; }
+.todo-detail-adder__title:focus, .todo-detail-adder__note:focus {
+  outline: none; border-color: #A855F7; box-shadow: 0 0 0 2px rgba(168,85,247,.12);
+}
+.todo-detail-adder__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.todo-detail-adder__row .btn.sm { padding: 6px 16px; min-height: 34px; }
+.todo-detail-adder__hint { font-size: 12px; margin-left: auto; }
+
+/* 手机窄屏(≤640px): 按钮撑满一行更易点; 提示文单独一行不挤按钮 */
+@media (max-width: 640px) {
+  .todo-inline-add__actions,
+  .todo-detail-adder__row {
+    gap: 6px;
+  }
+  .todo-inline-add__actions .btn.sm,
+  .todo-detail-adder__row .btn.sm {
+    flex: 1 1 40%; padding: 10px 12px; min-height: 40px; font-size: 14px;
+  }
+  .todo-inline-add__hint,
+  .todo-detail-adder__hint {
+    flex: 1 0 100%; margin-left: 0; text-align: center; order: 99;
+  }
+}
 
 /* ============ 面包屑（子任务详情页顶栏） ============ */
 .todo-crumb {

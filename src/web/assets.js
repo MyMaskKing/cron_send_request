@@ -3370,7 +3370,8 @@ bindQuickLogin('asset');
 
 // ============ 待办树渲染核心（三页共用，内联注入） ============
 // 提供 buildTree(rows)->trees、renderTree(container, trees, opts) 纯 DOM 构建。
-// opts 回调决定各页能力：{ today, hideDone, onToggle, onEdit, onDel, onAddChild, onShare, readOnly }
+// opts 回调决定各页能力：{ today, hideDone, onToggle, onEdit, onDel, onAddChildSubmit, onShare, readOnly }
+// onAddChildSubmit(node, payload) → Promise: 由业务侧封装 api + reload; 卡片/树/详情页共用同一 submitFn 通道
 // 用 createElement + addEventListener，规避模板串内引号转义。
 const TODO_TREE_CORE = `
 // 视图三态循环: default(带页面 chrome 的默认页) → card(全屏卡片) → tree(全屏完整树) → default
@@ -3810,19 +3811,20 @@ function renderTodoDrawer(rows, onSelect) {
   var foot = document.getElementById('drawerFoot');
   if (foot) foot.textContent = '共 ' + cats.length + ' 个分类';
 }
-// 时间维度顶层任务计数(顶层口径, 与 todoFilterTrees 同): 全部/今日/逾期/未来/备忘录/已完成
+// 时间维度顶层任务计数(顶层口径, 与 todoFilterTrees 同): 全部/今日+逾期/今日/逾期/未来/备忘录/已完成
 // 只统计顶层任务, 子任务日期继承主任务, 不重复计数
 // 桶互斥: 已完成任务归入 done, 不再计入 overdue/today/future/memo
+// cur = today + overdue (与 filter=cur 的口径一致, 已完成不计入)
 function todoTimeCounts(rows) {
   var today = new Date(Date.now() + 8*3600*1000).toISOString().slice(0,10);
-  var m = { all: 0, today: 0, overdue: 0, future: 0, memo: 0, done: 0 };
+  var m = { all: 0, cur: 0, today: 0, overdue: 0, future: 0, memo: 0, done: 0 };
   rows.forEach(function(r){
     if (r.parent_id != null) return;
     m.all++;
     if (r.done) { m.done++; return; }
     if (!r.due_date) { m.memo++; return; }
-    if (r.due_date === today) m.today++;
-    else if (r.due_date < today) m.overdue++;
+    if (r.due_date === today) { m.today++; m.cur++; }
+    else if (r.due_date < today) { m.overdue++; m.cur++; }
     else m.future++;
   });
   return m;
@@ -4202,7 +4204,13 @@ function renderTodoTree(container, trees, opts) {
         dragHandle.innerHTML = ICONS.drag;
         ops.appendChild(dragHandle);
       }
-      if (opts.onAddChild) { var b1 = mkOp(ICONS.plus,  '添加子任务', function(){ opts.onAddChild(node, b1); }); ops.appendChild(b1); }
+      // 完整树视图内的"添加子任务": 走同一 onAddChildSubmit 通道, 内联在该行下方
+      if (opts.onAddChildSubmit) {
+        var b1 = mkOp(ICONS.plus, '添加子任务', function(){
+          openInlineAddChild(b1, node, function(payload){ return opts.onAddChildSubmit(node, payload); });
+        });
+        ops.appendChild(b1);
+      }
       if (opts.onEdit)     { var b2 = mkOp(ICONS.edit,  '编辑',       function(){ opts.onEdit(node); }); ops.appendChild(b2); }
       if (opts.onShare && depth === 0) { var b3 = mkOp(ICONS.share, '协作链接', function(){ opts.onShare(node); }); ops.appendChild(b3); }
       if (opts.onDel)      { var b4 = mkOp(ICONS.trash, '删除',       function(){ opts.onDel(node); }, 'danger'); ops.appendChild(b4); }
@@ -4346,8 +4354,13 @@ function renderTodoCards(container, trees, opts) {
       var foot = document.createElement('div'); foot.className = 'todo-card__foot';
       var ops = document.createElement('div'); ops.className = 'todo-card__ops';
       if (!opts.readOnly) {
-        // 顶层卡片"添加子任务"入口：直接调用 onAddChild, 不必先进详情
-        if (opts.onAddChild) { var addChildBtn = mkCardOp(ICONS.plus,  '添加子任务', function(){ opts.onAddChild(root, addChildBtn); }); ops.appendChild(addChildBtn); }
+        // 顶层卡片"添加子任务"入口: 点击就地内联输入(卡片下方), 不进详情不弹窗
+        if (opts.onAddChildSubmit) {
+          var addChildBtn = mkCardOp(ICONS.plus, '添加子任务', function(){
+            openInlineAddChild(addChildBtn, root, function(payload){ return opts.onAddChildSubmit(root, payload); });
+          });
+          ops.appendChild(addChildBtn);
+        }
         if (opts.onEdit)  ops.appendChild(mkCardOp(ICONS.edit,  '编辑',       function(){ opts.onEdit(root); }));
         if (opts.onShare) ops.appendChild(mkCardOp(ICONS.share, '协作链接',   function(){ opts.onShare(root); }));
         if (opts.onDel)   ops.appendChild(mkCardOp(ICONS.trash, '删除',       function(){ opts.onDel(root); }, 'danger'));
@@ -4477,75 +4490,63 @@ function todoRenderView(container, trees, opts) {
       crumb.appendChild(back);
       crumb.appendChild(t);
       // "完成主任务"入口不放这里(已由 todoAttachDoneLinkToTip 挂到提示文末尾或独立一行)
-      // 面包屑永远只有「← 返回 | 标题 | ➕ 添加子任务」, 宽度稳定不换行
-      // 详情页添加子任务入口: 只读页(无 onAddChild)不显示
-      if (opts.onAddChild) {
-        var addBtn = document.createElement('button');
-        addBtn.type = 'button'; addBtn.className = 'btn sm'; addBtn.textContent = '➕ 添加子任务';
-        addBtn.addEventListener('click', function(e){ e.stopPropagation(); opts.onAddChild(root, addBtn); });
-        crumb.appendChild(addBtn);
-      }
+      // "添加子任务"入口不再放面包屑, 改为详情页子任务列表底部常驻输入行(MS To Do 风格, 见下面 mountDetailAdder)
     }
     // 详情页只渲染 root 的子任务，避免与面包屑标题重复; 首层子任务视作 depth 0 但截止日期继承 root
-    // 如果 root 自身就没子任务, 显示空态提示(添加入口在面包屑上)
+    // root 无子任务时也保留底部 "添加子任务" 常驻行, 而不是空态提示
     if (root.children.length === 0) {
       container.className = 'todo-tree';
-      container.innerHTML = '<div class="todo-empty">此任务暂无子任务' + (opts.onAddChild ? '，点击右上角 ➕ 添加' : '') + '</div>';
-      return;
+      container.innerHTML = '';
+    } else {
+      var childOpts = {};
+      for (var k in opts) if (Object.prototype.hasOwnProperty.call(opts, k)) childOpts[k] = opts[k];
+      childOpts.startDepth = 0;
+      childOpts.forcedRootDue = root.due_date;
+      renderTodoTree(container, root.children, childOpts);
     }
-    var childOpts = {};
-    for (var k in opts) if (Object.prototype.hasOwnProperty.call(opts, k)) childOpts[k] = opts[k];
-    childOpts.startDepth = 0;
-    childOpts.forcedRootDue = root.due_date;
-    renderTodoTree(container, root.children, childOpts);
+    // 底部常驻"+ 添加子任务": 只在支持添加(非只读)时挂载; 追加在子任务列表末尾
+    if (opts.onAddChildSubmit) {
+      mountDetailAdder(container, root, function(payload){
+        return opts.onAddChildSubmit(root, payload);
+      });
+    }
     return;
   }
   // 卡片列表
   if (crumb) crumb.style.display = 'none';
   renderTodoCards(container, trees, opts);
 }
-// 内联子任务添加输入行: 仅收 标题(必填) + 备注(可选), 其它字段继承主任务(后端已按 parent 处理日期,
-// 前端不传 priority/category/due_date/recurrence, 让后端走默认(prio=1, cat/due 为空), 与"继承主任务"语义一致.
-// btnEl: 触发按钮 DOM(用来定位插入位置); parentNode: 数据节点; submitFn(payload)-> Promise (业务侧决定 API endpoint 和 reload)
-// autoContinue=true 保存成功后原地保留输入行, 便于连续录入 (详情页面包屑入口用)
-function openInlineAddChild(btnEl, parentNode, submitFn, autoContinue) {
+// 内联子任务添加输入行(卡片视图 / 完整树视图): 仅收 标题(必填) + 备注(可选),
+// 其它字段继承主任务(后端已按 parent 处理日期, 前端不传 priority/category/due_date/recurrence).
+// btnEl: 触发按钮 DOM, 用来定位"就近宿主"(优先卡片, 其次树节点行, 输入行插到宿主下方一行)
+// parentNode: 数据节点; submitFn(payload)-> Promise (业务侧决定 API endpoint 和 reload)
+// 详情页不用此函数, 详情页用 mountDetailAdder 在子任务列表末尾常驻一个输入行(MS To Do 风格)
+function openInlineAddChild(btnEl, parentNode, submitFn) {
   if (!btnEl || !parentNode || typeof submitFn !== 'function') return;
-  // 定位插入宿主: 卡片视图挂在卡片下方; 详情页(面包屑按钮)挂在 #todoTree 首行
-  var hostAnchor;
-  var mode; // 'card' | 'detail'
-  var card = btnEl.closest ? btnEl.closest('.todo-card') : null;
-  if (card) { mode = 'card'; hostAnchor = card; }
-  else {
-    // 面包屑 ➕: 找到详情页容器 #todoTree, 从其顶部插入
-    var tree = document.getElementById('todoTree');
-    if (!tree) return;
-    mode = 'detail'; hostAnchor = tree;
+  // 就近宿主: 卡片视图 → .todo-card; 完整树视图 → .todo-node
+  var host = btnEl.closest ? (btnEl.closest('.todo-card') || btnEl.closest('.todo-node')) : null;
+  if (!host || !host.parentNode) return;
+  // 幂等: 同宿主下已有活跃输入行则直接聚焦
+  var exist = host.nextElementSibling;
+  if (exist && exist.classList && exist.classList.contains('todo-inline-add')) {
+    var f0 = exist.querySelector('input, textarea'); if (f0) f0.focus();
+    return;
   }
-  // 幂等: 若同宿主下已有活跃输入行, 直接聚焦其标题输入
-  var exist = mode === 'card'
-    ? (card.nextElementSibling && card.nextElementSibling.classList && card.nextElementSibling.classList.contains('todo-inline-add') ? card.nextElementSibling : null)
-    : hostAnchor.querySelector(':scope > .todo-inline-add');
-  if (exist) { var f = exist.querySelector('input, textarea'); if (f) f.focus(); return; }
-
   var box = document.createElement('div');
   box.className = 'todo-inline-add';
   var titleEl = document.createElement('textarea');
-  titleEl.rows = 1; titleEl.placeholder = '子任务标题(回车保存, Shift+Enter 换行)'; titleEl.className = 'todo-inline-add__title';
+  titleEl.rows = 1; titleEl.placeholder = '子任务标题(支持换行)'; titleEl.className = 'todo-inline-add__title';
   var noteEl = document.createElement('textarea');
   noteEl.rows = 1; noteEl.placeholder = '备注(可选)'; noteEl.className = 'todo-inline-add__note';
   var actions = document.createElement('div'); actions.className = 'todo-inline-add__actions';
   var saveBtn = document.createElement('button'); saveBtn.type = 'button'; saveBtn.className = 'btn sm'; saveBtn.textContent = '保存';
   var cancelBtn = document.createElement('button'); cancelBtn.type = 'button'; cancelBtn.className = 'btn sm gray'; cancelBtn.textContent = '取消';
-  var hint = document.createElement('span'); hint.className = 'muted'; hint.style.fontSize = '12px';
+  var hint = document.createElement('span'); hint.className = 'todo-inline-add__hint muted';
   hint.textContent = '继承主任务的日期/优先级/分类';
   actions.appendChild(saveBtn); actions.appendChild(cancelBtn); actions.appendChild(hint);
   box.appendChild(titleEl); box.appendChild(noteEl); box.appendChild(actions);
-  if (mode === 'card') {
-    // 插到当前卡片之后
-    if (hostAnchor.parentNode) hostAnchor.parentNode.insertBefore(box, hostAnchor.nextSibling);
-  } else {
-    hostAnchor.insertBefore(box, hostAnchor.firstChild);
-  }
+  host.parentNode.insertBefore(box, host.nextSibling);
+  autoGrowTextarea(titleEl); autoGrowTextarea(noteEl);
   setTimeout(function(){ titleEl.focus(); }, 0);
 
   function close() { if (box.parentNode) box.parentNode.removeChild(box); }
@@ -4559,13 +4560,7 @@ function openInlineAddChild(btnEl, parentNode, submitFn, autoContinue) {
     if (note) payload.note = note;
     try {
       await submitFn(payload);
-      if (autoContinue) {
-        titleEl.value = ''; noteEl.value = '';
-        saveBtn.disabled = false; cancelBtn.disabled = false;
-        titleEl.focus();
-      } else {
-        close();
-      }
+      close();
     } catch (err) {
       saveBtn.disabled = false; cancelBtn.disabled = false;
       if (typeof alertModal === 'function') alertModal((err && err.message) || '保存失败', {ok:false});
@@ -4573,14 +4568,90 @@ function openInlineAddChild(btnEl, parentNode, submitFn, autoContinue) {
   }
   saveBtn.addEventListener('click', submit);
   cancelBtn.addEventListener('click', close);
-  titleEl.addEventListener('keydown', function(e){
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
-    else if (e.key === 'Escape') { e.preventDefault(); close(); }
-  });
-  noteEl.addEventListener('keydown', function(e){
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
-    else if (e.key === 'Escape') { e.preventDefault(); close(); }
-  });
+  // Enter 交给 textarea 默认换行行为, 不再拦截保存; 只保留 Esc 取消
+  titleEl.addEventListener('keydown', function(e){ if (e.key === 'Escape') { e.preventDefault(); close(); } });
+  noteEl.addEventListener('keydown', function(e){ if (e.key === 'Escape') { e.preventDefault(); close(); } });
+}
+// 详情页底部常驻"+ 添加子任务"行(MS To Do 风格): 追加在子任务列表末尾, 点击占位符展开为输入框
+// 有内容时回车/失焦保存并在同位置继续显示可输入的空行(连续录入); 无内容时 Esc/失焦折回占位符.
+// 用 window._todoAdderActive 标记"上次保存后是否处于连续输入态", 重绘后自动展开新 wrap 保持焦点体验.
+// container: 详情页 #todoTree 容器; parentNode: 当前详情根任务; submitFn(payload)-> Promise
+function mountDetailAdder(container, parentNode, submitFn) {
+  if (!container || !parentNode || typeof submitFn !== 'function') return;
+  var wrap = document.createElement('div');
+  wrap.className = 'todo-detail-adder collapsed';
+
+  var placeholder = document.createElement('button');
+  placeholder.type = 'button'; placeholder.className = 'todo-detail-adder__placeholder';
+  placeholder.innerHTML = '<span class="todo-detail-adder__plus">＋</span><span>添加子任务</span>';
+
+  var editor = document.createElement('div'); editor.className = 'todo-detail-adder__editor';
+  var titleEl = document.createElement('textarea');
+  titleEl.rows = 1; titleEl.placeholder = '子任务标题(支持换行)'; titleEl.className = 'todo-detail-adder__title';
+  var noteEl = document.createElement('textarea');
+  noteEl.rows = 1; noteEl.placeholder = '备注(可选)'; noteEl.className = 'todo-detail-adder__note';
+  var row = document.createElement('div'); row.className = 'todo-detail-adder__row';
+  var saveBtn = document.createElement('button'); saveBtn.type = 'button'; saveBtn.className = 'btn sm todo-detail-adder__save'; saveBtn.textContent = '添加';
+  var cancelBtn = document.createElement('button'); cancelBtn.type = 'button'; cancelBtn.className = 'btn sm gray todo-detail-adder__cancel'; cancelBtn.textContent = '取消';
+  var hint = document.createElement('span'); hint.className = 'todo-detail-adder__hint muted';
+  hint.textContent = '继承主任务的日期/优先级/分类';
+  row.appendChild(saveBtn); row.appendChild(cancelBtn); row.appendChild(hint);
+  editor.appendChild(titleEl); editor.appendChild(noteEl); editor.appendChild(row);
+
+  wrap.appendChild(placeholder); wrap.appendChild(editor);
+  container.appendChild(wrap);
+  autoGrowTextarea(titleEl); autoGrowTextarea(noteEl);
+  // 若上次保存后处于连续录入态, 重绘后自动展开
+  if (window._todoAdderActive) {
+    wrap.classList.remove('collapsed'); wrap.classList.add('editing');
+    setTimeout(function(){ titleEl.focus(); }, 0);
+  }
+
+  function expand() {
+    wrap.classList.remove('collapsed');
+    wrap.classList.add('editing');
+    window._todoAdderActive = 1;
+    setTimeout(function(){ titleEl.focus(); }, 0);
+  }
+  function collapse() {
+    titleEl.value = ''; noteEl.value = '';
+    // 触发一次 input 让 autoGrow 复位
+    titleEl.dispatchEvent(new Event('input')); noteEl.dispatchEvent(new Event('input'));
+    wrap.classList.remove('editing');
+    wrap.classList.add('collapsed');
+    window._todoAdderActive = 0;
+  }
+  async function submit() {
+    var title = (titleEl.value || '').trim();
+    if (!title) { titleEl.focus(); return; }
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true; cancelBtn.disabled = true;
+    var payload = { title: title, parent_id: parentNode.id };
+    var note = (noteEl.value || '').trim();
+    if (note) payload.note = note;
+    try {
+      // 保存前预置连续录入标记, submitFn 通常会触发整详情页重绘 → 新 wrap 挂载时会读到此标记并自动展开
+      window._todoAdderActive = 1;
+      await submitFn(payload);
+      // 若未重绘(极端情况), 本 wrap 仍在, 清空输入保持编辑态供继续录入
+      if (wrap.isConnected) {
+        titleEl.value = ''; noteEl.value = '';
+        titleEl.dispatchEvent(new Event('input')); noteEl.dispatchEvent(new Event('input'));
+        saveBtn.disabled = false; cancelBtn.disabled = false;
+        titleEl.focus();
+      }
+    } catch (err) {
+      saveBtn.disabled = false; cancelBtn.disabled = false;
+      window._todoAdderActive = 0;
+      if (typeof alertModal === 'function') alertModal((err && err.message) || '保存失败', {ok:false});
+    }
+  }
+  placeholder.addEventListener('click', expand);
+  saveBtn.addEventListener('click', submit);
+  cancelBtn.addEventListener('click', collapse);
+  // Enter 保留 textarea 默认换行行为, 不再拦截提交; Esc 折回占位符(等价点取消)
+  titleEl.addEventListener('keydown', function(e){ if (e.key === 'Escape') { e.preventDefault(); collapse(); } });
+  noteEl.addEventListener('keydown', function(e){ if (e.key === 'Escape') { e.preventDefault(); collapse(); } });
 }
 // 子任务拖拽排序（仅同级重排）：按住行尾手柄即可拖动，同父兄弟间按位置插入，松手回调 onReorder
 // handle: 拖拽手柄按钮；wrap: 该节点 .todo-node 容器；node: 数据节点；opts.onReorder(parentId, ids)
@@ -4873,7 +4944,7 @@ async function loadTodos() {
   updateStatsHint(_filter, _curRange);
   drawTree();
 }
-var _filter = 'all'; // all | cur | today | overdue | future | memo | done
+var _filter = 'cur'; // all | cur | today | overdue | future | memo | done ; 默认今日+逾期
 // 按筛选归类顶层任务（子任务随顶层，因日期继承主任务）
 function todoFilterTrees(trees) {
   var t = todayStr();
@@ -4958,11 +5029,9 @@ function drawTree() {
         closeModal(); await loadTodos();
       });
     },
-    onAddChild: function(node, btnEl){
-      openInlineAddChild(btnEl, node, async function(payload){
-        await api('/api/todo', { method:'POST', body: payload });
-        await loadTodos(); await loadChart();
-      }, _todoDetailRootId != null);
+    onAddChildSubmit: async function(node, payload){
+      await api('/api/todo', { method:'POST', body: payload });
+      await loadTodos(); await loadChart();
     },
     onDel: function(node){ confirmDeleteTodo(node); },
     onShare: function(node){ todoShareLink(node.id); },
@@ -5217,11 +5286,9 @@ function drawTree(trees) {
         closeModal(); await loadPublic();
       });
     },
-    onAddChild: function(node, btnEl){
-      openInlineAddChild(btnEl, node, async function(payload){
-        await api('/api/public/todo/' + _token, { method:'POST', body: payload });
-        await loadPublic();
-      }, _todoDetailRootId != null);
+    onAddChildSubmit: async function(node, payload){
+      await api('/api/public/todo/' + _token, { method:'POST', body: payload });
+      await loadPublic();
     }
   });
 }
@@ -5277,7 +5344,7 @@ bindQuickLogin('todo-report');
 var _token = location.pathname.split('/').filter(Boolean).pop();
 var _curRange = 'month';
 var _rows = [], _trees = [], _today = '';
-var _filter = 'all'; // all | cur | today | overdue | future | memo | done
+var _filter = 'cur'; // all | cur | today | overdue | future | memo | done ; 默认今日+逾期
 function _todoGetRows() { return _rows; }
 async function loadChart() {
   try { var c = await api('/api/public/todo-chart/' + _token + '?range=' + _curRange); drawTodoChart('todoChart', c.series); }
@@ -5367,11 +5434,9 @@ function drawTree() {
       }
       catch(e){ alertModal(e.message, {ok:false}); }
     },
-    onAddChild: function(node, btnEl){
-      openInlineAddChild(btnEl, node, async function(payload){
-        await api('/api/public/todo-all/' + _token, { method:'POST', body: payload });
-        await reloadReport();
-      }, _todoDetailRootId != null);
+    onAddChildSubmit: async function(node, payload){
+      await api('/api/public/todo-all/' + _token, { method:'POST', body: payload });
+      await reloadReport();
     }
   });
 }
@@ -5601,11 +5666,9 @@ function drawTree(trees) {
         closeModal(); await loadCollab();
       });
     },
-    onAddChild: function(node, btnEl){
-      openInlineAddChild(btnEl, node, async function(payload){
-        await api('/api/public/todo-all/' + _token, { method:'POST', body: payload });
-        await loadCollab();
-      }, _todoDetailRootId != null);
+    onAddChildSubmit: async function(node, payload){
+      await api('/api/public/todo-all/' + _token, { method:'POST', body: payload });
+      await loadCollab();
     },
     onReorder: async function(parentId, ids){
       try { await api('/api/public/todo-all/' + _token + '/reorder', { method:'PUT', body:{ parent_id: parentId, ids: ids } }); await loadCollab(); }
