@@ -790,7 +790,16 @@ function initGlobalSwipeBack() {
     // 5. 待办全屏
     if (document.body.classList.contains('todo-fs-on')) {
       var exitBtn = document.getElementById('exitFullscreen');
-      if (exitBtn) { exitBtn.click(); return; }
+      // 首次进入全屏、数据加载完成前, exitBtn 上的 click 事件还没绑(applyTodoView 尚未运行), 单纯 .click() 会哑;
+      // 直接调 exitTodoFullscreen 兜底; 若函数不存在则手动移除 body class 做最小回退
+      if (typeof exitTodoFullscreen === 'function') {
+        try { exitTodoFullscreen(null, null); return; } catch(err){ /* fallthrough */ }
+      }
+      if (exitBtn && exitBtn.__exitBound) { exitBtn.click(); return; }
+      // 兜底: 手动切回默认页
+      try { if (typeof _todoView !== 'undefined') { _todoView = 'default'; localStorage.setItem('todoView', 'default'); } } catch(err){}
+      document.body.classList.remove('todo-fs-on');
+      return;
     }
     // 6. 兜底: history.back / 回 dashboard
     var canBack = false;
@@ -4203,8 +4212,12 @@ function renderTodoTree(container, trees, opts) {
       var ops = document.createElement('div');
       ops.className = 'todo-ops';
       // 子任务拖拽手柄：按住手柄拖动排序（手柄上禁用触摸滚动，规避移动端争抢）
+      // 规则: "真顶层任务(顶层清单/完整树的 depth 0)"不给手柄, 但详情页里的 depth 0 其实是 root 的直接子任务
+      // 判据: opts.forcedRootDue key 是否显式设置(详情页调用时会设, 无论值是不是 null); 用 hasOwnProperty 严判避免误伤备忘录清单
       var dragHandle = null;
-      if (opts.onReorder && depth > 0) {
+      var isDetailChild = Object.prototype.hasOwnProperty.call(opts, 'forcedRootDue');
+      var isRealRoot = depth === 0 && !isDetailChild;
+      if (opts.onReorder && !isRealRoot) {
         dragHandle = document.createElement('button');
         dragHandle.type = 'button'; dragHandle.className = 'todo-op todo-drag'; dragHandle.title = '拖动排序';
         dragHandle.innerHTML = ICONS.drag;
