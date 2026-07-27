@@ -3379,6 +3379,11 @@ const TODO_TREE_CORE = `
 // 退出全屏产生的 'default' 只在本会话生效, 下次页面加载再次回到全屏
 var _todoView = 'card';
 try { var _v = localStorage.getItem('todoView'); if (_v === 'tree') _todoView = 'tree'; } catch(e){}
+// 立即给 body 打上 .todo-fs-on 类, CSS 立刻应用全屏样式(隐藏 topbar/card + 显示 #todoFullscreen),
+// 避免异步 loadTodos → applyTodoView 之间出现"默认页闪一下"的视觉抖动.
+// 注意: DOM 迁移(把 #todoTree 挪进全屏容器)仍在 applyTodoView 里完成, 但那之前 #todoTree 只是空壳, 用户不会察觉.
+if (document.body) document.body.classList.add('todo-fs-on');
+else document.addEventListener('DOMContentLoaded', function(){ document.body.classList.add('todo-fs-on'); }, { once: true });
 // ESC 键退全屏用: 保存 applyTodoView 每次传入的最新 getRowsFn / onDrawTree
 // 全局 keydown 只绑一次(_todoEscBound), 从这里读最新引用, 避免闭包旧值
 var _todoEscCtx = { getRows: null, onDraw: null };
