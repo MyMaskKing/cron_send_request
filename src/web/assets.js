@@ -915,29 +915,24 @@ function _isTodoPage() {
   var p = location.pathname;
   return p === '/todo' || p.indexOf('/t/') === 0 || p.indexOf('/tr/') === 0 || p.indexOf('/tc/') === 0;
 }
-// 顶栏 Logo 右侧时钟: 页面存在 #brandClock 时启动分钟级刷新, 无 topbar 的公开页无 element 自动跳过.
-// 手机窄屏(≤640) 只显示"MM-DD HH:mm", 桌面显示"MM-DD HH:mm:ss"; 用浏览器本地时间(用户所在时区).
+// 顶栏 Logo 右侧时钟: 页面存在 #brandClock 时启动秒级刷新, 无 topbar 的公开页无 element 自动跳过.
+// 桌面与手机窄屏均显示"MM-DD HH:mm:ss"实时秒级刷新; 用浏览器本地时间(用户所在时区).
+// tabular-nums 已在 CSS 里保证数字等宽, 秒变化不引起横向抖动.
 function initBrandClock() {
   var el = document.getElementById('brandClock');
   if (!el || el.__ticked) return;
   el.__ticked = 1;
-  var isNarrow = typeof window !== 'undefined' && window.innerWidth <= 640;
   function pad2(n){ return (n < 10 ? '0' : '') + n; }
   function tick() {
     var d = new Date();
-    var s = pad2(d.getMonth()+1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
-    if (!isNarrow) s += ':' + pad2(d.getSeconds());
-    el.textContent = s;
+    el.textContent = pad2(d.getMonth()+1) + '-' + pad2(d.getDate()) + ' ' +
+                     pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
   }
   tick();
-  // 桌面秒级刷新, 手机分钟级即可(避免高频重绘耗电)
-  var interval = isNarrow ? 30000 : 1000;
-  setInterval(tick, interval);
-  // 视口跨越窄屏边界时切换粒度(重新读 innerWidth 并覆写 isNarrow, 无需重开 interval)
-  window.addEventListener('resize', function(){
-    var narrow = window.innerWidth <= 640;
-    if (narrow !== isNarrow) { isNarrow = narrow; tick(); }
-  });
+  // 秒级刷新: 页面 visible 时 1s tick; 隐藏时 setInterval 由浏览器限流, 无需自处理
+  setInterval(tick, 1000);
+  // 页面从后台切回前台时立即刷新一次, 避免上次留下的秒数看起来"卡了"
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) tick(); });
 }
 function _initGlobalUX() { initChartFullscreen(); initBrandClock(); if (_isTodoPage()) initGlobalSwipeBack(); }
 if (document.readyState === 'loading') {
@@ -5484,6 +5479,10 @@ function drawTree() {
     onAddChildSubmit: async function(node, payload){
       await api('/api/public/todo-all/' + _token, { method:'POST', body: payload });
       await reloadReport();
+    },
+    onReorder: async function(parentId, ids){
+      try { await api('/api/public/todo-all/' + _token + '/reorder', { method:'PUT', body:{ parent_id: parentId, ids: ids } }); await reloadReport(); }
+      catch(e){ alertModal(e.message, {ok:false}); await reloadReport(); }
     }
   });
 }
