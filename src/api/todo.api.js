@@ -483,6 +483,32 @@ async function publicAllUpdate({ request, env, params }) {
   return json({ success: true, message: '任务已更新' });
 }
 
+/** PUT /api/public/todo/:token/reorder  免密单清单页子任务同级重排  body: { parent_id, ids:[...] }
+ * 校验 ids 与 parent 都属该 share_token 对应的子树，再批量写 sort_order
+ */
+async function publicReorder({ request, env, params }) {
+  const storage = getStorage(env);
+  const root = await storage.todo.findByShareToken(params.token);
+  if (!root) return error('链接无效或已失效', 404);
+  const body = await request.json().catch(() => ({}));
+  const parentId = body.parent_id != null && body.parent_id !== '' ? parseInt(body.parent_id, 10) : null;
+  const ids = Array.isArray(body.ids) ? body.ids.map(v => parseInt(v, 10)).filter(n => !isNaN(n)) : [];
+  if (ids.length === 0) return error('缺少排序列表');
+
+  const subtree = await storage.todo.listSubtree(root.id);
+  const allowIds = new Set(subtree.map(r => r.id));
+  // parent 必须在子树内(允许等于 root.id, 即对 root 的直接子任务排序)
+  if (parentId == null || !allowIds.has(parentId)) return error('父任务不属于此清单', 400);
+  for (const id of ids) {
+    const t = await storage.todo.findById(id);
+    if (!t || !allowIds.has(id)) return error('任务不属于此清单', 404);
+    const tp = t.parent_id != null ? t.parent_id : null;
+    if (tp !== parentId) return error('存在跨层级的任务，无法排序', 400);
+  }
+  await storage.todo.reorder(root.user_id, parentId, ids);
+  return json({ success: true, message: '顺序已更新' });
+}
+
 /** PUT /api/public/todo-all/:token/reorder  免密汇总页子任务同级重排  body: { parent_id, ids:[...] }
  * 校验 ids 全属该用户且 parent_id 与 body 一致，再批量写 sort_order
  */
@@ -507,6 +533,6 @@ async function publicAllReorder({ request, env, params }) {
 
 export {
   listTodos, createTodo, updateTodo, toggleTodo, removeTodo, getShareLink, todoChart, reorderTodo,
-  publicTodoInfo, publicAddTodo, publicToggleTodo, publicUpdateTodo, publicTodoReport, publicTodoChart,
+  publicTodoInfo, publicAddTodo, publicToggleTodo, publicUpdateTodo, publicReorder, publicTodoReport, publicTodoChart,
   publicAllAdd, publicAllToggle, publicAllUpdate, publicAllReorder
 };

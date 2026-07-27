@@ -99,6 +99,21 @@ a { color: #A855F7; text-decoration: none; }
   0%, 100% { filter: drop-shadow(0 2px 3px rgba(255, 122, 89, .7)); }
   50%      { filter: drop-shadow(0 3px 6px rgba(255, 122, 89, 1)); }
 }
+/* Logo 右侧常驻当前时间: 品牌胶囊外单独一块玻璃胶囊, 与 brand 视觉平衡 */
+.topbar .brand-clock {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: 10px; padding: 4px 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(20, 10, 50, .22) 0%, rgba(60, 20, 90, .18) 100%);
+  border: 1px solid rgba(255, 255, 255, .18);
+  box-shadow: 0 2px 8px rgba(30, 20, 80, .12);
+  font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, .92);
+  font-variant-numeric: tabular-nums; letter-spacing: .3px;
+  line-height: 1;
+}
+.topbar .brand-clock::before {
+  content: '⏱'; font-size: 12px; opacity: .85;
+}
 /* 移动端(含大屏手机/小平板)取消 logo 玻璃底座, 只留图标+文字, 寸土寸金 */
 @media (max-width: 900px) {
   .topbar .brand {
@@ -883,9 +898,11 @@ html { scrollbar-gutter: stable; }
 /* ============ 移动端适配 (<=640px) ============ */
 @media (max-width: 640px) {
   .topbar { flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px 16px; }
-  .topbar h1 { font-size: 15px; }
+  .topbar h1 { font-size: 15px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
   .topbar h1 .brand-rocket { width: 14px; height: 14px; }
   .topbar h1 .brand-w1, .topbar h1 .brand-w2 { font-size: 13px; }
+  /* 手机端时钟收紧: 缩小内边距, 靠 JS 输出短格式(仅时:分) */
+  .topbar .brand-clock { margin-left: 4px; padding: 3px 9px; font-size: 12px; }
   .topbar .nav { display: flex; flex-wrap: wrap; gap: 6px 0; }
   .topbar .nav a { margin-left: 0; margin-right: 16px; }
   .topbar .user { font-size: 13px; flex-wrap: wrap; }
@@ -1016,7 +1033,7 @@ function renderTopbar(user, active = '') {
   ).join('');
 
   return `<div class="topbar">
-    <h1><span class="brand"><span class="brand-rocket" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="rocketGrad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#FFD86B"/><stop offset="100%" stop-color="#FF7A59"/></linearGradient></defs><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" fill="url(#rocketGrad)" stroke="url(#rocketGrad)"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" fill="url(#rocketGrad)" stroke="#fff" stroke-width="1.2"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" stroke="url(#rocketGrad)"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" stroke="url(#rocketGrad)"/></svg></span><span class="brand-w1">监控追踪</span><span class="brand-sep" aria-hidden="true"></span><span class="brand-w2">定时发送</span></span></h1>
+    <h1><span class="brand"><span class="brand-rocket" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="rocketGrad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#FFD86B"/><stop offset="100%" stop-color="#FF7A59"/></linearGradient></defs><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" fill="url(#rocketGrad)" stroke="url(#rocketGrad)"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" fill="url(#rocketGrad)" stroke="#fff" stroke-width="1.2"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" stroke="url(#rocketGrad)"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" stroke="url(#rocketGrad)"/></svg></span><span class="brand-w1">监控追踪</span><span class="brand-sep" aria-hidden="true"></span><span class="brand-w2">定时发送</span></span><span class="brand-clock" id="brandClock" aria-live="off"></span></h1>
     <div class="nav">${navHtml}</div>
     <div class="user">${user.nickname || user.username} <span class="tag ${user.role}">${user.role === 'admin' ? '超管' : '用户'}</span>
       ${restricted ? '' : '<a href="/settings" class="act-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置</a>'}
