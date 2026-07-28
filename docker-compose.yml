@@ -1,0 +1,18 @@
+1services:
+  cron-day-report:
+    build: .
+    image: cron-day-report:local
+    container_name: cron-day-report
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      # 持久化 D1(SQLite) + KV；删容器不丢数据
+      - ./docker-data:/data
+    environment:
+      # 存储驱动，本地部署固定用 d1（Miniflare 内建 SQLite）
+      STORAGE_DRIVER: d1
+      # 内置 /cron 触发口令；留空则免 key
+      CRON_SECRET: ""
+      # PUBLIC_BASE_URL 建议登录后到「系统设置」里填，DB 设置优先级高于环境变量
+      # PUBLIC_BASE_URL: "http://localhost:8787"
