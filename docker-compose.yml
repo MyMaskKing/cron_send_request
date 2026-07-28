@@ -4,8 +4,7 @@ services:
     image: cron-day-report:local
     container_name: cron-day-report
     restart: unless-stopped
-    ports:
-      - "8787:8787"
+    network_mode: host
     volumes:
       # 持久化 D1(SQLite) + KV；删容器不丢数据
       - ./docker-data:/data
