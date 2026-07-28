@@ -1,16 +1,17 @@
 # ---------- deps 阶段 ----------
-# node:20-slim (Debian) 而非 alpine：miniflare 传递依赖 workerd 使用 glibc，musl 会启动失败
-FROM node:20-slim AS deps
+# node:20-alpine 极简；better-sqlite3 需要 native 编译，故加临时编译工具链
+FROM node:20-alpine AS deps
 WORKDIR /app
+RUN apk add --no-cache python3 make g++
 COPY package.json ./
-# 只装运行本地部署所需的 miniflare；不装 wrangler（大且没用）
-RUN npm install --omit=dev miniflare@3
+# 只装运行时需要的 better-sqlite3；不装 wrangler、miniflare 等开发依赖
+RUN npm install --omit=dev better-sqlite3@11
 
 # ---------- runtime 阶段 ----------
-FROM node:20-slim
+FROM node:20-alpine
 WORKDIR /app
 
-# 复制依赖
+# 复制依赖（node_modules 中已含 better-sqlite3 的预编译 .node 二进制）
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/package.json ./package.json
 
@@ -19,11 +20,11 @@ COPY src ./src
 COPY migrations ./migrations
 COPY docker ./docker
 
-# 数据目录（挂 volume 到此以便持久化）
 ENV DATA_DIR=/data \
     PORT=8787 \
     HOST=0.0.0.0 \
     STORAGE_DRIVER=d1
+
 RUN mkdir -p /data && chown -R node:node /data /app
 VOLUME ["/data"]
 

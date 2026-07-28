@@ -10,7 +10,7 @@ services:
       # 持久化 D1(SQLite) + KV；删容器不丢数据
       - ./docker-data:/data
     environment:
-      # 存储驱动，本地部署固定用 d1（Miniflare 内建 SQLite）
+      # 存储驱动，本地部署固定用 d1（better-sqlite3 落盘 SQLite）
       STORAGE_DRIVER: d1
       # 内置 /cron 触发口令；留空则免 key
       CRON_SECRET: ""

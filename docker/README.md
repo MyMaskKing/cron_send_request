@@ -1,6 +1,10 @@
 # 本地 Docker 部署
 
-用 [Miniflare](https://miniflare.dev) 在 Node 里加载 `src/index.js`，与 Cloudflare Workers 运行时同构。业务代码不改动一行，D1 用 SQLite 落盘、KV 用文件落盘，脱离 Cloudflare 平台。
+用 **better-sqlite3 在纯 Node 里模拟 D1 & KV**，不依赖 Cloudflare Workers 运行时。项目建设在 `docker/` 目录下，业务代码 `src/` 一行不动。
+
+- 内存占用：**~60-90MB**（常驻，无 Miniflare/workerd 子进程）
+- 镜像大小：**~120MB**（node:20-alpine 基础）
+- 冷启动：**200-500ms**
 
 ## 快速开始
 
@@ -19,8 +23,8 @@ docker compose logs -f
 ## 数据持久化
 
 容器把 `/data` 挂到宿主机 `./docker-data/`：
-- `docker-data/d1/`  Miniflare D1 落盘（SQLite 文件）
-- `docker-data/kv/`  Miniflare KV 落盘（会话、体重分享 token、基金净值缓存）
+- `docker-data/d1.sqlite`  D1 数据（用户、基金、体重、资产、推送配置、待办）
+- `docker-data/kv.sqlite`  KV 数据（会话、分享 token、基金净值缓存）
 
 **备份就把 `docker-data/` 打包**；恢复解压回原位重启即可。
 
@@ -33,13 +37,13 @@ docker compose logs -f
 | `PORT` | `8787` | 容器内监听端口 |
 | `HOST` | `0.0.0.0` | 监听地址 |
 | `DATA_DIR` | `/data` | 数据落盘目录 |
-| `STORAGE_DRIVER` | `d1` | 存储驱动，本地部署固定 d1 |
+| `STORAGE_DRIVER` | `d1` | 存储驱动，固定 d1 |
 | `CRON_SECRET` | 空 | `/cron?key=` 校验值，留空则免 key |
 | `PUBLIC_BASE_URL` | 空 | **优先用数据库设置**；仅当未设置且请求上下文缺失时兜底 |
 
 ## 定时推送
 
-容器内内置 `setInterval` 每小时整点触发 `/cron`，功能等价 Cloudflare 平台的 `crons = ["0 * * * *"]`。到点判断由数据库 `push_config` 表决定（同源代码逻辑）。
+容器内内置 `setInterval` 每小时整点触发 `worker.scheduled()`，不走 HTTP，直接调业务逻辑，功能等价 Cloudflare 平台的 `crons = ["0 * * * *"]`。到点判断由数据库 `push_config` 表决定（同源代码逻辑）。
 
 手动全量触发（调试用）：
 ```bash
@@ -75,6 +79,23 @@ curl "http://localhost:8787/cron?key=<CRON_SECRET>"   # 未设 CRON_SECRET 则�
 5. **导入成功后把那段注释加回去**，避免每次启动都重导
 
 > KV（会话 / 分享 token / 基金净值缓存）不建议搬：会话过期就没意义，基金净值下次调度自然刷新。全新起就行。
+
+## 反向代理 / HTTPS
+
+Session cookie 目前带 `Secure` 标志。
+- `http://localhost:8787` 浏览器豁免（能存 cookie）
+- 直连 `http://192.168.x.x:8787` 或裸 IP：cookie 无法保存，登录会失败 → 请套 Nginx / Caddy 加 HTTPS，再把 `PUBLIC_BASE_URL` 设成 `https://...`
+
+## 常见问题
+
+**Q：想清空数据重来？**
+`docker compose down && rm -rf docker-data/ && docker compose up -d`
+
+**Q：升级代码？**
+拉取新代码后 `docker compose up -d --build`，`docker-data/` 保留；新增迁移会自动执行。
+
+**Q：手动进容器？**
+`docker compose exec cron-day-report sh`
 
 ## 反向代理 / HTTPS
 

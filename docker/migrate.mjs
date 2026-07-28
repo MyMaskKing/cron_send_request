@@ -31,7 +31,7 @@ function splitSql(text) {
 
 /**
  * 执行迁移
- * @param {D1Database} db - Miniflare 提供的 D1 binding
+ * @param {D1Database|import('./d1-shim.mjs').D1DatabaseShim} db - D1 binding 或 shim
  * @param {string} dir - migrations 目录绝对路径
  */
 export async function runMigrations(db, dir) {

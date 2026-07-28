@@ -20,7 +20,7 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
-    "miniflare": "^3.20240909.0"
+    "better-sqlite3": "^11.0.0"
   },
   "devDependencies": {
     "wrangler": "^3.0.0"

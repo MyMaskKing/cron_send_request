@@ -50,7 +50,7 @@ function shouldSkip(stmt) {
 
 /**
  * 执行导入
- * @param {D1Database} db - Miniflare 提供的 D1 binding
+ * @param {D1Database|import('./d1-shim.mjs').D1DatabaseShim} db - D1 binding 或 shim
  * @param {string} dumpPath - dump.sql 绝对路径
  * @param {string} migrationsDir - migrations 目录，用于导入后写 _migrations 记录
  */
