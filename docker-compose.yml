@@ -1,4 +1,4 @@
-1services:
+services:
   cron-day-report:
     build: .
     image: cron-day-report:local
