@@ -321,7 +321,7 @@ async function fundScenario({ request, env }) {
   return json({ success: true, ...result });
 }
 
-/** GET /api/public/fund/:token  免密查看基金信息（供加仓页展示）+ 近30天持仓收益曲线 */
+/** GET /api/public/fund/:token  免密查看基金信息（供加仓页展示）+ 近30天持仓收益曲线 + 历史净值表(供选日期加仓回填) */
 async function publicFundInfo({ env, params }) {
   const storage = getStorage(env);
   const fund = await storage.fund.findByShareToken(params.token);
@@ -346,6 +346,8 @@ async function publicFundInfo({ env, params }) {
       date: h.date,
       profit: round2((fund.shares || 0) * (h.nav - (fund.cost_nav || 0)))
     }));
+  // 历史净值表: 供加仓选日期时前端回填净值; 只输出必要字段避免体积膨胀
+  const navHistory = history.map(h => ({ date: h.date, nav: h.nav }));
   return json({
     success: true,
     fund: {
@@ -356,12 +358,55 @@ async function publicFundInfo({ env, params }) {
       current_nav: currentNav,
       gszzl: info ? info.gszzl : 0
     },
-    profitSeries
+    profitSeries,
+    navHistory,
+    today
   });
 }
 
+/** GET /api/fund/:id/nav-history  登录态加仓弹窗按日期回填净值用 */
+async function fundNavHistory({ request, env, params }) {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+  const storage = getStorage(env);
+  const id = parseInt(params.id, 10);
+  const fund = await storage.fund.findById(id);
+  if (!fund || fund.user_id !== auth.user_id) return error('持仓不存在', 404);
+  const tzOffset = parseOffset(await storage.settings.get('tz_offset'));
+  const today = localParts(Date.now(), tzOffset).dateStr;
+  const history = await fetchNavHistory(fund.code, 45);
+  return json({
+    success: true,
+    today,
+    navHistory: history.map(h => ({ date: h.date, nav: h.nav }))
+  });
+}
+
+/** 按 buyDate 定夺净值:
+ * - 缺省 / 今天 → fetchFundNav 实时估算或收盘净值
+ * - 历史日     → fetchNavHistory 查该日 (周末/节假日无净值则报错让前端提示)
+ * - 未来日     → 拒绝
+ * @returns {Promise<{ nav:number, err:string|null }>}
+ */
+async function resolveBuyNavByDate(storage, code, buyDate) {
+  const tzOffset = parseOffset(await storage.settings.get('tz_offset'));
+  const today = localParts(Date.now(), tzOffset).dateStr;
+  const d = (buyDate && /^\d{4}-\d{2}-\d{2}$/.test(String(buyDate))) ? String(buyDate) : today;
+  if (d > today) return { nav: 0, err: '买入日期不能晚于今天' };
+  if (d === today) {
+    const info = await fetchFundNav(code);
+    if (!info) return { nav: 0, err: '无法获取净值，请手动填写买入净值' };
+    return { nav: info.gsz || info.nav, err: null };
+  }
+  // 历史日: 45 条 ≈ 9 周(含节假日), 覆盖大多数补录场景
+  const history = await fetchNavHistory(code, 45);
+  const hit = history.find(h => h.date === d);
+  if (!hit) return { nav: 0, err: '所选日期无净值数据（可能为周末/节假日），请手动填写买入净值' };
+  return { nav: hit.nav, err: null };
+}
+
 /** POST /api/public/fund/:token/buy  免密加仓（按金额买入，累计份额并重算成本）
- * body: { amount, buyNav? }  buyNav 缺省用实时净值
+ * body: { amount, buyNav?, buyDate? }  buyNav 缺省时按 buyDate 定夺(默认今天)
  */
 async function publicFundBuy({ request, env, params }) {
   const storage = getStorage(env);
@@ -374,9 +419,9 @@ async function publicFundBuy({ request, env, params }) {
 
   let buyNav = parseFloat(body.buyNav);
   if (isNaN(buyNav) || buyNav <= 0) {
-    const info = await fetchFundNav(fund.code);
-    if (!info) return error('无法获取净值，请手动填写买入净值');
-    buyNav = info.gsz || info.nav;
+    const r = await resolveBuyNavByDate(storage, fund.code, body.buyDate);
+    if (r.err) return error(r.err);
+    buyNav = r.nav;
   }
 
   const res = applyBuy(fund, amount, buyNav);
@@ -392,7 +437,7 @@ async function publicFundBuy({ request, env, params }) {
 }
 
 /** POST /api/fund/:id/buy  登录态页面内加仓（按金额买入，累计份额并重算成本）
- * body: { amount, buyNav? }  buyNav 缺省用实时净值
+ * body: { amount, buyNav?, buyDate? }  buyNav 缺省时按 buyDate 定夺(默认今天)
  */
 async function buyFund({ request, env, params }) {
   const auth = await requireAuth(request, env);
@@ -408,9 +453,9 @@ async function buyFund({ request, env, params }) {
 
   let buyNav = parseFloat(body.buyNav);
   if (isNaN(buyNav) || buyNav <= 0) {
-    const info = await fetchFundNav(fund.code);
-    if (!info) return error('无法获取净值，请手动填写买入净值');
-    buyNav = info.gsz || info.nav;
+    const r = await resolveBuyNavByDate(storage, fund.code, body.buyDate);
+    if (r.err) return error(r.err);
+    buyNav = r.nav;
   }
 
   const res = applyBuy(fund, amount, buyNav);
@@ -476,6 +521,7 @@ export {
   listFunds, createFund, updateFund, removeFund,
   fundReport, refreshFundNav, getReportConfig, setReportConfig, sendReport, fundAnalysis,
   getShareLink, fundScenario, publicFundInfo, publicFundReport, publicFundBuy, buyFund,
+  fundNavHistory,
   fundProfitHistory,
   getStrategy, setStrategy
 };

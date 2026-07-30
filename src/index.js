@@ -27,6 +27,7 @@ import {
   listFunds, createFund, updateFund, removeFund,
   fundReport, refreshFundNav, getReportConfig, setReportConfig, sendReport, fundAnalysis,
   getShareLink, fundScenario, publicFundInfo, publicFundReport, publicFundBuy, buyFund,
+  fundNavHistory,
   fundProfitHistory,
   getStrategy, setStrategy
 } from './api/fund.api.js';
@@ -131,6 +132,7 @@ router.get('/api/fund/analysis', fundAnalysis);
 router.post('/api/fund/scenario', fundScenario);
 router.post('/api/fund/report/send', sendReport);
 router.get('/api/fund/:id/share-link', getShareLink);
+router.get('/api/fund/:id/nav-history', fundNavHistory);
 router.post('/api/fund/:id/buy', buyFund);
 router.post('/api/fund', createFund);
 router.put('/api/fund/:id', updateFund);

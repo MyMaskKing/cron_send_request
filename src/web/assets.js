@@ -1799,21 +1799,44 @@ window.copyShare = function(){
   try { document.execCommand('copy'); alertModal('已复制'); } catch(e) { alertModal('请手动复制', {ok:false}); }
 };
 // 页面内加仓（弹窗）
-window.buyFundUI = function(id){
+window.buyFundUI = async function(id){
   var f = (window._items||[]).filter(function(x){return x.id===id;})[0];
   if (!f) return;
+  // 先拉历史净值 + 服务端"今天"(用全局 tz_offset), 供选日期回填净值
+  var navMap = {}, today = '';
+  try {
+    var nh = await api('/api/fund/' + id + '/nav-history', { loadingText: '正在加载历史净值…' });
+    today = nh.today || '';
+    (nh.navHistory||[]).forEach(function(h){ navMap[h.date] = h.nav; });
+  } catch(e) { /* 拉失败不阻塞: 用户仍可手填净值或选今天靠后端实时拉 */ }
+  if (!today) today = new Date(Date.now() + 8*3600*1000).toISOString().slice(0,10);
   var html =
     '<p class="muted">当前持有 <b>' + fmtMoney(f.shares) + '</b> 份 · 成本净值 <b>' + f.cost_nav + '</b>。按金额买入，系统自动累计份额并重算成本。</p>' +
     '<input type="hidden" id="buyId" value="' + id + '">' +
+    '<label>买入日期</label><input id="buyDate" type="date" value="' + today + '" max="' + today + '">' +
     '<label>买入金额(元)</label><input id="buyAmount" type="number" step="0.01" placeholder="如 1000">' +
-    '<label>买入净值（默认当前估值，可改）</label><input id="buyNavInput" type="number" step="0.0001" value="' + (f.current_nav||'') + '">' +
+    '<label>买入净值（默认按日期自动带出，可改）</label><input id="buyNavInput" type="number" step="0.0001" value="' + (f.current_nav||'') + '">' +
+    '<p class="muted" style="font-size:12px;margin-top:4px;">选择今天=实时估算净值；选择历史日=该日单位净值（周末/节假日无数据请手填）。</p>' +
     '<div style="margin-top:12px;"><button class="btn" id="buyConfirm">确认加仓</button> ' +
     '<button class="btn gray" onclick="closeModal()">取消</button></div>';
   openModal('加仓 · ' + f.name + ' (' + f.code + ')', html);
+  // 日期变更时自动回填净值: 今天用当前估值, 历史日查 navMap, 无数据清空让用户手填
+  var dEl = document.getElementById('buyDate');
+  var nEl = document.getElementById('buyNavInput');
+  function syncNav(){
+    var d = dEl.value;
+    if (!d) return;
+    if (d === today) { nEl.value = f.current_nav || ''; nEl.placeholder = '当前估值净值'; return; }
+    if (navMap[d] != null) { nEl.value = navMap[d]; nEl.placeholder = ''; return; }
+    nEl.value = '';
+    nEl.placeholder = '该日无净值数据，请手填';
+  }
+  dEl.addEventListener('change', syncNav);
   document.getElementById('buyConfirm').addEventListener('click', async function(){
     var payload = {
       amount: document.getElementById('buyAmount').value,
-      buyNav: document.getElementById('buyNavInput').value || undefined
+      buyNav: document.getElementById('buyNavInput').value || undefined,
+      buyDate: document.getElementById('buyDate').value || undefined
     };
     try {
       var r = await api('/api/fund/' + id + '/buy', { method:'POST', body: payload });
@@ -2241,6 +2264,10 @@ ${COMMON_JS}
 var token = location.pathname.split('/').filter(Boolean).pop();
 var msg = document.getElementById('msg');
 var profitChartInst = null;
+// 加仓选日期时回填净值: 服务端下发的历史净值 map(YYYY-MM-DD -> nav), 与"今天"字符串一并保存
+var _navMap = {};
+var _todayStr = '';
+var _curNavCache = 0;
 
 function drawProfitChart(series) {
   var box = document.getElementById('chartBox');
@@ -2273,27 +2300,52 @@ function drawProfitChart(series) {
   tbody.innerHTML = rows.join('');
 }
 
+// 日期变更时同步净值输入框: 今天=实时估值, 历史日查 map, 缺失清空让用户手填
+function syncBuyNavByDate() {
+  var dEl = document.getElementById('buyDate');
+  var nEl = document.getElementById('buyNav');
+  if (!dEl || !nEl) return;
+  var d = dEl.value;
+  if (!d) return;
+  if (d === _todayStr) { nEl.value = _curNavCache || ''; nEl.placeholder = '当前估值净值'; return; }
+  if (_navMap[d] != null) { nEl.value = _navMap[d]; nEl.placeholder = ''; return; }
+  nEl.value = '';
+  nEl.placeholder = '该日无净值数据，请手填';
+}
+
 async function loadInfo() {
   try {
     setLoadingProgress(90);   // 单请求：推进度条爬升，营造实时加载进度感
     var d = await api('/api/public/fund/' + token, { loadingText: '正在加载基金信息与近30天收益曲线…' });
     var f = d.fund;
+    _todayStr = d.today || '';
+    _curNavCache = f.current_nav || 0;
+    _navMap = {};
+    (d.navHistory||[]).forEach(function(h){ _navMap[h.date] = h.nav; });
     document.getElementById('fundName').textContent = f.name + ' (' + f.code + ')';
     document.getElementById('curNav').textContent = f.current_nav + ' (' + (f.gszzl>=0?'+':'') + f.gszzl + '%)';
     document.getElementById('curShares').textContent = fmtMoney(f.shares);
     document.getElementById('curCost').textContent = f.cost_nav;
     document.getElementById('buyNav').value = f.current_nav || '';
+    var dEl = document.getElementById('buyDate');
+    if (dEl && _todayStr) {
+      dEl.value = _todayStr;
+      dEl.max = _todayStr;
+    }
     document.getElementById('content').style.display = 'block';
     drawProfitChart(d.profitSeries);
   } catch(e) {
     document.getElementById('content').innerHTML = '<p class="msg err" style="display:block;">' + esc(e.message) + '</p>';
   }
 }
+var _bdEl = document.getElementById('buyDate');
+if (_bdEl) _bdEl.addEventListener('change', syncBuyNavByDate);
 document.getElementById('buyForm').addEventListener('submit', async function(e){
   e.preventDefault();
   var payload = {
     amount: document.getElementById('amount').value,
-    buyNav: document.getElementById('buyNav').value || undefined
+    buyNav: document.getElementById('buyNav').value || undefined,
+    buyDate: (document.getElementById('buyDate')||{}).value || undefined
   };
   try {
     var r = await api('/api/public/fund/' + token + '/buy', { method:'POST', body: payload });
