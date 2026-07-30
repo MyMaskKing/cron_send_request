@@ -64,7 +64,7 @@ async function login({ request, env }) {
   return json(
     { success: true, message: '登录成功', user: { id: user.id, username: user.username, role: user.role } },
     200,
-    { 'Set-Cookie': buildSessionCookie(token) }
+    { 'Set-Cookie': buildSessionCookie(token, request) }
   );
 }
 
@@ -74,7 +74,7 @@ async function login({ request, env }) {
 async function logout({ request, env }) {
   const token = getTokenFromRequest(request);
   await destroySession(env, token);
-  return json({ success: true, message: '已登出' }, 200, { 'Set-Cookie': buildClearCookie() });
+  return json({ success: true, message: '已登出' }, 200, { 'Set-Cookie': buildClearCookie(request) });
 }
 
 /**
@@ -243,7 +243,7 @@ async function quickLoginByToken({ env, params }) {
   return json(
     { success: true, redirect: REDIRECT[kind] || '/dashboard' },
     200,
-    { 'Set-Cookie': buildSessionCookie(sessionToken) }
+    { 'Set-Cookie': buildSessionCookie(sessionToken, request) }
   );
 }
 

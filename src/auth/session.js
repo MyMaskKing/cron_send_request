@@ -86,14 +86,35 @@ function getTokenFromRequest(request) {
   return match ? match[1] : null;
 }
 
+/**
+ * 判断当前请求是否走 HTTPS
+ * - Workers 部署: request.url 一定是 https://
+ * - Docker + 反代(nginx / frp / Caddy): 直连是 http, 反代会加 X-Forwarded-Proto=https
+ * 用于决定 Set-Cookie 是否加 Secure 属性; 若 http 访问也强加 Secure, 浏览器会丢弃 cookie
+ * @param {Request} request
+ * @returns {boolean}
+ */
+function isSecureRequest(request) {
+  if (!request) return true; // 兜底保守: 无 request 时按 https, 保持向后兼容
+  const xfp = (request.headers.get('X-Forwarded-Proto') || '').toLowerCase();
+  if (xfp) return xfp.split(',')[0].trim() === 'https';
+  try {
+    return new URL(request.url).protocol === 'https:';
+  } catch {
+    return true;
+  }
+}
+
 /** 生成 Set-Cookie 头（登录） */
-function buildSessionCookie(token) {
-  return `${COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL}`;
+function buildSessionCookie(token, request) {
+  const secure = isSecureRequest(request) ? ' Secure;' : '';
+  return `${COOKIE_NAME}=${token}; HttpOnly;${secure} SameSite=Lax; Path=/; Max-Age=${SESSION_TTL}`;
 }
 
 /** 生成清除 Cookie 头（登出） */
-function buildClearCookie() {
-  return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+function buildClearCookie(request) {
+  const secure = isSecureRequest(request) ? ' Secure;' : '';
+  return `${COOKIE_NAME}=; HttpOnly;${secure} SameSite=Lax; Path=/; Max-Age=0`;
 }
 
 export {
