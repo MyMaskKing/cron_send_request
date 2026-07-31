@@ -196,7 +196,7 @@ async function bootstrap({ request, env }) {
  * 按免密 token 定位其所属用户并签发正式会话（谁的链接就登入谁的账号）
  * kind ∈ fund | weight | asset | todo | weight-report | asset-report | fund-report | todo-report
  */
-async function quickLoginByToken({ env, params }) {
+async function quickLoginByToken({ request, env, params }) {
   const storage = getStorage(env);
   const { kind, token } = params;
   let userId = null;
