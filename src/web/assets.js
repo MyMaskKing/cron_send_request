@@ -1623,6 +1623,7 @@ bindLogout();
 bindModal();
 var chart = null;   // 饼图
 var profitChart = null;
+var navChart = null;   // 单只基金近30日净值折线图
 window._profitSeries = [];    // 每日总收益全量，供过滤用
 // 初始化加载进度：_initTotal>0 时按步数把进度目标推到累计百分比(平滑爬升)，复用调用(如加仓后)时 _initTotal=0 不动进度
 var _initTotal = 0, _initStep = 0;
@@ -1663,6 +1664,7 @@ async function loadReport() {
       '<td data-label="操作"><div class="dropdown">' +
         '<button class="btn sm" onclick="toggleDropdown(this)">⋯ 操作</button>' +
         '<div class="dropdown-menu">' +
+          '<button data-id="' + it.id + '" data-name="' + esc(it.name) + '" data-code="' + esc(it.code) + '" onclick="viewNavHistory(this)">近30净值</button>' +
           '<button onclick="editFund(' + it.id + ')">编辑</button>' +
           '<button onclick="buyFundUI(' + it.id + ')">加仓</button>' +
           '<button onclick="shareLink(' + it.id + ')">加仓链接</button>' +
@@ -1745,6 +1747,60 @@ function drawChart(items) {
     options: { plugins: { legend: { position: 'right' }, title: { display: true, text: '持仓现值分布' } } }
   });
 }
+
+// ---------- 单只基金近30日净值 ----------
+// 后端 /api/fund/:id/nav-history 兜底返回 45 条 (加仓按日期回填的覆盖力),
+// 曲线场景只取后 30 条 → 手机看 30 个交易日不挤, 语义贴 "近 30 天"
+window.viewNavHistory = async function(btn){
+  var id = btn.dataset.id;
+  var name = btn.dataset.name || '';
+  var code = btn.dataset.code || '';
+  var html =
+    '<p class="muted">近 30 个交易日单位净值走势（数据源：天天基金 F10 历史接口）。</p>' +
+    '<div id="navChartWrap" style="max-width:640px;margin:0 auto;"><canvas id="navChart"></canvas></div>' +
+    '<h3 style="margin:16px 0 8px;font-size:15px;">每日明细</h3>' +
+    '<div class="scroll-box"><table><thead><tr style="background:#f8f9fa;"><th>日期</th><th>单位净值</th><th>较前一日</th></tr></thead><tbody id="navTbody"></tbody></table></div>';
+  openModal('近30净值 · ' + name + ' (' + code + ')', html);
+  try {
+    var d = await api('/api/fund/' + id + '/nav-history', { loadingText: '正在加载近30日净值…' });
+    var series = (d.navHistory || []).slice(-30);
+    if (!series.length) {
+      document.getElementById('navChartWrap').innerHTML = '<p class="muted" style="text-align:center;padding:24px;">暂无历史净值数据</p>';
+      document.getElementById('navTbody').innerHTML = '<tr><td colspan="3" data-label="提示" class="muted">暂无数据</td></tr>';
+      return;
+    }
+    var labels = series.map(function(s){ return s.date.slice(5); });  // MM-DD
+    var vals = series.map(function(s){ return s.nav; });
+    if (navChart) navChart.destroy();   // 防内存泄漏: 重开前先销毁上次的实例
+    navChart = new Chart(document.getElementById('navChart'), {
+      type: 'line',
+      data: { labels: labels, datasets: [{
+        label: '单位净值', data: vals,
+        borderColor: '#4a6cf7', backgroundColor: 'rgba(74,108,247,.12)',
+        fill: true, tension: 0.3,
+        pointRadius: series.length > 15 ? 0 : 2   // 30 条数据点太密则隐藏
+      }] },
+      options: {
+        responsive: true, maintainAspectRatio: true, aspectRatio: 2.5,
+        plugins: { legend: { display: false } },
+        scales: { y: { ticks: { callback: function(v){ return Number(v).toFixed(4); } } } }
+      }
+    });
+    // 表格倒序 + 较前一日 %
+    var rows = [];
+    for (var i = series.length - 1; i >= 0; i--) {
+      var s = series[i];
+      var prev = i > 0 ? series[i - 1].nav : null;
+      var change = prev ? (s.nav - prev) / prev * 100 : null;
+      var color = change == null ? '#999' : (change >= 0 ? '#cf1322' : '#389e0d');
+      var text = change == null ? '—' : (sign(change) + '%');
+      rows.push('<tr><td data-label="日期">' + s.date + '</td><td data-label="单位净值">' + s.nav.toFixed(4) + '</td><td data-label="较前一日" style="color:' + color + '">' + text + '</td></tr>');
+    }
+    document.getElementById('navTbody').innerHTML = rows.join('');
+  } catch(e) {
+    alertModal(e.message, {ok:false});
+  }
+};
 
 // ---------- 持仓增删改 ----------
 function fundForm(f) {
