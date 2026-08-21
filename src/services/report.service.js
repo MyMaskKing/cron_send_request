@@ -83,7 +83,7 @@ function buildFundReportText(items, totals, linkMap, tzOffset, analysis, reportL
     const icon = it.profit >= 0 ? '🔴' : '🟢';
     const staleTag = it.nav_stale ? '  ⚠️净值兜底' : '';
     t += `\n${icon} ${i + 1}. ${it.name}（${it.code}）${staleTag}\n`;
-    t += `　持仓：${it.shares} 份\n`;
+    t += `　持仓：${it.shares} 份（成本价 ${it.cost_nav}）\n`;
     t += `　现价：${it.current_nav}（${fmtSign(it.gszzl)}%）\n`;
     t += `　收益：${fmtSign(it.profit)}（${fmtSign(it.rate)}%）\n`;
     if (linkMap && linkMap[it.id]) t += `　➕ 快速加仓：${linkMap[it.id]}\n`;
@@ -122,7 +122,7 @@ function buildFundReportMarkdown(items, totals, linkMap, tzOffset, analysis, rep
     const icon = it.profit >= 0 ? '🔴' : '🟢';
     const staleTag = it.nav_stale ? ' ⚠️净值兜底' : '';
     m += `\n${icon} **${i + 1}. ${it.name}（${it.code}）${staleTag}**\n`;
-    m += `> 持仓 ${it.shares} 份 · 现价 ${it.current_nav}（${fmtSign(it.gszzl)}%）\n`;
+    m += `> 持仓 ${it.shares} 份（成本价 ${it.cost_nav}） · 现价 ${it.current_nav}（${fmtSign(it.gszzl)}%）\n`;
     m += `> 收益 ${fmtSign(it.profit)}（${fmtSign(it.rate)}%）\n`;
     if (linkMap && linkMap[it.id]) m += `> [➕ 快速加仓](${linkMap[it.id]})\n`;
   });
@@ -166,7 +166,7 @@ function buildFundReportHTML(items, totals, linkMap, tzOffset, analysis, reportL
       ? `<div style="margin-top:6px;"><a href="${linkMap[it.id]}" style="color:#4a6cf7;">➕ 快速加仓</a></div>` : '';
     h += `<div style="background:#f8f9fa;margin:8px 0;padding:12px;border-radius:6px;border-left:4px solid ${color};">
       <div><b>${i + 1}. ${it.name} (${it.code})</b>${staleTag}</div>
-      <div style="color:#6c757d;font-size:14px;">持仓 ${it.shares} 份 · 现价 ${it.current_nav} (${fmtSign(it.gszzl)}%)</div>
+      <div style="color:#6c757d;font-size:14px;">持仓 ${it.shares} 份（成本价 ${it.cost_nav}） · 现价 ${it.current_nav} (${fmtSign(it.gszzl)}%)</div>
       <div style="color:${color};">收益: ${fmtSign(it.profit)} (${fmtSign(it.rate)}%)</div>
       ${link}
     </div>`;
