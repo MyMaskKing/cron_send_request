@@ -8,7 +8,7 @@ import { getStorage } from '../storage/adapter.js';
 import { requireAuth } from '../auth/middleware.js';
 import { generateToken } from '../auth/password.js';
 import { resolveBaseUrl } from '../config.js';
-import { countStats, buildChartSeries, CHART_RANGES } from '../services/todo.service.js';
+import { countStats, buildWidgetGroups, buildChartSeries, CHART_RANGES } from '../services/todo.service.js';
 
 /** 取北京时区当天 YYYY-MM-DD */
 function todayCN() {
@@ -386,6 +386,34 @@ async function publicTodoChart({ env, params, url }) {
   return json({ success: true, series });
 }
 
+/** GET /api/public/todo-widget/:token?scope=&limit=  小组件专用：轻量「顶层分组」数据
+ * scope ∈ cur(默认,今日+逾期)|today|overdue|all；limit 默认 20，clamp [1,50]
+ * 仅接受 module=todo 的 report_token（与 todo-all 汇总页同口径），不接受单清单 share_token
+ */
+async function widgetTodo({ env, params, url }) {
+  const storage = getStorage(env);
+  const userId = await resolveUserByReportToken(storage, params.token);
+  if (userId == null) return error('链接无效或已失效', 404);
+
+  const scopeRaw = url.searchParams.get('scope');
+  const scope = (scopeRaw === 'today' || scopeRaw === 'overdue' || scopeRaw === 'all') ? scopeRaw : 'cur';
+  let limit = parseInt(url.searchParams.get('limit') || '20', 10);
+  if (!isFinite(limit)) limit = 20;
+  limit = Math.max(1, Math.min(50, limit));
+
+  await storage.users.updateLastPublic(userId);
+  const rows = await storage.todo.listByUser(userId);
+  const owner = await storage.users.findById(userId);
+  const today = todayCN();
+  return json({
+    success: true,
+    owner_name: owner ? (owner.nickname || owner.username) : '',
+    today,
+    stats: countStats(rows, today),
+    groups: buildWidgetGroups(rows, today, scope, limit)
+  });
+}
+
 // ==================== 免密汇总协作（用户级 report_token，跨全部清单可写） ====================
 
 /** 由 report_token 解析用户 id（module=todo），无效返回 null */
@@ -534,5 +562,6 @@ async function publicAllReorder({ request, env, params }) {
 export {
   listTodos, createTodo, updateTodo, toggleTodo, removeTodo, getShareLink, todoChart, reorderTodo,
   publicTodoInfo, publicAddTodo, publicToggleTodo, publicUpdateTodo, publicReorder, publicTodoReport, publicTodoChart,
+  widgetTodo,
   publicAllAdd, publicAllToggle, publicAllUpdate, publicAllReorder
 };

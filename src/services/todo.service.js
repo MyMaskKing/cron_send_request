@@ -133,6 +133,79 @@ function countStats(rows, today) {
   return { total, done, pending, overdue, memo };
 }
 
+/**
+ * 构造小组件用的「顶层分组」数据（无副作用，不碰存储）
+ * 口径与 countStats / 前端 todoDoneByFilter 一致：子任务日期继承顶层，未完成叶子才计入
+ * @param {Array} rows - storage.todo.listByUser 的扁平行
+ * @param {string} today - YYYY-MM-DD（北京时区）
+ * @param {'cur'|'today'|'overdue'|'all'} scope - 顶层过滤口径
+ * @param {number} limit - 返回顶层分组数量上限
+ * @returns {Array<{id:number,title:string,due_label:string,overdue:boolean,recurring:boolean,collapsible:boolean,children:Array<{id:number,title:string}>}>}
+ */
+function buildWidgetGroups(rows, today, scope, limit) {
+  const trees = buildTree(rows);
+  const pending = flattenPending(trees); // 仅保留仍有未完成叶子的顶层子树（已完成祖先整棵剔除）
+
+  // 收集某顶层子树下的全部未完成叶子（flattenPending 已剪完成节点，走到的叶子均未完成）
+  const leavesOf = (node) => {
+    const out = [];
+    const walk = (n) => {
+      if (n.children.length === 0) { out.push({ id: n.id, title: n.title }); return; }
+      for (const c of n.children) walk(c);
+    };
+    walk(node);
+    return out;
+  };
+
+  const groups = [];
+  for (const root of pending) {
+    const due = root.due_date || null;
+    const overdue = !!(today && due && due < today);
+    // scope 按顶层截止日期过滤（与前端口径一致）
+    if (scope === 'today') {
+      if (!(due && due === today)) continue;
+    } else if (scope === 'overdue') {
+      if (!overdue) continue;
+    } else if (scope === 'cur') {
+      if (!(due && due <= today)) continue;
+    } // 'all' 不筛选（含无日期的备忘录型顶层）
+
+    const leaves = leavesOf(root);
+    if (leaves.length === 0) continue; // 理论上 flattenPending 已排除，防御一下
+    groups.push({
+      id: root.id,
+      title: root.title,
+      due_label: due ? todoDateBadge(due, today, overdue) : '',
+      overdue,
+      recurring: !!root.recurrence,
+      collapsible: leaves.length > 1 || leaves[0].id !== root.id,
+      children: leaves
+    });
+  }
+
+  // 排序：逾期在前 → 其余有日期按 due 升序 → 无日期(memo) 最后；同序按 sort_order, id
+  const byId = new Map(rows.map(r => [r.id, r]));
+  const sortKey = (g) => {
+    const r = byId.get(g.id) || {};
+    return [r.sort_order || 0, r.id || 0];
+  };
+  groups.sort((a, b) => {
+    const ao = a.overdue ? 0 : (a.due_label ? 1 : 2);
+    const bo = b.overdue ? 0 : (b.due_label ? 1 : 2);
+    if (ao !== bo) return ao - bo;
+    if (a.due_label && b.due_label) {
+      const ad = byId.get(a.id)?.due_date || '';
+      const bd = byId.get(b.id)?.due_date || '';
+      if (ad !== bd) return ad < bd ? -1 : 1;
+    }
+    const [as0, as1] = sortKey(a), [bs0, bs1] = sortKey(b);
+    return as0 - bs0 || as1 - bs1;
+  });
+
+  const n = (limit != null && limit > 0) ? Math.min(Math.floor(limit), groups.length) : groups.length;
+  return groups.slice(0, n);
+}
+
 /** range → { unit: 'day'|'month'|'month-current', span } 天数或月数
  *  month-current: 特殊分支, 从 today 所在月 1 号起到 today 每天一格(span 运行时按 today 推)
  */
@@ -363,4 +436,4 @@ function shiftDate(dueDate, recurrence, jumpToCurrent, todayStr, interval, nth, 
   return dueDate;
 }
 
-export { buildTree, flattenPending, countStats, buildChartSeries, CHART_RANGES, shiftDate, todoDateLabel, todoDateBadge };
+export { buildTree, flattenPending, countStats, buildWidgetGroups, buildChartSeries, CHART_RANGES, shiftDate, todoDateLabel, todoDateBadge };

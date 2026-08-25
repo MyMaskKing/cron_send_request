@@ -52,6 +52,7 @@ import { buildTree, flattenPending } from './services/todo.service.js';
 import {
   listTodos, createTodo, updateTodo, toggleTodo, removeTodo, getShareLink as getTodoShareLink, todoChart, reorderTodo,
   publicTodoInfo, publicAddTodo, publicToggleTodo, publicUpdateTodo, publicReorder, publicTodoReport, publicTodoChart,
+  widgetTodo,
   publicAllAdd, publicAllToggle, publicAllUpdate, publicAllReorder
 } from './api/todo.api.js';
 import { parseOffset, fmtShort } from './services/time.service.js';
@@ -194,6 +195,7 @@ router.put('/api/public/todo/:token/:id/done', publicToggleTodo);
 router.put('/api/public/todo/:token/:id', publicUpdateTodo);
 router.get('/api/public/todo-report/:token', publicTodoReport);
 router.get('/api/public/todo-chart/:token', publicTodoChart);
+router.get('/api/public/todo-widget/:token', widgetTodo);
 router.post('/api/public/todo-all/:token', publicAllAdd);
 router.put('/api/public/todo-all/:token/reorder', publicAllReorder);
 router.put('/api/public/todo-all/:token/:id/done', publicAllToggle);

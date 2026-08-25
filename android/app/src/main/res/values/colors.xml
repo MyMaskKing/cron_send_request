@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand">#FFA855F7</color>
+    <color name="brand_dark">#FF9333EA</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="black">#FF000000</color>
+    <color name="widget_bg">#FFFFFFFF</color>
+    <color name="widget_text">#FF14141E</color>
+    <color name="widget_sub">#FF8890B8</color>
+    <color name="widget_overdue">#FFCF1322</color>
+    <color name="widget_done">#FF52C41A</color>
+    <color name="widget_chip_bg">#FFF0F2F8</color>
+    <color name="ic_launcher_background">#FFA855F7</color>
+</resources>
