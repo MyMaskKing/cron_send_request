@@ -1,15 +1,93 @@
-name: Build Android APK
+name: Build & Release Android APK
 
+# 手动触发：GitHub 仓库 → Actions → Build & Release Android APK → Run workflow
+# push 到 main 且改动 android/ 或本文件时也会自动构建（默认生成 draft Release）
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release 版本号（例：1.0.1，留空则用 versionName + 日期 + run_number）'
+        required: false
+        default: ''
+      prerelease:
+        description: '是否标记为 pre-release'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      draft:
+        description: '是否创建为 draft（草稿，不公开）'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
   push:
     branches: [main]
     paths:
       - 'android/**'
       - '.github/workflows/build-android.yml'
 
+permissions:
+  contents: write  # 创建 Release / 上传 APK 需要
+
 jobs:
-  build-apk:
+  # ─────────── 1. 生成本次发布用的 tag & draft Release ───────────
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      release_id: ${{ steps.create.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 解析版本号
+        id: resolve
+        shell: bash
+        run: |
+          INPUT="${{ github.event.inputs.version }}"
+          if [ -z "$INPUT" ]; then
+            # 未输入 → 用 build.gradle.kts 的 versionName 作 base，追加日期 + run_number 保证唯一
+            VER=$(grep -m1 'versionName' android/app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+            DATE=$(date -u +%Y%m%d)
+            TAG="v${VER}-${DATE}.${{ github.run_number }}"
+          else
+            # 用户输入的版本号，自动补 v 前缀
+            case "$INPUT" in
+              v*) TAG="$INPUT" ;;
+              *)  TAG="v$INPUT" ;;
+            esac
+          fi
+          # 若同名 tag 已存在（手动重跑），再追加 run_id 后缀避免冲突
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAG="${TAG}-r${{ github.run_id }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "使用 tag: $TAG"
+
+      - name: 创建 draft Release
+        id: create
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ steps.resolve.outputs.tag }}';
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              tag_name: tag,
+              name: `📝 待办小组件 ${tag}`,
+              body: `## 待办小组件 ${tag}\n\nCloudflare Workers 个人仪表盘的 Android 客户端：桌面待办小组件 + 内嵌网页的 5 Tab 应用壳。\n\n### 下载\n- 下方 \`.apk\` 文件（debug 签名，手机自用）\n\n> 安装后在桌面添加「待办速览」小组件，填入网页「推送设置 → 待办」的 report_token。`,
+              draft: ${{ github.event.inputs.draft || 'true' }},
+              prerelease: ${{ github.event.inputs.prerelease || 'false' }},
+            });
+            return data.id;
+
+  # ─────────── 2. 构建 APK & 上传到 Release ───────────
+  build:
+    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -34,10 +112,55 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK
+      - name: Rename APK with tag
+        id: rename
+        run: |
+          SRC="android/app/build/outputs/apk/debug/app-debug.apk"
+          OUT="todo-widget-${{ needs.prepare.outputs.tag }}.apk"
+          cp "$SRC" "$OUT"
+          echo "out=$OUT" >> "$GITHUB_OUTPUT"
+          ls -lh "$OUT"
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: todo-widget-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: todo-widget-${{ needs.prepare.outputs.tag }}
+          path: ${{ steps.rename.outputs.out }}
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload APK to Release
+        uses: actions/github-script@v7
+        env:
+          APK_PATH: ${{ github.workspace }}/${{ steps.rename.outputs.out }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+          ASSET_NAME: todo-widget-${{ needs.prepare.outputs.tag }}.apk
+        with:
+          script: |
+            const fs = require('fs');
+            const apk = fs.readFileSync(process.env.APK_PATH);
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              release_id: Number(process.env.RELEASE_ID),
+              name: process.env.ASSET_NAME,
+              data: apk,
+            });
+
+  # ─────────── 3. 构建完成后发布 Release（仅 draft=false 时）───────────
+  publish:
+    needs: [prepare, build]
+    if: ${{ github.event.inputs.draft == 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 把 draft 翻成正式发布
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              release_id: ${{ needs.prepare.outputs.release_id }},
+              draft: false,
+              prerelease: ${{ github.event.inputs.prerelease || 'false' }},
+            });
