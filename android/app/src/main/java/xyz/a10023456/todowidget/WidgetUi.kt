@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.action.ActionParameters
@@ -17,13 +19,12 @@ import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
 import androidx.glance.ImageProvider
 import androidx.glance.background
-import androidx.glance.color.ColorProvider
+import androidx.glance.color.ColorProvider as DayNightColor
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
-import androidx.glance.layout.defaultWeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
@@ -33,18 +34,17 @@ import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
-import androidx.glance.unit.dp
-import androidx.glance.unit.sp
+import androidx.glance.unit.ColorProvider
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /** 小组件配色：day/night 两套，跟随系统深色（仅用于文字；圆角背景走 drawable 以兼容 Glance 1.1）。 */
 private object W {
-    val text = ColorProvider(day = Color(0xFF14141E), night = Color(0xFFF2F1F7))
-    val sub = ColorProvider(day = Color(0xFF8890B8), night = Color(0xFF9A93B5))
-    val overdue = ColorProvider(day = Color(0xFFCF1322), night = Color(0xFFFF6B6B))
-    val brand = ColorProvider(day = Color(0xFFA855F7), night = Color(0xFFA855F7))
+    val text = DayNightColor(day = Color(0xFF14141E), night = Color(0xFFF2F1F7))
+    val sub = DayNightColor(day = Color(0xFF8890B8), night = Color(0xFF9A93B5))
+    val overdue = DayNightColor(day = Color(0xFFCF1322), night = Color(0xFFFF6B6B))
+    val brand = DayNightColor(day = Color(0xFFA855F7), night = Color(0xFFA855F7))
 }
 
 /** 小组件渲染入口。 */
@@ -136,7 +136,7 @@ private fun WidgetBody(data: WidgetResponse?, failed: Boolean, widgetId: Int) {
         } else {
             LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
                 groups.forEach { g ->
-                    item(key = "g${g.id}") { GroupRow(g, widgetId) }
+                    item(itemId = g.id) { GroupRow(g, widgetId) }
                     val collapsed = Prefs.isCollapsed(ctx, widgetId, g.id)
                     if (!collapsed) {
                         items(g.children, itemId = { it.id }) { child ->
