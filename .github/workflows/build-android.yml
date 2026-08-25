@@ -155,7 +155,7 @@ jobs:
         env:
           VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
           VERSION_NAME: ${{ needs.prepare.outputs.version_name }}
-          RELEASE_KEYSTORE_PATH: ${{ steps.keystore.outputs.mode == 'release' && '../keystore/release.keystore' || '' }}
+          RELEASE_KEYSTORE_PATH: ${{ steps.keystore.outputs.mode == 'release' && format('{0}/keystore/release.keystore', github.workspace) || '' }}
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
