@@ -1013,6 +1013,14 @@ html { scrollbar-gutter: stable; }
  * @returns {string}
  */
 function renderTopbar(user, active = '') {
+  // 原生 App 壳内（WebView 带 app_shell cookie）：顶部网站导航交给底部原生 Tab，不渲染。
+  // 保留超管 impersonate 黄条（重要提示），并收紧内容区顶部留白。
+  if (user.appShell) {
+    return `<style>.container{margin-top:0 !important;}</style>` + (user.impersonating ? `<div class="impersonate-banner">
+      ⚠️ 你（超管 ${user.admin_username || ''}）正在以 <b>${user.username}</b> 的身份浏览
+      <a href="#" id="stopImpersonateBtn">点此退出</a>
+    </div>` : '');
+  }
   const links = [
     { key: 'dashboard', href: '/dashboard', text: '仪表盘' },
     { key: 'monitor', href: '/monitor', text: '定时任务' },

@@ -290,7 +290,9 @@ async function handlePages(request, env) {
       id: session.user_id, username: session.username,
       nickname: session.nickname || session.username, role: session.role,
       impersonating: !!session.impersonating, admin_username: session.admin_username || null,
-      quickloginModule: session.quicklogin_module || null
+      quickloginModule: session.quicklogin_module || null,
+      // 原生 App 壳（WebView 带 app_shell=1 cookie）：隐藏网站顶部导航，底部用原生 Tab
+      appShell: /(?:^|;\s*)app_shell=1/.test(request.headers.get('Cookie') || '')
     };
 
     switch (pageMap[path]) {

@@ -35,6 +35,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -95,7 +96,6 @@ private fun AppShell(initialUrl: String?) {
     var showMe by rememberSaveable { mutableStateOf(false) }
     var targetUrl by rememberSaveable { mutableStateOf(initialUrl ?: (baseUrl + TABS[0].path)) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    var canGoBack by remember { mutableStateOf(false) }
     // WebViewClient 只在 factory 创建一次，用 rememberUpdatedState 让它始终读到最新 baseUrl
     val currentBaseUrl by rememberUpdatedState(baseUrl)
 
@@ -110,8 +110,10 @@ private fun AppShell(initialUrl: String?) {
         showMe = false
     }
 
-    BackHandler(enabled = !showMe && canGoBack) {
-        webViewRef?.goBack()
+    // App 内禁用网页返回：网页内跳转不与底部 Tab 同步，goBack 会造成画面与 Tab 错位。
+    // 「我的」原生面板打开时，返回键仅关闭面板回到网页。
+    BackHandler(enabled = true) {
+        if (showMe) showMe = false
     }
 
     Scaffold(
@@ -151,6 +153,8 @@ private fun AppShell(initialUrl: String?) {
                         settings.mediaPlaybackRequiresUserGesture = false
                         CookieManager.getInstance().setAcceptCookie(true)
                         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                        // 标记原生壳环境：服务端据此隐藏顶部网站导航，底部由原生 Tab 提供导航
+                        CookieManager.getInstance().setCookie(currentBaseUrl, "app_shell=1; Path=/")
                         setBackgroundColor(Color.TRANSPARENT)
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(
@@ -168,7 +172,6 @@ private fun AppShell(initialUrl: String?) {
 
                             override fun onPageFinished(view: WebView, url: String?) {
                                 super.onPageFinished(view, url)
-                                canGoBack = view.canGoBack()
                                 // 同步登录会话给小组件：从 Cookie 取 sid（native 可读 HttpOnly Cookie）
                                 val cookieUrl = url ?: currentBaseUrl
                                 val cookies = CookieManager.getInstance().getCookie(cookieUrl) ?: ""
@@ -176,9 +179,8 @@ private fun AppShell(initialUrl: String?) {
                                 val oldSid = Prefs.getSid(context)
                                 when {
                                     !sid.isNullOrBlank() && sid != oldSid -> {
-                                        // 登录/会话变更：写入并立即刷新所有小组件
+                                        // 登录/会话变更：写入 sid
                                         Prefs.setSid(context, sid)
-                                        RefreshWorker.enqueueImmediate(context)
                                         // 登录成功后若停在登录页/dashboard 等非 Tab 页，自动切到待办 Tab
                                         val path = url?.let { Uri.parse(it).path } ?: ""
                                         val onTab = TABS.any { t ->
@@ -189,7 +191,14 @@ private fun AppShell(initialUrl: String?) {
                                             showMe = false
                                             targetUrl = currentBaseUrl + "/todo"
                                         }
+                                        // 立即直接拉取所有桌面小组件数据并刷新（WorkManager 一次性任务可能被系统延迟，
+                                        // 这里同步拉取保证登录后马上出数据；成功会清掉旧的 failed 标志）
                                         kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
+                                            val ids = GlanceAppWidgetManager(context)
+                                                .getGlanceIds(TodoAppWidget::class.java)
+                                                .map { it.resolveAppWidgetId() }
+                                                .filter { it >= 0 }
+                                            ids.forEach { id -> WidgetRepo.refresh(context, id) }
                                             TodoAppWidget().updateAll(context)
                                         }
                                     }
@@ -209,7 +218,10 @@ private fun AppShell(initialUrl: String?) {
                     }
                 },
                 update = { wv ->
-                    if (wv.url != targetUrl) wv.loadUrl(targetUrl)
+                    if (wv.url != targetUrl) {
+                        CookieManager.getInstance().setCookie(baseUrl, "app_shell=1; Path=/")
+                        wv.loadUrl(targetUrl)
+                    }
                 },
                 modifier = Modifier.fillMaxSize()
             )
