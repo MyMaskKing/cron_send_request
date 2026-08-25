@@ -291,8 +291,10 @@ async function handlePages(request, env) {
       nickname: session.nickname || session.username, role: session.role,
       impersonating: !!session.impersonating, admin_username: session.admin_username || null,
       quickloginModule: session.quicklogin_module || null,
-      // 原生 App 壳（WebView 带 app_shell=1 cookie）：隐藏网站顶部导航，底部用原生 Tab
-      appShell: /(?:^|;\s*)app_shell=1/.test(request.headers.get('Cookie') || '')
+      // 原生 App 壳：WebView loadUrl 带 X-App-Shell:1 头（当次立即生效，避免 setCookie 异步竞态），
+      // 同时兼容 app_shell=1 cookie（页面内跳转续用）。命中则隐藏网站顶部导航，底部用原生 Tab
+      appShell: request.headers.get('X-App-Shell') === '1' ||
+        /(?:^|;\s*)app_shell=1/.test(request.headers.get('Cookie') || '')
     };
 
     switch (pageMap[path]) {

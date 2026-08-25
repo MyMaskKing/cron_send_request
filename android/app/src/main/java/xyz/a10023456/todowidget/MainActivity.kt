@@ -87,6 +87,9 @@ private val TABS = listOf(
     Tab("我的", "👤", null)
 )
 
+// 标记原生壳：每次 loadUrl 都带此头，服务端据此隐藏顶部网站导航（cookie 因 setCookie 异步有竞态，用头保证当次请求立即生效）
+private val APP_HEADERS = mapOf("X-App-Shell" to "1")
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun AppShell(initialUrl: String?) {
@@ -213,14 +216,14 @@ private fun AppShell(initialUrl: String?) {
                             }
                         }
                         webChromeClient = WebChromeClient()
-                        loadUrl(targetUrl)
+                        loadUrl(targetUrl, APP_HEADERS)
                         webViewRef = this
                     }
                 },
                 update = { wv ->
                     if (wv.url != targetUrl) {
                         CookieManager.getInstance().setCookie(baseUrl, "app_shell=1; Path=/")
-                        wv.loadUrl(targetUrl)
+                        wv.loadUrl(targetUrl, APP_HEADERS)
                     }
                 },
                 modifier = Modifier.fillMaxSize()
@@ -239,7 +242,7 @@ private fun AppShell(initialUrl: String?) {
                         targetUrl = baseUrl + "/todo"
                         selected = 0
                         showMe = false
-                        webViewRef?.loadUrl(targetUrl)
+                        // 由 update 回调统一带 X-App-Shell 头 + 重写 app_shell cookie 后加载
                     },
                     onOpenInBrowser = {
                         val url = webViewRef?.url ?: baseUrl

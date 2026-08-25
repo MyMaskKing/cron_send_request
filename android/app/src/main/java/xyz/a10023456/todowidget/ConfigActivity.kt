@@ -90,17 +90,29 @@ class ConfigActivity : ComponentActivity() {
             return
         }
         val scope = Prefs.getScope(this, appWidgetId)
-        Toast.makeText(this, "测试中…", Toast.LENGTH_SHORT).show()
+        val baseUrl = AppConfig.getBaseUrl(this)
+        val endpoint = if (sid.isNotBlank())
+            "$baseUrl/api/todo-widget?scope=$scope&limit=20"
+        else
+            "$baseUrl/api/public/todo-widget/$token?scope=$scope&limit=20"
+        Toast.makeText(this, "测试中…\n$endpoint", Toast.LENGTH_LONG).show()
         kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
-            val ok = runCatching {
-                ApiClient.fetchWidget(AppConfig.getBaseUrl(this@ConfigActivity), sid, token, scope).success
-            }.getOrDefault(false)
+            val result = runCatching {
+                ApiClient.fetchWidget(baseUrl, sid, token, scope)
+            }
             withContext(Dispatchers.Main) {
-                Toast.makeText(
-                    this@ConfigActivity,
-                    if (ok) "✅ 连接成功" else "❌ 连接失败，检查登录/地址/token",
-                    Toast.LENGTH_LONG
-                ).show()
+                val msg = result.fold(
+                    onSuccess = {
+                        if (it.success)
+                            "✅ 连接成功（${it.stats.pending} 待办 / ${it.stats.overdue} 逾期）"
+                        else "❌ 后端返回 success=false"
+                    },
+                    onFailure = { e ->
+                        // 直出真实原因（HTTP 401/404、网络、证书等），便于排查
+                        "❌ 连接失败：${e.message ?: "未知错误"}\n$endpoint"
+                    }
+                )
+                Toast.makeText(this@ConfigActivity, msg, Toast.LENGTH_LONG).show()
             }
         }
     }
