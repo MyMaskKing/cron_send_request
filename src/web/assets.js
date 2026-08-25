@@ -1051,6 +1051,45 @@ if (qlEl) qlEl.addEventListener('change', async function(){
     showMsg(msg, '免密登录设置已保存', true);
   } catch(err){ showMsg(msg, err.message, false); qlEl.checked = !qlEl.checked; }
 });
+// 免密 Token：加载并渲染各模块 report_token + 一键复制
+var SHARE_META = {
+  fund:   { name:'基金持仓', path:'/fr/' },
+  weight: { name:'体重',     path:'/wr/' },
+  asset:  { name:'资产',     path:'/ar/' },
+  todo:   { name:'待办',     path:'/tr/' }
+};
+window.copyInput = function(id){
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.select(); el.setSelectionRange(0, el.value.length);
+  try { document.execCommand('copy'); showMsg(msg, '已复制', true); }
+  catch(e){ showMsg(msg, '请手动复制', false); }
+};
+async function loadShareTokens(){
+  var box = document.getElementById('shareTokenBox');
+  if (!box) return;
+  try {
+    var d = await api('/api/share/tokens');
+    var origin = location.origin;
+    box.innerHTML = Object.keys(SHARE_META).map(function(m){
+      var t = (d.tokens[m] && d.tokens[m].token) || '';
+      var meta = SHARE_META[m];
+      var inputId = 'st_' + m;
+      var linkId = 'sl_' + m;
+      return '<div style="margin-bottom:12px;padding:10px;background:#faf9f5;border-radius:6px;">'
+        + '<label style="font-weight:600;margin-bottom:4px;display:block;">' + meta.name + ' report_token</label>'
+        + '<div class="row" style="align-items:center;">'
+        + '<input id="' + inputId + '" readonly value="' + t + '" style="flex:1;font-family:monospace;font-size:12px;">'
+        + '<button class="btn sm" type="button" onclick="copyInput(\\'' + inputId + '\\')">复制token</button>'
+        + '</div>'
+        + '<div class="row" style="align-items:center;margin-top:6px;">'
+        + '<input id="' + linkId + '" readonly value="' + origin + meta.path + t + '" style="flex:1;font-size:12px;">'
+        + '<button class="btn sm gray" type="button" onclick="copyInput(\\'' + linkId + '\\')">复制链接</button>'
+        + '</div></div>';
+    }).join('');
+  } catch(e){ box.innerHTML = '<p class="muted" style="font-size:12px;color:#c00;">加载失败：' + (e.message||'') + '</p>'; }
+}
+loadShareTokens();
 // 模块级重置免密链接
 window.resetShare = async function(module){
   var names = { fund:'基金', weight:'体重', asset:'资产', todo:'待办' };
@@ -1058,6 +1097,7 @@ window.resetShare = async function(module){
     try {
       var r = await api('/api/share/reset/' + module, { method:'POST' });
       showMsg(msg, r.message, true);
+      loadShareTokens();
     } catch(err){ showMsg(msg, err.message, false); }
   });
 };

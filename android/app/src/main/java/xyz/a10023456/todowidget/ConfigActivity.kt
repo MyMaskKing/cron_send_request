@@ -1,5 +1,8 @@
 package xyz.a10023456.todowidget
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Bundle
@@ -34,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.glance.appwidget.updateAll
@@ -66,7 +70,7 @@ class ConfigActivity : ComponentActivity() {
                         initialToken = token,
                         initialScope = scope,
                         baseUrl = baseUrl,
-                        loggedIn = Prefs.getSid(this).isNotBlank(),
+                        sid = Prefs.getSid(this),
                         onTest = { t -> testConnection(t) },
                         onSave = { t, s -> save(t, s) }
                     )
@@ -126,12 +130,14 @@ private fun ConfigScreen(
     initialToken: String,
     initialScope: String,
     baseUrl: String,
-    loggedIn: Boolean,
+    sid: String,
     onTest: (String) -> Unit,
     onSave: (String, String) -> Unit
 ) {
+    val context = LocalContext.current
     var token by remember { mutableStateOf(initialToken) }
     var scope by remember { mutableStateOf(initialScope) }
+    val loggedIn = sid.isNotBlank()
     val scopes = listOf(
         "cur" to "今日 + 逾期（推荐）",
         "today" to "仅今天到期",
@@ -142,27 +148,47 @@ private fun ConfigScreen(
     Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
         Text("配置待办小组件", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(4.dp))
-        Text(
-            "已在 App 内登录则无需填写 report_token；未登录时才需从网页「推送设置→待办」复制。服务器地址在 App「我的→设置」修改。",
-            style = MaterialTheme.typography.bodySmall, color = Color.Gray
-        )
-        Spacer(Modifier.height(12.dp))
         Text("服务器：$baseUrl", style = MaterialTheme.typography.bodyMedium)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            if (loggedIn) "当前状态：已登录（使用登录会话，report_token 可不填）"
-            else "当前状态：未登录（需填写 report_token）",
-            style = MaterialTheme.typography.bodySmall,
-            color = if (loggedIn) Color(0xFF2E7D32) else Color.Gray
-        )
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = token,
-            onValueChange = { token = it },
-            label = { Text("report_token（可选）") },
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
-        )
+        Spacer(Modifier.height(8.dp))
+
+        if (loggedIn) {
+            Text(
+                "✅ 当前已登录：小组件直接使用 App 的登录会话（sid）拉取数据，无需填写 report_token。",
+                style = MaterialTheme.typography.bodySmall, color = Color(0xFF2E7D32)
+            )
+            Spacer(Modifier.height(12.dp))
+            Text("登录会话 sid", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = sid,
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("sid", sid))
+                    Toast.makeText(context, "sid 已复制", Toast.LENGTH_SHORT).show()
+                }) { Text("复制") }
+            }
+        } else {
+            Text(
+                "⚠️ 当前未在 App 内登录，小组件无法使用登录会话。请在下方填写 report_token（从网页「个人设置→免密 Token」复制待办模块的 token）；或先返回 App 登录后再配置，即可免填 token。",
+                style = MaterialTheme.typography.bodySmall, color = Color(0xFFB26A00)
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = token,
+                onValueChange = { token = it },
+                label = { Text("report_token（必填）") },
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
+            )
+        }
+
         Spacer(Modifier.height(16.dp))
         Text("显示范围", style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(4.dp))
@@ -180,9 +206,9 @@ private fun ConfigScreen(
         }
         Spacer(Modifier.height(20.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(onClick = { onTest(token) }) { Text("测试连接") }
+            TextButton(onClick = { onTest(if (loggedIn) "" else token) }) { Text("测试连接") }
             Spacer(Modifier.weight(1f))
-            Button(onClick = { onSave(token, scope) }) { Text("保存") }
+            Button(onClick = { onSave(if (loggedIn) "" else token, scope) }) { Text("保存") }
         }
     }
 }

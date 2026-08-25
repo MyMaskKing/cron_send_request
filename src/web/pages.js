@@ -575,8 +575,12 @@ function settingsPage(user) {
       </label>
       <p class="muted" style="font-size:12px;">开启后，从免密页登录只能看到对应模块，其他页面不可访问；关闭则为完整登录。</p>
       <hr style="margin:20px 0;border:none;border-top:1px solid #eee;">
-      <h2 style="font-size:15px;">免密链接管理</h2>
-      <p class="muted" style="font-size:12px;">重置后该模块下全部旧免密链接（含报告链接）立即失效，需重新获取分享。</p>
+      <h2 style="font-size:15px;">免密 Token</h2>
+      <p class="muted" style="font-size:12px;">每个模块一个 report_token，用于公开报告页链接与 Android 桌面小组件；点「复制」即可取用。从未生成过的会在打开本页时自动创建。</p>
+      <div id="shareTokenBox" style="margin-top:8px;"><p class="muted" style="font-size:12px;">加载中…</p></div>
+      <hr style="margin:20px 0;border:none;border-top:1px solid #eee;">
+      <h2 style="font-size:15px;">重置免密链接</h2>
+      <p class="muted" style="font-size:12px;">重置后该模块下全部旧免密链接（含报告链接与小组件 token）立即失效，需用上方新 token 重新配置。</p>
       <div id="shareResetBox" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
         <button class="btn sm gray" onclick="resetShare('fund')">重置基金链接</button>
         <button class="btn sm gray" onclick="resetShare('weight')">重置体重链接</button>

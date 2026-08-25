@@ -7,6 +7,7 @@ import { json, error } from '../router.js';
 import { getStorage } from '../storage/adapter.js';
 import { requireAuth, requireAdmin } from '../auth/middleware.js';
 import { ALLOWED_FORMATS } from '../config.js';
+import { generateToken } from '../auth/password.js';
 
 const MODULES = ['fund', 'weight', 'asset', 'monitor', 'todo'];
 // 可重置免密链接的业务模块（monitor 无免密链接）
@@ -90,6 +91,27 @@ async function setPushConfig({ request, env, params }) {
   return json({ success: true, message: '推送配置已保存' });
 }
 
+/** 各模块 report_token 对应的公开路径（报告/协作页；小组件走 /api/public/todo-widget/:token） */
+const REPORT_PATHS = {
+  fund:   ['/fr/:token  基金持仓报告'],
+  weight: ['/wr/:token  体重报告'],
+  asset:  ['/ar/:token  资产报告'],
+  todo:   ['/tr/:token  待办报告', '/tc/:token  待办协作', '小组件数据接口']
+};
+
+/** GET /api/share/tokens  返回当前用户各模块的 report_token（不存在则自动生成） */
+async function getMyShareTokens({ request, env }) {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+  const storage = getStorage(env);
+  const tokens = {};
+  for (const m of SHARE_MODULES) {
+    const token = await storage.push.ensureReportToken(auth.user_id, m, generateToken());
+    tokens[m] = { token, usage: REPORT_PATHS[m] || [] };
+  }
+  return json({ success: true, tokens });
+}
+
 /** POST /api/share/reset/:module  重置自己该模块的全部免密链接 */
 async function resetMyModuleShare({ request, env, params }) {
   const auth = await requireAuth(request, env);
@@ -113,4 +135,4 @@ async function adminResetModuleShare({ request, env, params }) {
   return json({ success: true, message: '该用户该模块免密链接已重置' });
 }
 
-export { getPushConfig, setPushConfig, resetMyModuleShare, adminResetModuleShare };
+export { getPushConfig, setPushConfig, getMyShareTokens, resetMyModuleShare, adminResetModuleShare };

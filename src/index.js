@@ -44,7 +44,7 @@ import {
   publicWalletInfo, publicSaveRecord, publicAssetReport
 } from './api/asset.api.js';
 import { buildAssetReportData } from './services/asset.service.js';
-import { getPushConfig, setPushConfig, resetMyModuleShare, adminResetModuleShare } from './api/push.api.js';
+import { getPushConfig, setPushConfig, getMyShareTokens, resetMyModuleShare, adminResetModuleShare } from './api/push.api.js';
 import { listPushLogs, countPushLogs, deletePushLogsRange } from './api/pushLog.api.js';
 import { shouldRun, nowCN } from './services/schedule.service.js';
 import { buildFundReport, buildAssetReport, buildWeightReport, buildTodoReport, filterTodayOverdue } from './services/report.service.js';
@@ -207,6 +207,7 @@ router.get('/api/push/:module', getPushConfig);
 router.put('/api/push/:module', setPushConfig);
 router.post('/api/push/:module/send', runMyModulePush);
 // 免密链接模块级重置
+router.get('/api/share/tokens', getMyShareTokens);
 router.post('/api/share/reset/:module', resetMyModuleShare);
 router.post('/api/admin/share/reset/:module/:userId', adminResetModuleShare);
 
