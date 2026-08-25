@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,31 +15,28 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.material3.menuAnchor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -121,7 +119,6 @@ class ConfigActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConfigScreen(
     initialToken: String,
@@ -132,8 +129,12 @@ private fun ConfigScreen(
 ) {
     var token by remember { mutableStateOf(initialToken) }
     var scope by remember { mutableStateOf(initialScope) }
-    var expanded by remember { mutableStateOf(false) }
-    val scopes = listOf("cur" to "今日+逾期", "today" to "仅今天", "overdue" to "仅逾期", "all" to "全部未完成")
+    val scopes = listOf(
+        "cur" to "今日 + 逾期（推荐）",
+        "today" to "仅今天到期",
+        "overdue" to "仅逾期",
+        "all" to "全部未完成"
+    )
 
     Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
         Text("配置待办小组件", style = MaterialTheme.typography.titleLarge)
@@ -152,19 +153,18 @@ private fun ConfigScreen(
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
         )
-        Spacer(Modifier.height(12.dp))
-        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-            OutlinedTextField(
-                value = scopes.first { it.first == scope }.second,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("显示范围") },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                modifier = Modifier.menuAnchor().fillMaxWidth()
-            )
-            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                scopes.forEach { (k, label) ->
-                    DropdownMenuItem(text = { Text(label) }, onClick = { scope = k; expanded = false })
+        Spacer(Modifier.height(16.dp))
+        Text("显示范围", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        Column {
+            scopes.forEach { (k, label) ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { scope = k }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(selected = scope == k, onClick = { scope = k })
+                    Spacer(Modifier.width(8.dp))
+                    Text(label, style = MaterialTheme.typography.bodyLarge)
                 }
             }
         }

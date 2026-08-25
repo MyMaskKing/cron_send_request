@@ -8,6 +8,7 @@ import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -18,7 +19,7 @@ class RefreshAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters
     ) {
-        val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.toAppWidgetIdSafe()
+        val widgetId = parameters[Keys.AppWidgetId] ?: return
         WidgetRepo.refresh(context, widgetId)
         TodoAppWidget().update(context, glanceId)
     }
@@ -31,7 +32,7 @@ class CompleteAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters
     ) {
-        val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.toAppWidgetIdSafe()
+        val widgetId = parameters[Keys.AppWidgetId] ?: return
         val itemId = parameters[Keys.ItemId] ?: return
         withContext(Dispatchers.IO) {
             try {
@@ -39,7 +40,7 @@ class CompleteAction : ActionCallback {
                 val token = Prefs.getToken(context, widgetId)
                 ApiClient.markDone(baseUrl, token, itemId)
             } catch (_: Exception) {
-                // 失败也继续刷新（可能本地已变更），由刷新把服务端真实状态拉回
+                // 失败也继续刷新，由刷新把服务端真实状态拉回
             }
             WidgetRepo.refresh(context, widgetId)
         }
@@ -54,7 +55,7 @@ class CollapseAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters
     ) {
-        val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.toAppWidgetIdSafe()
+        val widgetId = parameters[Keys.AppWidgetId] ?: return
         val rootId = parameters[Keys.RootId] ?: return
         Prefs.toggleCollapsed(context, widgetId, rootId)
         TodoAppWidget().update(context, glanceId)
@@ -75,7 +76,7 @@ class TodoAppWidgetReceiver : GlanceAppWidgetReceiver() {
         // 初次添加/系统更新时各拉一次
         appWidgetIds.forEach { id ->
             if (Prefs.isConfigured(context, id)) {
-                kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+                GlobalScope.launch(Dispatchers.IO) {
                     WidgetRepo.refresh(context, id)
                     TodoAppWidget().updateAll(context)
                 }
@@ -88,7 +89,3 @@ class TodoAppWidgetReceiver : GlanceAppWidgetReceiver() {
         super.onDeleted(context, appWidgetIds)
     }
 }
-
-/** 容错取 appWidgetId（参数缺失时从 glanceId 解析）。 */
-private fun GlanceId.toAppWidgetIdSafe(): Int =
-    runCatching { androidx.glance.appwidget.toAppWidgetId(this) }.getOrDefault(-1)

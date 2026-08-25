@@ -2,6 +2,8 @@ package xyz.a10023456.todowidget
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.action.ActionParameters
@@ -13,15 +15,13 @@ import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
-import androidx.glance.appwidget.toAppWidgetId
+import androidx.glance.ImageProvider
 import androidx.glance.background
-import androidx.glance.border
 import androidx.glance.color.ColorProvider
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
-import androidx.glance.layout.RoundedCornerShape
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.defaultWeight
 import androidx.glance.layout.fillMaxSize
@@ -39,14 +39,22 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** 小组件配色：day/night 两套，跟随系统深色（仅用于文字；圆角背景走 drawable 以兼容 Glance 1.1）。 */
+private object W {
+    val text = ColorProvider(day = Color(0xFF14141E), night = Color(0xFFF2F1F7))
+    val sub = ColorProvider(day = Color(0xFF8890B8), night = Color(0xFF9A93B5))
+    val overdue = ColorProvider(day = Color(0xFFCF1322), night = Color(0xFFFF6B6B))
+    val brand = ColorProvider(day = Color(0xFFA855F7), night = Color(0xFFA855F7))
+}
+
 /** 小组件渲染入口。 */
 class TodoAppWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val appWidgetId = id.toAppWidgetId()
-        val data = WidgetRepo.cached(context, appWidgetId)
-        val failed = Prefs.isFailed(context, appWidgetId)
-        val configured = Prefs.isConfigured(context, appWidgetId)
+        val appWidgetId = id.resolveAppWidgetId()
         provideContent {
+            val data = remember(appWidgetId) { WidgetRepo.cached(context, appWidgetId) }
+            val failed = Prefs.isFailed(context, appWidgetId)
+            val configured = Prefs.isConfigured(context, appWidgetId)
             WidgetRoot(
                 configured = configured,
                 data = data,
@@ -57,13 +65,22 @@ class TodoAppWidget : GlanceAppWidget() {
     }
 }
 
+/** Glance 1.1.0 未公开 toAppWidgetId()；GlanceId 实现类持有 Int appWidgetId，反射取第一个 Int 字段。 */
+private fun GlanceId.resolveAppWidgetId(): Int = try {
+    val f = this::class.java.declaredFields.firstOrNull { it.type == Int::class.javaPrimitiveType }
+    f?.isAccessible = true
+    f?.getInt(this) ?: -1
+} catch (_: Exception) {
+    -1
+}
+
 @Composable
 private fun WidgetRoot(configured: Boolean, data: WidgetResponse?, failed: Boolean, widgetId: Int) {
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
             .padding(6.dp)
-            .background(ColorProvider(R.color.widget_bg), RoundedCornerShape(18.dp)),
+            .background(imageProvider = ImageProvider(R.drawable.bg_card)),
         contentAlignment = Alignment.TopStart
     ) {
         if (!configured) {
@@ -89,11 +106,7 @@ private fun NotConfigured(widgetId: Int) {
         Spacer(GlanceModifier.height(6.dp))
         Text(
             "点此配置小组件",
-            style = TextStyle(
-                color = ColorProvider(R.color.brand),
-                fontWeight = FontWeight.Medium,
-                fontSize = 13.sp
-            )
+            style = TextStyle(color = W.brand, fontWeight = FontWeight.Medium, fontSize = 13.sp)
         )
     }
 }
@@ -107,7 +120,7 @@ private fun WidgetBody(data: WidgetResponse?, failed: Boolean, widgetId: Int) {
         if (failed) {
             Text(
                 "⚠️ 连接失败，显示上次数据",
-                style = TextStyle(color = ColorProvider(R.color.widget_overdue), fontSize = 11.sp),
+                style = TextStyle(color = W.overdue, fontSize = 11.sp),
                 maxLines = 1
             )
             Spacer(GlanceModifier.height(2.dp))
@@ -118,10 +131,7 @@ private fun WidgetBody(data: WidgetResponse?, failed: Boolean, widgetId: Int) {
                 modifier = GlanceModifier.fillMaxWidth().height(56.dp).defaultWeight(),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    "🎉 当前范围没有待办",
-                    style = TextStyle(color = ColorProvider(R.color.widget_sub), fontSize = 13.sp)
-                )
+                Text("🎉 当前范围没有待办", style = TextStyle(color = W.sub, fontSize = 13.sp))
             }
         } else {
             LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
@@ -156,34 +166,27 @@ private fun Header(data: WidgetResponse?, widgetId: Int) {
     ) {
         Text(
             "📝 待办",
-            style = TextStyle(
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                color = ColorProvider(R.color.widget_text)
-            )
+            style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp, color = W.text)
         )
         if (data != null) {
             Spacer(GlanceModifier.width(6.dp))
-            StatChip(data.stats.pending, R.color.widget_text)
+            StatChip(data.stats.pending, W.text)
             Spacer(GlanceModifier.width(4.dp))
-            StatChip(data.stats.overdue, R.color.widget_overdue)
+            StatChip(data.stats.overdue, W.overdue)
             Spacer(GlanceModifier.width(4.dp))
-            StatChip(data.stats.memo, R.color.widget_sub)
+            StatChip(data.stats.memo, W.sub)
         }
     }
 }
 
 @Composable
-private fun StatChip(value: Int, colorRes: Int) {
+private fun StatChip(value: Int, color: ColorProvider) {
     Box(
         modifier = GlanceModifier
-            .background(ColorProvider(R.color.widget_chip_bg), RoundedCornerShape(8.dp))
+            .background(imageProvider = ImageProvider(R.drawable.bg_chip))
             .padding(horizontal = 7.dp, vertical = 2.dp)
     ) {
-        Text(
-            value.toString(),
-            style = TextStyle(color = ColorProvider(colorRes), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        )
+        Text(value.toString(), style = TextStyle(color = color, fontWeight = FontWeight.Bold, fontSize = 12.sp))
     }
 }
 
@@ -204,15 +207,12 @@ private fun GroupRow(g: WidgetGroup, widgetId: Int) {
     ) {
         Text(
             if (g.collapsible) (if (collapsed) "▶ " else "▼ ") else "• ",
-            style = TextStyle(color = ColorProvider(R.color.widget_sub), fontSize = 11.sp)
+            style = TextStyle(color = W.sub, fontSize = 11.sp)
         )
+        Spacer(GlanceModifier.width(2.dp))
         Text(
             g.title,
-            style = TextStyle(
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                color = ColorProvider(R.color.widget_text)
-            ),
+            style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 13.sp, color = W.text),
             maxLines = 1,
             modifier = GlanceModifier.defaultWeight()
         )
@@ -220,10 +220,7 @@ private fun GroupRow(g: WidgetGroup, widgetId: Int) {
             Spacer(GlanceModifier.width(6.dp))
             Text(
                 g.due_label,
-                style = TextStyle(
-                    fontSize = 11.sp,
-                    color = ColorProvider(if (g.overdue) R.color.widget_overdue else R.color.widget_sub)
-                ),
+                style = TextStyle(fontSize = 11.sp, color = if (g.overdue) W.overdue else W.sub),
                 maxLines = 1
             )
         }
@@ -240,15 +237,11 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
         modifier = GlanceModifier.fillMaxWidth().padding(start = 14.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 圆形勾选框：点击 → 完成
+        // 圆形勾选框（外层品牌圆 + 内层表面圆 = 环形），点击 → 完成
         Box(
             modifier = GlanceModifier
                 .size(22.dp)
-                .border(
-                    2.dp,
-                    ColorProvider(R.color.brand),
-                    RoundedCornerShape(11.dp)
-                )
+                .background(imageProvider = ImageProvider(R.drawable.bg_circle_brand))
                 .clickable(
                     actionRunCallback<CompleteAction>(
                         actionParametersOf(
@@ -259,19 +252,15 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                "✓",
-                style = TextStyle(
-                    color = ColorProvider(R.color.brand),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            Box(
+                modifier = GlanceModifier.size(18.dp)
+                    .background(imageProvider = ImageProvider(R.drawable.bg_circle_surface))
             )
         }
         Spacer(GlanceModifier.width(8.dp))
         Text(
             child.title,
-            style = TextStyle(fontSize = 13.sp, color = ColorProvider(R.color.widget_text)),
+            style = TextStyle(fontSize = 13.sp, color = W.text),
             maxLines = 2,
             modifier = GlanceModifier.defaultWeight().clickable(
                 actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to openUrl))
@@ -292,11 +281,7 @@ private fun Footer(widgetId: Int) {
     ) {
         Text(
             "＋ 新增",
-            style = TextStyle(
-                color = ColorProvider(R.color.brand),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
-            ),
+            style = TextStyle(color = W.brand, fontSize = 12.sp, fontWeight = FontWeight.Medium),
             modifier = GlanceModifier.clickable(
                 actionStartActivity<AddTaskActivity>(
                     actionParametersOf(Keys.AppWidgetId to widgetId)
@@ -306,8 +291,12 @@ private fun Footer(widgetId: Int) {
         Spacer(GlanceModifier.defaultWeight())
         Text(
             "↻ $time",
-            style = TextStyle(color = ColorProvider(R.color.widget_sub), fontSize = 11.sp),
-            modifier = GlanceModifier.clickable(actionRunCallback<RefreshAction>())
+            style = TextStyle(color = W.sub, fontSize = 11.sp),
+            modifier = GlanceModifier.clickable(
+                actionRunCallback<RefreshAction>(
+                    actionParametersOf(Keys.AppWidgetId to widgetId)
+                )
+            )
         )
     }
 }
