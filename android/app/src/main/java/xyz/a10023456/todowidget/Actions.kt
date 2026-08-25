@@ -37,8 +37,9 @@ class CompleteAction : ActionCallback {
         withContext(Dispatchers.IO) {
             try {
                 val baseUrl = Prefs.getBaseUrl(context, widgetId)
+                val sid = Prefs.getSid(context)
                 val token = Prefs.getToken(context, widgetId)
-                ApiClient.markDone(baseUrl, token, itemId)
+                ApiClient.markDone(baseUrl, sid, token, itemId)
             } catch (_: Exception) {
                 // 失败也继续刷新，由刷新把服务端真实状态拉回
             }
@@ -73,9 +74,10 @@ class TodoAppWidgetReceiver : GlanceAppWidgetReceiver() {
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
         RefreshWorker.enqueue(context)
-        // 初次添加/系统更新时各拉一次
+        // 初次添加/系统更新时各拉一次：已登录 App 或已配 token 即可
+        val ready = Prefs.isLoggedIn(context)
         appWidgetIds.forEach { id ->
-            if (Prefs.isConfigured(context, id)) {
+            if (ready || Prefs.isConfigured(context, id)) {
                 GlobalScope.launch(Dispatchers.IO) {
                     WidgetRepo.refresh(context, id)
                     TodoAppWidget().updateAll(context)

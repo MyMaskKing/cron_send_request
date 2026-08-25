@@ -52,7 +52,7 @@ import { buildTree, flattenPending } from './services/todo.service.js';
 import {
   listTodos, createTodo, updateTodo, toggleTodo, removeTodo, getShareLink as getTodoShareLink, todoChart, reorderTodo,
   publicTodoInfo, publicAddTodo, publicToggleTodo, publicUpdateTodo, publicReorder, publicTodoReport, publicTodoChart,
-  widgetTodo,
+  widgetTodo, widgetTodoAuth,
   publicAllAdd, publicAllToggle, publicAllUpdate, publicAllReorder
 } from './api/todo.api.js';
 import { parseOffset, fmtShort } from './services/time.service.js';
@@ -181,6 +181,7 @@ router.get('/api/public/asset-report/:token', publicAssetReport);
 
 // --- 待办 API ---
 router.get('/api/todo/list', listTodos);
+router.get('/api/todo-widget', widgetTodoAuth);
 router.get('/api/todo/chart', todoChart);
 router.put('/api/todo/reorder', reorderTodo);
 router.post('/api/todo', createTodo);

@@ -386,6 +386,27 @@ async function publicTodoChart({ env, params, url }) {
   return json({ success: true, series });
 }
 
+/** 小组件响应体构造（鉴权方式由调用方决定）。scope/limit 解析与公开/登录两口径一致。 */
+async function buildWidgetPayload(storage, userId, url, touchLastPublic) {
+  const scopeRaw = url.searchParams.get('scope');
+  const scope = (scopeRaw === 'today' || scopeRaw === 'overdue' || scopeRaw === 'all') ? scopeRaw : 'cur';
+  let limit = parseInt(url.searchParams.get('limit') || '20', 10);
+  if (!isFinite(limit)) limit = 20;
+  limit = Math.max(1, Math.min(50, limit));
+
+  if (touchLastPublic) await storage.users.updateLastPublic(userId);
+  const rows = await storage.todo.listByUser(userId);
+  const owner = await storage.users.findById(userId);
+  const today = todayCN();
+  return {
+    success: true,
+    owner_name: owner ? (owner.nickname || owner.username) : '',
+    today,
+    stats: countStats(rows, today),
+    groups: buildWidgetGroups(rows, today, scope, limit)
+  };
+}
+
 /** GET /api/public/todo-widget/:token?scope=&limit=  小组件专用：轻量「顶层分组」数据
  * scope ∈ cur(默认,今日+逾期)|today|overdue|all；limit 默认 20，clamp [1,50]
  * 仅接受 module=todo 的 report_token（与 todo-all 汇总页同口径），不接受单清单 share_token
@@ -394,24 +415,15 @@ async function widgetTodo({ env, params, url }) {
   const storage = getStorage(env);
   const userId = await resolveUserByReportToken(storage, params.token);
   if (userId == null) return error('链接无效或已失效', 404);
+  return json(await buildWidgetPayload(storage, userId, url, true));
+}
 
-  const scopeRaw = url.searchParams.get('scope');
-  const scope = (scopeRaw === 'today' || scopeRaw === 'overdue' || scopeRaw === 'all') ? scopeRaw : 'cur';
-  let limit = parseInt(url.searchParams.get('limit') || '20', 10);
-  if (!isFinite(limit)) limit = 20;
-  limit = Math.max(1, Math.min(50, limit));
-
-  await storage.users.updateLastPublic(userId);
-  const rows = await storage.todo.listByUser(userId);
-  const owner = await storage.users.findById(userId);
-  const today = todayCN();
-  return json({
-    success: true,
-    owner_name: owner ? (owner.nickname || owner.username) : '',
-    today,
-    stats: countStats(rows, today),
-    groups: buildWidgetGroups(rows, today, scope, limit)
-  });
+/** GET /api/todo-widget?scope=&limit=  登录态小组件数据：复用 App 会话 Cookie（sid），无需 report_token */
+async function widgetTodoAuth({ request, env, url }) {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+  const storage = getStorage(env);
+  return json(await buildWidgetPayload(storage, auth.user_id, url, false));
 }
 
 // ==================== 免密汇总协作（用户级 report_token，跨全部清单可写） ====================
@@ -562,6 +574,6 @@ async function publicAllReorder({ request, env, params }) {
 export {
   listTodos, createTodo, updateTodo, toggleTodo, removeTodo, getShareLink, todoChart, reorderTodo,
   publicTodoInfo, publicAddTodo, publicToggleTodo, publicUpdateTodo, publicReorder, publicTodoReport, publicTodoChart,
-  widgetTodo,
+  widgetTodo, widgetTodoAuth,
   publicAllAdd, publicAllToggle, publicAllUpdate, publicAllReorder
 };

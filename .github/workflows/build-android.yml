@@ -1,7 +1,7 @@
 name: Build & Release Android APK
 
 # 手动触发：GitHub 仓库 → Actions → Build & Release Android APK → Run workflow
-# push 到 main 且改动 android/ 或本文件时也会自动构建（默认生成 draft Release）
+# push 到 main 且改动 android/ 或本文件时自动构建并发布为 pre-release
 on:
   workflow_dispatch:
     inputs:
@@ -35,12 +35,14 @@ permissions:
   contents: write  # 创建 Release / 上传 APK 需要
 
 jobs:
-  # ─────────── 1. 生成本次发布用的 tag & draft Release ───────────
+  # ─────────── 1. 生成本次发布用的 tag & Release ───────────
   prepare:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
       release_id: ${{ steps.create.outputs.result }}
+      draft: ${{ steps.flags.outputs.draft }}
+      prerelease: ${{ steps.flags.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
 
@@ -68,7 +70,26 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "使用 tag: $TAG"
 
-      - name: 创建 draft Release
+      - name: 解析发布标志
+        id: flags
+        shell: bash
+        run: |
+          # push 自动触发：直接公开发布为 pre-release（debug 自动构建）
+          # workflow_dispatch 手动触发：用界面选择的 draft/prerelease（默认 draft）
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            DRAFT="${{ github.event.inputs.draft }}"
+            PRE="${{ github.event.inputs.prerelease }}"
+            [ -z "$DRAFT" ] && DRAFT="true"
+            [ -z "$PRE" ] && PRE="false"
+          else
+            DRAFT="false"
+            PRE="true"
+          fi
+          echo "draft=$DRAFT" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+          echo "发布标志: draft=$DRAFT prerelease=$PRE"
+
+      - name: 创建 Release
         id: create
         uses: actions/github-script@v7
         with:
@@ -79,9 +100,9 @@ jobs:
               repo:  context.repo.repo,
               tag_name: tag,
               name: `📝 待办小组件 ${tag}`,
-              body: `## 待办小组件 ${tag}\n\nCloudflare Workers 个人仪表盘的 Android 客户端：桌面待办小组件 + 内嵌网页的 5 Tab 应用壳。\n\n### 下载\n- 下方 \`.apk\` 文件（debug 签名，手机自用）\n\n> 安装后在桌面添加「待办速览」小组件，填入网页「推送设置 → 待办」的 report_token。`,
-              draft: ${{ github.event.inputs.draft || 'true' }},
-              prerelease: ${{ github.event.inputs.prerelease || 'false' }},
+              body: `## 待办小组件 ${tag}\n\nCloudflare Workers 个人仪表盘的 Android 客户端：桌面待办小组件 + 内嵌网页的 5 Tab 应用壳。\n\n### 下载\n- 下方 \`.apk\` 文件（debug 签名，手机自用）\n\n> 安装后先打开 App 登录，再在桌面添加「待办速览」小组件即可自动显示今日+逾期待办，无需额外配置。`,
+              draft: ${{ steps.flags.outputs.draft }},
+              prerelease: ${{ steps.flags.outputs.prerelease }},
             });
             return data.id;
 
@@ -147,10 +168,11 @@ jobs:
               data: apk,
             });
 
-  # ─────────── 3. 构建完成后发布 Release（仅 draft=false 时）───────────
+  # ─────────── 3. 构建完成后发布 Release（仅手动触发且 draft=false 时）───────────
+  # push 自动触发在 create 时已直接发布为 pre-release，无需此步
   publish:
     needs: [prepare, build]
-    if: ${{ github.event.inputs.draft == 'false' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.prepare.outputs.draft == 'false' }}
     runs-on: ubuntu-latest
     steps:
       - name: 把 draft 翻成正式发布
@@ -162,5 +184,5 @@ jobs:
               repo:  context.repo.repo,
               release_id: ${{ needs.prepare.outputs.release_id }},
               draft: false,
-              prerelease: ${{ github.event.inputs.prerelease || 'false' }},
+              prerelease: ${{ needs.prepare.outputs.prerelease }},
             });

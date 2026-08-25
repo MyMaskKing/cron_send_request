@@ -8,7 +8,6 @@
     android:maxResizeHeight="320dp"
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/glance_default_loading_layout"
-    android:configure="xyz.a10023456.todowidget.ConfigActivity"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:widgetFeatures="reconfigurable"

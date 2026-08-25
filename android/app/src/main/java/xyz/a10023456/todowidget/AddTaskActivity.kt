@@ -64,16 +64,17 @@ class AddTaskActivity : ComponentActivity() {
             Toast.makeText(this, "请从桌面小组件进入新增", Toast.LENGTH_LONG).show()
             return
         }
-        val token = Prefs.getToken(this, widgetId)
-        if (token.isBlank()) {
-            Toast.makeText(this, "小组件未配置，请先配置", Toast.LENGTH_LONG).show()
+        val sid = Prefs.getSid(this)
+        val token = if (sid.isBlank()) Prefs.getToken(this, widgetId) else ""
+        if (sid.isBlank() && token.isBlank()) {
+            Toast.makeText(this, "请先在 App 登录", Toast.LENGTH_LONG).show()
             finish()
             return
         }
         val baseUrl = Prefs.getBaseUrl(this, widgetId)
         kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
             val ok = runCatching {
-                ApiClient.addTask(baseUrl, token, title).success
+                ApiClient.addTask(baseUrl, sid, token, title).success
             }.getOrDefault(false)
             if (ok) {
                 WidgetRepo.refresh(this@AddTaskActivity, widgetId)

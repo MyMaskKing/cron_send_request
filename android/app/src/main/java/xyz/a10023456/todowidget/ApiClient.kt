@@ -8,7 +8,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/** 服务端公开 API 客户端（仅 https，10s 超时）。所有方法为阻塞调用，需在 IO 线程执行。 */
+/**
+ * 服务端 API 客户端。优先用 App 登录会话 Cookie（sid）调登录态接口；
+ * 未登录时回退到免密 report_token 接口。10s 超时，所有方法为阻塞调用，需在 IO 线程执行。
+ */
 object ApiClient {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -24,10 +27,20 @@ object ApiClient {
 
     private fun baseUrlOf(baseUrl: String): String = AppConfig.normalize(baseUrl).trimEnd('/')
 
-    /** GET 小组件分组数据；失败（网络/非 2xx/token 失效）抛异常。 */
-    fun fetchWidget(baseUrl: String, token: String, scope: String): WidgetResponse {
-        val url = "${baseUrlOf(baseUrl)}/api/public/todo-widget/$token?scope=$scope&limit=20"
-        val req = Request.Builder().url(url).get().build()
+    /** 已登录则带 Cookie，否则附加 token 路径。 */
+    private fun Request.Builder.auth(sid: String, token: String): Request.Builder {
+        if (sid.isNotBlank()) header("Cookie", "sid=$sid")
+        return this
+    }
+
+    /** GET 小组件分组数据；失败（网络/非 2xx/会话失效）抛异常。 */
+    fun fetchWidget(baseUrl: String, sid: String, token: String, scope: String): WidgetResponse {
+        val base = baseUrlOf(baseUrl)
+        val url = if (sid.isNotBlank())
+            "$base/api/todo-widget?scope=$scope&limit=20"
+        else
+            "$base/api/public/todo-widget/$token?scope=$scope&limit=20"
+        val req = Request.Builder().url(url).get().auth(sid, token).build()
         client.newCall(req).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
@@ -39,10 +52,15 @@ object ApiClient {
     }
 
     /** 勾选完成（已完成的重复任务由后端自动滚动到下一次）。 */
-    fun markDone(baseUrl: String, token: String, id: Long): DoneResponse {
-        val url = "${baseUrlOf(baseUrl)}/api/public/todo-all/$token/$id/done"
+    fun markDone(baseUrl: String, sid: String, token: String, id: Long): DoneResponse {
+        val base = baseUrlOf(baseUrl)
+        val url = if (sid.isNotBlank())
+            "$base/api/todo/$id/done"
+        else
+            "$base/api/public/todo-all/$token/$id/done"
         val req = Request.Builder().url(url)
             .put("""{"done":true}""".toRequestBody(JSON_MEDIA))
+            .auth(sid, token)
             .build()
         client.newCall(req).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
@@ -55,11 +73,16 @@ object ApiClient {
     }
 
     /** 新增顶层任务（仅标题；其余字段在网页补充）。 */
-    fun addTask(baseUrl: String, token: String, title: String): AddResponse {
-        val url = "${baseUrlOf(baseUrl)}/api/public/todo-all/$token"
+    fun addTask(baseUrl: String, sid: String, token: String, title: String): AddResponse {
+        val base = baseUrlOf(baseUrl)
+        val url = if (sid.isNotBlank())
+            "$base/api/todo"
+        else
+            "$base/api/public/todo-all/$token"
         val payload = JSONObject().put("title", title).toString()
         val req = Request.Builder().url(url)
             .post(payload.toRequestBody(JSON_MEDIA))
+            .auth(sid, token)
             .build()
         client.newCall(req).execute().use { resp ->
             val body = resp.body?.string().orEmpty()

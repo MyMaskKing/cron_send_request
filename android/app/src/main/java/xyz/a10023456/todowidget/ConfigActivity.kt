@@ -87,7 +87,7 @@ class ConfigActivity : ComponentActivity() {
         Toast.makeText(this, "测试中…", Toast.LENGTH_SHORT).show()
         kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
             val ok = runCatching {
-                ApiClient.fetchWidget(AppConfig.getBaseUrl(this@ConfigActivity), token, scope).success
+                ApiClient.fetchWidget(AppConfig.getBaseUrl(this@ConfigActivity), "", token, scope).success
             }.getOrDefault(false)
             withContext(Dispatchers.Main) {
                 Toast.makeText(

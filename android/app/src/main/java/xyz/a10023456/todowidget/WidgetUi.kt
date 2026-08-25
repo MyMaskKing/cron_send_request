@@ -47,6 +47,10 @@ private object W {
     val brand = DayNightColor(day = Color(0xFFA855F7), night = Color(0xFFA855F7))
 }
 
+/** 点击进入 App 的目标地址：登录态走 /todo，未登录且有 token 时走免密报告页 /tr/:token。 */
+private fun openUrlOf(ctx: Context, baseUrl: String, token: String): String =
+    if (Prefs.isLoggedIn(ctx) || token.isBlank()) "$baseUrl/todo" else "$baseUrl/tr/$token"
+
 /** 小组件渲染入口。 */
 class TodoAppWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -54,9 +58,9 @@ class TodoAppWidget : GlanceAppWidget() {
         provideContent {
             val data = remember(appWidgetId) { WidgetRepo.cached(context, appWidgetId) }
             val failed = Prefs.isFailed(context, appWidgetId)
-            val configured = Prefs.isConfigured(context, appWidgetId)
+            val ready = Prefs.isLoggedIn(context) || Prefs.isConfigured(context, appWidgetId)
             WidgetRoot(
-                configured = configured,
+                ready = ready,
                 data = data,
                 failed = failed,
                 widgetId = appWidgetId
@@ -65,17 +69,8 @@ class TodoAppWidget : GlanceAppWidget() {
     }
 }
 
-/** Glance 1.1.0 未公开 toAppWidgetId()；GlanceId 实现类持有 Int appWidgetId，反射取第一个 Int 字段。 */
-private fun GlanceId.resolveAppWidgetId(): Int = try {
-    val f = this::class.java.declaredFields.firstOrNull { it.type == Int::class.javaPrimitiveType }
-    f?.isAccessible = true
-    f?.getInt(this) ?: -1
-} catch (_: Exception) {
-    -1
-}
-
 @Composable
-private fun WidgetRoot(configured: Boolean, data: WidgetResponse?, failed: Boolean, widgetId: Int) {
+private fun WidgetRoot(ready: Boolean, data: WidgetResponse?, failed: Boolean, widgetId: Int) {
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
@@ -83,8 +78,8 @@ private fun WidgetRoot(configured: Boolean, data: WidgetResponse?, failed: Boole
             .background(imageProvider = ImageProvider(R.drawable.bg_card)),
         contentAlignment = Alignment.TopStart
     ) {
-        if (!configured) {
-            NotConfigured(widgetId)
+        if (!ready) {
+            NotReady()
         } else {
             WidgetBody(data, failed, widgetId)
         }
@@ -92,12 +87,10 @@ private fun WidgetRoot(configured: Boolean, data: WidgetResponse?, failed: Boole
 }
 
 @Composable
-private fun NotConfigured(widgetId: Int) {
+private fun NotReady() {
     Column(
         modifier = GlanceModifier.fillMaxSize().padding(16.dp).clickable(
-            actionStartActivity<ConfigActivity>(
-                actionParametersOf(Keys.AppWidgetId to widgetId)
-            )
+            actionStartActivity<MainActivity>()
         ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalAlignment = Alignment.CenterHorizontally
@@ -105,7 +98,7 @@ private fun NotConfigured(widgetId: Int) {
         Text("📝", style = TextStyle(fontSize = 22.sp))
         Spacer(GlanceModifier.height(6.dp))
         Text(
-            "点此配置小组件",
+            "打开 App 登录后显示待办",
             style = TextStyle(color = W.brand, fontWeight = FontWeight.Medium, fontSize = 13.sp)
         )
     }
@@ -156,7 +149,7 @@ private fun Header(data: WidgetResponse?, widgetId: Int) {
     val ctx = androidx.glance.LocalContext.current
     val token = Prefs.getToken(ctx, widgetId)
     val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
-    val openUrl = "$baseUrl/tr/$token"
+    val openUrl = openUrlOf(ctx, baseUrl, token)
     Row(
         modifier = GlanceModifier.fillMaxWidth().clickable(
             actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to openUrl))
@@ -232,7 +225,7 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
     val ctx = androidx.glance.LocalContext.current
     val token = Prefs.getToken(ctx, widgetId)
     val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
-    val openUrl = "$baseUrl/tr/$token"
+    val openUrl = openUrlOf(ctx, baseUrl, token)
     Row(
         modifier = GlanceModifier.fillMaxWidth().padding(start = 14.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically

@@ -1,6 +1,7 @@
 package xyz.a10023456.todowidget
 
 import android.content.Context
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.updateAll
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -13,17 +14,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
-/** 周期拉取所有已配置小组件数据并更新。系统最小周期约 15 分钟。 */
+/** 周期拉取所有已添加小组件数据并更新。系统最小周期约 15 分钟。 */
 class RefreshWorker(
     appContext: Context,
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
 
-    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val ids = Prefs.allConfiguredWidgetIds(applicationContext)
+    override suspend fun doWork(): Result {
+        // 枚举桌面上当前存在的小组件（登录态为全局会话，不再依赖每个 widget 的 token）
+        val ids = GlanceAppWidgetManager(applicationContext)
+            .getGlanceIds(TodoAppWidget::class.java)
+            .map { it.resolveAppWidgetId() }
+            .filter { it >= 0 }
         ids.forEach { id -> WidgetRepo.refresh(applicationContext, id) }
         withContext(Dispatchers.Main) { TodoAppWidget().updateAll(applicationContext) }
-        Result.success()
+        return Result.success()
     }
 
     companion object {

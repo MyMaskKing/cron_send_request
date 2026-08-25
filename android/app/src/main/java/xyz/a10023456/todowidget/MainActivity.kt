@@ -166,6 +166,11 @@ private fun AppShell(initialUrl: String?) {
                             override fun onPageFinished(view: WebView, url: String?) {
                                 super.onPageFinished(view, url)
                                 canGoBack = view.canGoBack()
+                                // 同步登录会话给小组件：从 Cookie 取 sid（native 可读 HttpOnly Cookie）
+                                val cookies = CookieManager.getInstance().getCookie(currentBaseUrl) ?: ""
+                                val sid = Regex("(?:^|;)\\s*sid=([^;]+)").find(cookies)?.groupValues?.get(1)
+                                if (!sid.isNullOrBlank()) Prefs.setSid(context, sid)
+                                else Prefs.clearSid(context)
                             }
                         }
                         webChromeClient = WebChromeClient()
@@ -187,6 +192,7 @@ private fun AppShell(initialUrl: String?) {
                     onChangeBaseUrl = { newUrl ->
                         AppConfig.setBaseUrl(context, newUrl)
                         CookieManager.getInstance().removeAllCookies(null)
+                        Prefs.clearSid(context)
                         baseUrl = AppConfig.normalize(newUrl)
                         targetUrl = baseUrl + "/todo"
                         selected = 0
@@ -199,6 +205,7 @@ private fun AppShell(initialUrl: String?) {
                     },
                     onLogout = {
                         CookieManager.getInstance().removeAllCookies(null)
+                        Prefs.clearSid(context)
                         targetUrl = baseUrl + "/login"
                         showMe = false
                         webViewRef?.loadUrl(targetUrl)

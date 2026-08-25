@@ -10,6 +10,17 @@ object Prefs {
     private fun sp(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    // ── 全局登录会话（App WebView 登录后由 MainActivity 同步）──
+    fun setSid(context: Context, sid: String) =
+        sp(context).edit().putString("sid", sid.trim()).apply()
+
+    fun getSid(context: Context): String = sp(context).getString("sid", "") ?: ""
+
+    fun clearSid(context: Context) = sp(context).edit().remove("sid").apply()
+
+    /** 已在 App 内登录（存在会话 Cookie）。 */
+    fun isLoggedIn(context: Context): Boolean = getSid(context).isNotBlank()
+
     fun getToken(context: Context, widgetId: Int): String =
         sp(context).getString("token_$widgetId", "") ?: ""
 

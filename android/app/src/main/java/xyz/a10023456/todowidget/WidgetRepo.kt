@@ -15,12 +15,13 @@ object WidgetRepo {
 
     /** 拉取最新数据并写入缓存。成功返回 true，失败返回 false（调用方渲染缓存）。 */
     suspend fun refresh(context: Context, widgetId: Int): Boolean = withContext(Dispatchers.IO) {
+        val sid = Prefs.getSid(context)
         val token = Prefs.getToken(context, widgetId)
-        if (token.isBlank()) return@withContext false
+        if (sid.isBlank() && token.isBlank()) return@withContext false
         val baseUrl = Prefs.getBaseUrl(context, widgetId)
         val scope = Prefs.getScope(context, widgetId)
         try {
-            val resp = ApiClient.fetchWidget(baseUrl, token, scope)
+            val resp = ApiClient.fetchWidget(baseUrl, sid, token, scope)
             if (!resp.success) return@withContext false
             Prefs.setCache(context, widgetId, json.encodeToString(WidgetResponse.serializer(), resp))
             true
