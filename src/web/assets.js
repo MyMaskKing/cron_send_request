@@ -5320,6 +5320,11 @@ bindClickBusy(document.getElementById('pushSend'), async function(){
     await loadPush();
     // 应用视图状态: localStorage 里可能已有 'card'/'tree', 首次进入直接全屏
     applyTodoView(_todoGetRows, drawTree);
+    // 小组件「新增」入口: ?add=1 自动弹出新建表单, 读后清掉避免刷新重弹
+    if (new URLSearchParams(location.search).get('add') === '1') {
+      history.replaceState(null, '', location.pathname);
+      openAddForm(null, '新建任务', false);
+    }
   }
   catch(e){ if (String(e.message).indexOf('登录')>=0) navTo('/login'); else alertModal(e.message, {ok:false}); }
 })();
@@ -5685,6 +5690,11 @@ async function reloadReport() {
       loadChart();
     });
     await loadChart();
+    // 小组件「新增」入口: ?add=1 自动弹出新建表单, 读后清掉避免刷新重弹
+    if (new URLSearchParams(location.search).get('add') === '1') {
+      history.replaceState(null, '', location.pathname);
+      openAddForm(null, '新建任务', false);
+    }
   } catch(e) { document.body.innerHTML = '<div class="todo-empty" style="margin-top:60px;">' + esc(e.message || '链接无效') + '</div>'; }
 })();
 `;

@@ -51,6 +51,10 @@ private object W {
 private fun openUrlOf(ctx: Context, baseUrl: String, token: String): String =
     if (Prefs.isLoggedIn(ctx) || token.isBlank()) "$baseUrl/todo" else "$baseUrl/tr/$token"
 
+/** 点击「新增」：跳到 App 待办页并由网页识别 ?add=1 自动弹出新建表单。 */
+private fun addUrlOf(ctx: Context, baseUrl: String, token: String): String =
+    openUrlOf(ctx, baseUrl, token) + "?add=1"
+
 /** 小组件渲染入口。 */
 class TodoAppWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -151,24 +155,39 @@ private fun Header(data: WidgetResponse?, widgetId: Int) {
     val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
     val openUrl = openUrlOf(ctx, baseUrl, token)
     Row(
-        modifier = GlanceModifier.fillMaxWidth().clickable(
-            actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to openUrl))
-        ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalAlignment = Alignment.Start
+        modifier = GlanceModifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            "📝 待办",
-            style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp, color = W.text)
-        )
-        if (data != null) {
-            Spacer(GlanceModifier.width(6.dp))
-            StatChip(data.stats.pending, W.text)
-            Spacer(GlanceModifier.width(4.dp))
-            StatChip(data.stats.overdue, W.overdue)
-            Spacer(GlanceModifier.width(4.dp))
-            StatChip(data.stats.memo, W.sub)
+        Row(
+            modifier = GlanceModifier.defaultWeight().clickable(
+                actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to openUrl))
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalAlignment = Alignment.Start
+        ) {
+            Text(
+                "📝 待办",
+                style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp, color = W.text)
+            )
+            if (data != null) {
+                Spacer(GlanceModifier.width(6.dp))
+                StatChip(data.stats.pending, W.text)
+                Spacer(GlanceModifier.width(4.dp))
+                StatChip(data.stats.overdue, W.overdue)
+                Spacer(GlanceModifier.width(4.dp))
+                StatChip(data.stats.memo, W.sub)
+            }
         }
+        Spacer(GlanceModifier.width(8.dp))
+        Text(
+            "⚙️",
+            style = TextStyle(fontSize = 14.sp, color = W.sub),
+            modifier = GlanceModifier.clickable(
+                actionStartActivity<ConfigActivity>(
+                    actionParametersOf(Keys.AppWidgetId to widgetId)
+                )
+            )
+        )
     }
 }
 
@@ -265,6 +284,9 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
 @Composable
 private fun Footer(widgetId: Int) {
     val ctx = androidx.glance.LocalContext.current
+    val token = Prefs.getToken(ctx, widgetId)
+    val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
+    val addUrl = addUrlOf(ctx, baseUrl, token)
     val updated = Prefs.getLastUpdated(ctx, widgetId)
     val time = if (updated > 0)
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(updated)) else "--:--"
@@ -276,8 +298,8 @@ private fun Footer(widgetId: Int) {
             "＋ 新增",
             style = TextStyle(color = W.brand, fontSize = 12.sp, fontWeight = FontWeight.Medium),
             modifier = GlanceModifier.clickable(
-                actionStartActivity<AddTaskActivity>(
-                    actionParametersOf(Keys.AppWidgetId to widgetId)
+                actionStartActivity<MainActivity>(
+                    actionParametersOf(Keys.Url to addUrl)
                 )
             )
         )
