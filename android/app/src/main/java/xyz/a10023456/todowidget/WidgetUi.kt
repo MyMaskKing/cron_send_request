@@ -8,10 +8,10 @@ import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
+import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.action.actionRunCallback
-import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
@@ -255,7 +255,7 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
             Box(
                 modifier = GlanceModifier.size(18.dp)
                     .background(imageProvider = ImageProvider(R.drawable.bg_circle_surface))
-            )
+            ) {}
         }
         Spacer(GlanceModifier.width(8.dp))
         Text(
