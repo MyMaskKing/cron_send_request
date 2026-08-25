@@ -90,21 +90,32 @@ private val TABS = listOf(
 // 标记原生壳：每次 loadUrl 都带此头，服务端据此隐藏顶部网站导航（cookie 因 setCookie 异步有竞态，用头保证当次请求立即生效）
 private val APP_HEADERS = mapOf("X-App-Shell" to "1")
 
+/** 深链 URL → 对应底部 Tab 下标（按路径前缀匹配），默认 0（待办）。 */
+private fun tabIndexFor(url: String?): Int {
+    val path = url?.let { runCatching { Uri.parse(it).path }.getOrNull() } ?: return 0
+    val idx = TABS.indexOfFirst { it.path != null && (path == it.path || path.startsWith(it.path + "/")) }
+    return if (idx >= 0) idx else 0
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun AppShell(initialUrl: String?) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var baseUrl by remember { mutableStateOf(AppConfig.getBaseUrl(context)) }
-    var selected by rememberSaveable { mutableStateOf(0) }
+    var selected by rememberSaveable { mutableStateOf(tabIndexFor(initialUrl)) }
     var showMe by rememberSaveable { mutableStateOf(false) }
     var targetUrl by rememberSaveable { mutableStateOf(initialUrl ?: (baseUrl + TABS[0].path)) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     // WebViewClient 只在 factory 创建一次，用 rememberUpdatedState 让它始终读到最新 baseUrl
     val currentBaseUrl by rememberUpdatedState(baseUrl)
 
-    // 小组件再次点入的深链
+    // 小组件再次点入的深链：同步选中对应底部 Tab（待办/基金/体重/资产）
     androidx.compose.runtime.DisposableEffect(Unit) {
-        DeepLinkBus.listener = { url -> targetUrl = url; showMe = false }
+        DeepLinkBus.listener = { url ->
+            targetUrl = url
+            selected = tabIndexFor(url)
+            showMe = false
+        }
         onDispose { DeepLinkBus.listener = null }
     }
 

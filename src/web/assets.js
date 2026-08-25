@@ -5153,6 +5153,19 @@ function renderPendingStats() {
 }
 // 视图 3 态循环需要的一对回调: 取当前 rows / 触发树重绘
 function _todoGetRows() { return _rows; }
+// 打开任务编辑弹窗（卡片操作与小组件 ?edit=<id> 深链共用）
+function openTodoEdit(node) {
+  var isChild = node.parent_id != null;
+  openModal('编辑任务', todoFormHtml(node, false, isChild) +
+    '<div style="margin-top:12px;"><button class="btn" id="tfSave">保存</button> <button class="btn gray" onclick="closeModal()">取消</button></div>');
+  todoFillCategoryOptions(_rows, node.category || '');
+  bindClickBusy(document.getElementById('tfSave'), async function(){
+    var body = todoFormRead();
+    if (!body.title) { alertModal('请填写标题', {ok:false}); return; }
+    await api('/api/todo/' + node.id, { method:'PUT', body: body });
+    closeModal(); await loadTodos();
+  });
+}
 function drawTree() {
   // 已完成 tab 下强制显示完成项，否则遵从复选框
   var hideDone = _filter === 'done' ? false : document.getElementById('hideDone').checked;
@@ -5203,18 +5216,7 @@ function drawTree() {
       }
       catch(e){ alertModal(e.message, {ok:false}); }
     },
-    onEdit: function(node){
-      var isChild = node.parent_id != null;
-      openModal('编辑任务', todoFormHtml(node, false, isChild) +
-        '<div style="margin-top:12px;"><button class="btn" id="tfSave">保存</button> <button class="btn gray" onclick="closeModal()">取消</button></div>');
-      todoFillCategoryOptions(_rows, node.category || '');
-      bindClickBusy(document.getElementById('tfSave'), async function(){
-        var body = todoFormRead();
-        if (!body.title) { alertModal('请填写标题', {ok:false}); return; }
-        await api('/api/todo/' + node.id, { method:'PUT', body: body });
-        closeModal(); await loadTodos();
-      });
-    },
+    onEdit: function(node){ openTodoEdit(node); },
     onAddChildSubmit: async function(node, payload){
       await api('/api/todo', { method:'POST', body: payload });
       await loadTodos(); await loadChart();
@@ -5361,9 +5363,17 @@ bindClickBusy(document.getElementById('pushSend'), async function(){
     // 应用视图状态: localStorage 里可能已有 'card'/'tree', 首次进入直接全屏
     applyTodoView(_todoGetRows, drawTree);
     // 小组件「新增」入口: ?add=1 自动弹出新建表单, 读后清掉避免刷新重弹
-    if (new URLSearchParams(location.search).get('add') === '1') {
+    var _q = new URLSearchParams(location.search);
+    if (_q.get('add') === '1') {
       history.replaceState(null, '', location.pathname);
       openAddForm(null, '新建任务', false);
+    }
+    // 小组件「编辑」入口: ?edit=<id> 自动打开该任务编辑弹窗（App 内点击任务直达）
+    var _editId = _q.get('edit');
+    if (_editId) {
+      history.replaceState(null, '', location.pathname);
+      var _node = (_rows || []).filter(function(x){ return String(x.id) === String(_editId); })[0];
+      if (_node) openTodoEdit(_node);
     }
   }
   catch(e){ if (String(e.message).indexOf('登录')>=0) navTo('/login'); else alertModal(e.message, {ok:false}); }

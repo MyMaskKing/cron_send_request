@@ -146,14 +146,17 @@ function buildWidgetGroups(rows, today, scope, limit) {
   const trees = buildTree(rows);
   const pending = flattenPending(trees); // 仅保留仍有未完成叶子的顶层子树（已完成祖先整棵剔除）
 
-  // 收集某顶层子树下的全部未完成叶子（flattenPending 已剪完成节点，走到的叶子均未完成）
-  const leavesOf = (node) => {
+  // 收集某顶层子树下全部未完成节点（flattenPending 已剪掉完成枝，走到的节点均未完成），
+  // 含中间层级父任务，使其在小组件里也能单独勾选完成；根节点除外（根由分组标题承载）。
+  // 若该根本身是叶子（无后代），回退为根自身，保证至少有一条可勾选。
+  const itemsOf = (node) => {
     const out = [];
-    const walk = (n) => {
-      if (n.children.length === 0) { out.push({ id: n.id, title: n.title }); return; }
-      for (const c of n.children) walk(c);
+    const walk = (n, isRoot) => {
+      if (!isRoot) out.push({ id: n.id, title: n.title });
+      for (const c of n.children) walk(c, false);
     };
-    walk(node);
+    walk(node, true);
+    if (out.length === 0) out.push({ id: node.id, title: node.title });
     return out;
   };
 
@@ -170,16 +173,16 @@ function buildWidgetGroups(rows, today, scope, limit) {
       if (!(due && due <= today)) continue;
     } // 'all' 不筛选（含无日期的备忘录型顶层）
 
-    const leaves = leavesOf(root);
-    if (leaves.length === 0) continue; // 理论上 flattenPending 已排除，防御一下
+    const items = itemsOf(root);
+    if (items.length === 0) continue; // 理论上 flattenPending 已排除，防御一下
     groups.push({
       id: root.id,
       title: root.title,
       due_label: due ? todoDateBadge(due, today, overdue) : '',
       overdue,
       recurring: !!root.recurrence,
-      collapsible: leaves.length > 1 || leaves[0].id !== root.id,
-      children: leaves
+      collapsible: items.length > 1 || items[0].id !== root.id,
+      children: items
     });
   }
 

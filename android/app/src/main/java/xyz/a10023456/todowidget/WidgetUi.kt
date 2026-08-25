@@ -55,6 +55,10 @@ private fun openUrlOf(ctx: Context, baseUrl: String, token: String): String =
 private fun addUrlOf(ctx: Context, baseUrl: String, token: String): String =
     openUrlOf(ctx, baseUrl, token) + "?add=1"
 
+/** 点击任务：已登录跳到 /todo?edit=<id> 由网页自动打开编辑弹窗；未登录回退到免密报告页。 */
+private fun editUrlOf(ctx: Context, baseUrl: String, token: String, itemId: Long): String =
+    if (Prefs.isLoggedIn(ctx)) "$baseUrl/todo?edit=$itemId" else openUrlOf(ctx, baseUrl, token)
+
 /** 小组件渲染入口。 */
 class TodoAppWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -244,7 +248,7 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
     val ctx = androidx.glance.LocalContext.current
     val token = Prefs.getToken(ctx, widgetId)
     val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
-    val openUrl = openUrlOf(ctx, baseUrl, token)
+    val editUrl = editUrlOf(ctx, baseUrl, token, child.id)
     Row(
         modifier = GlanceModifier.fillMaxWidth().padding(start = 14.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -275,7 +279,7 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
             style = TextStyle(fontSize = 13.sp, color = W.text),
             maxLines = 2,
             modifier = GlanceModifier.defaultWeight().clickable(
-                actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to openUrl))
+                actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to editUrl))
             )
         )
     }
