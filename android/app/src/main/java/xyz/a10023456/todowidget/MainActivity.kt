@@ -179,6 +179,16 @@ private fun AppShell(initialUrl: String?) {
                                         // 登录/会话变更：写入并立即刷新所有小组件
                                         Prefs.setSid(context, sid)
                                         RefreshWorker.enqueueImmediate(context)
+                                        // 登录成功后若停在登录页/dashboard 等非 Tab 页，自动切到待办 Tab
+                                        val path = url?.let { Uri.parse(it).path } ?: ""
+                                        val onTab = TABS.any { t ->
+                                            t.path != null && (path == t.path || path.startsWith(t.path + "/"))
+                                        }
+                                        if (!onTab) {
+                                            selected = 0
+                                            showMe = false
+                                            targetUrl = currentBaseUrl + "/todo"
+                                        }
                                         kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
                                             TodoAppWidget().updateAll(context)
                                         }

@@ -140,8 +140,8 @@ keytool -genkeypair -v \
   -keystore release.keystore \
   -alias todowidget \
   -keyalg RSA -keysize 2048 -validity 36500 \
-  -storepass <你的库密码> \
-  -keypass <你的密钥密码>
+  -storepass 123456 \
+  -keypass 123456
 ```
 
 记下：`.keystore` 文件路径、`-alias`（别名，如 `todowidget`）、库密码、密钥密码。

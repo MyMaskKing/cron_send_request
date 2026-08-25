@@ -66,6 +66,7 @@ class ConfigActivity : ComponentActivity() {
                         initialToken = token,
                         initialScope = scope,
                         baseUrl = baseUrl,
+                        loggedIn = Prefs.getSid(this).isNotBlank(),
                         onTest = { t -> testConnection(t) },
                         onSave = { t, s -> save(t, s) }
                     )
@@ -79,20 +80,21 @@ class ConfigActivity : ComponentActivity() {
             android.content.res.Configuration.UI_MODE_NIGHT_YES
 
     private fun testConnection(token: String) {
-        if (token.isBlank()) {
-            Toast.makeText(this, "请填写 report_token", Toast.LENGTH_SHORT).show()
+        val sid = Prefs.getSid(this)
+        if (sid.isBlank() && token.isBlank()) {
+            Toast.makeText(this, "请先在 App 内登录，或填写 report_token", Toast.LENGTH_SHORT).show()
             return
         }
         val scope = Prefs.getScope(this, appWidgetId)
         Toast.makeText(this, "测试中…", Toast.LENGTH_SHORT).show()
         kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
             val ok = runCatching {
-                ApiClient.fetchWidget(AppConfig.getBaseUrl(this@ConfigActivity), "", token, scope).success
+                ApiClient.fetchWidget(AppConfig.getBaseUrl(this@ConfigActivity), sid, token, scope).success
             }.getOrDefault(false)
             withContext(Dispatchers.Main) {
                 Toast.makeText(
                     this@ConfigActivity,
-                    if (ok) "✅ 连接成功" else "❌ 连接失败，检查 token/地址",
+                    if (ok) "✅ 连接成功" else "❌ 连接失败，检查登录/地址/token",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -100,8 +102,8 @@ class ConfigActivity : ComponentActivity() {
     }
 
     private fun save(token: String, scope: String) {
-        if (token.isBlank()) {
-            Toast.makeText(this, "请填写 report_token", Toast.LENGTH_SHORT).show()
+        if (Prefs.getSid(this).isBlank() && token.isBlank()) {
+            Toast.makeText(this, "请先在 App 内登录，或填写 report_token", Toast.LENGTH_SHORT).show()
             return
         }
         kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
@@ -124,6 +126,7 @@ private fun ConfigScreen(
     initialToken: String,
     initialScope: String,
     baseUrl: String,
+    loggedIn: Boolean,
     onTest: (String) -> Unit,
     onSave: (String, String) -> Unit
 ) {
@@ -140,16 +143,23 @@ private fun ConfigScreen(
         Text("配置待办小组件", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(4.dp))
         Text(
-            "从网页「推送设置→待办」复制 report_token；服务器地址在 App「我的→设置」修改。",
+            "已在 App 内登录则无需填写 report_token；未登录时才需从网页「推送设置→待办」复制。服务器地址在 App「我的→设置」修改。",
             style = MaterialTheme.typography.bodySmall, color = Color.Gray
         )
         Spacer(Modifier.height(12.dp))
         Text("服务器：$baseUrl", style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            if (loggedIn) "当前状态：已登录（使用登录会话，report_token 可不填）"
+            else "当前状态：未登录（需填写 report_token）",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (loggedIn) Color(0xFF2E7D32) else Color.Gray
+        )
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = token,
             onValueChange = { token = it },
-            label = { Text("report_token") },
+            label = { Text("report_token（可选）") },
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
         )
