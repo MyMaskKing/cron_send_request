@@ -5,7 +5,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
@@ -69,28 +68,6 @@ object ApiClient {
                 throw RuntimeException(err?.message ?: "HTTP ${resp.code}")
             }
             return json.decodeFromString<DoneResponse>(body)
-        }
-    }
-
-    /** 新增顶层任务（仅标题；其余字段在网页补充）。 */
-    fun addTask(baseUrl: String, sid: String, token: String, title: String): AddResponse {
-        val base = baseUrlOf(baseUrl)
-        val url = if (sid.isNotBlank())
-            "$base/api/todo"
-        else
-            "$base/api/public/todo-all/$token"
-        val payload = JSONObject().put("title", title).toString()
-        val req = Request.Builder().url(url)
-            .post(payload.toRequestBody(JSON_MEDIA))
-            .auth(sid, token)
-            .build()
-        client.newCall(req).execute().use { resp ->
-            val body = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) {
-                val err = runCatching { json.decodeFromString<ErrorResponse>(body) }.getOrNull()
-                throw RuntimeException(err?.message ?: "HTTP ${resp.code}")
-            }
-            return json.decodeFromString<AddResponse>(body)
         }
     }
 }

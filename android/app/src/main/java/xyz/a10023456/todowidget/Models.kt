@@ -48,14 +48,6 @@ data class DoneResponse(
     val next_due: String? = null
 )
 
-/** POST /api/public/todo-all/:token 响应 */
-@Serializable
-data class AddResponse(
-    val success: Boolean = false,
-    val message: String? = null,
-    val id: Long? = null
-)
-
 /** 通用错误体（后端失败时返回 {success:false, message}） */
 @Serializable
 data class ErrorResponse(

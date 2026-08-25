@@ -33,12 +33,6 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".AddTaskActivity"
-            android:exported="false"
-            android:theme="@style/Theme.TodoWidget"
-            android:parentActivityName=".MainActivity" />
-
         <receiver
             android:name=".TodoAppWidgetReceiver"
             android:exported="true"
