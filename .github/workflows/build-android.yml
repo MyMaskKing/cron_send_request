@@ -43,6 +43,8 @@ jobs:
       release_id: ${{ steps.create.outputs.result }}
       draft: ${{ steps.flags.outputs.draft }}
       prerelease: ${{ steps.flags.outputs.prerelease }}
+      version_code: ${{ steps.resolve.outputs.version_code }}
+      version_name: ${{ steps.resolve.outputs.version_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,24 +53,28 @@ jobs:
         shell: bash
         run: |
           INPUT="${{ github.event.inputs.version }}"
+          CODE="${{ github.run_number }}"
           if [ -z "$INPUT" ]; then
-            # 未输入 → 用 build.gradle.kts 的 versionName 作 base，追加日期 + run_number 保证唯一
-            VER=$(grep -m1 'versionName' android/app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
-            DATE=$(date -u +%Y%m%d)
-            TAG="v${VER}-${DATE}.${{ github.run_number }}"
+            # 未输入：取 build.gradle.kts 里 versionName 的 major.minor 作基线，patch 用 run_number 自动递增
+            BASE=$(grep -m1 'versionName' android/app/build.gradle.kts \
+              | sed -E 's/.*"([^"]+)".*/\1/' | sed -E 's/\.[0-9]+$//')
+            VERSION_NAME="${BASE}.${CODE}"
+            TAG="v${VERSION_NAME}"
           else
             # 用户输入的版本号，自动补 v 前缀
             case "$INPUT" in
-              v*) TAG="$INPUT" ;;
-              *)  TAG="v$INPUT" ;;
+              v*) VERSION_NAME="${INPUT#v}"; TAG="$INPUT" ;;
+              *)  VERSION_NAME="$INPUT"; TAG="v$INPUT" ;;
             esac
           fi
           # 若同名 tag 已存在（手动重跑），再追加 run_id 后缀避免冲突
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             TAG="${TAG}-r${{ github.run_id }}"
           fi
+          echo "version_code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "使用 tag: $TAG"
+          echo "版本: code=$CODE name=$VERSION_NAME tag=$TAG"
 
       - name: 解析发布标志
         id: flags
@@ -129,6 +135,9 @@ jobs:
 
       - name: Build debug APK
         working-directory: android
+        env:
+          VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
+          VERSION_NAME: ${{ needs.prepare.outputs.version_name }}
         run: |
           chmod +x ./gradlew
           ./gradlew :app:assembleDebug --no-daemon --stacktrace

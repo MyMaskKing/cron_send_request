@@ -13,8 +13,9 @@ android {
         applicationId = "xyz.a10023456.todowidget"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // CI 通过环境变量注入自动递增的版本号；本地构建回退默认值
+        versionCode = (System.getenv("VERSION_CODE")?.toIntOrNull()) ?: 1
+        versionName = System.getenv("VERSION_NAME") ?: "1.0.0"
     }
 
     buildTypes {

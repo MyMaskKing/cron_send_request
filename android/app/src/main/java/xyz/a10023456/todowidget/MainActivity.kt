@@ -35,6 +35,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * App 主体：原生壳 + 单 WebView + 底部 5 Tab。
@@ -167,10 +169,27 @@ private fun AppShell(initialUrl: String?) {
                                 super.onPageFinished(view, url)
                                 canGoBack = view.canGoBack()
                                 // 同步登录会话给小组件：从 Cookie 取 sid（native 可读 HttpOnly Cookie）
-                                val cookies = CookieManager.getInstance().getCookie(currentBaseUrl) ?: ""
+                                val cookieUrl = url ?: currentBaseUrl
+                                val cookies = CookieManager.getInstance().getCookie(cookieUrl) ?: ""
                                 val sid = Regex("(?:^|;)\\s*sid=([^;]+)").find(cookies)?.groupValues?.get(1)
-                                if (!sid.isNullOrBlank()) Prefs.setSid(context, sid)
-                                else Prefs.clearSid(context)
+                                val oldSid = Prefs.getSid(context)
+                                when {
+                                    !sid.isNullOrBlank() && sid != oldSid -> {
+                                        // 登录/会话变更：写入并立即刷新所有小组件
+                                        Prefs.setSid(context, sid)
+                                        RefreshWorker.enqueueImmediate(context)
+                                        kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
+                                            TodoAppWidget().updateAll(context)
+                                        }
+                                    }
+                                    sid.isNullOrBlank() && oldSid.isNotBlank() -> {
+                                        // 登出/会话失效：清除并刷新小组件
+                                        Prefs.clearSid(context)
+                                        kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
+                                            TodoAppWidget().updateAll(context)
+                                        }
+                                    }
+                                }
                             }
                         }
                         webChromeClient = WebChromeClient()

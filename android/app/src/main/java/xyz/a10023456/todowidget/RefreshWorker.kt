@@ -6,7 +6,9 @@ import androidx.glance.appwidget.updateAll
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -33,7 +35,9 @@ class RefreshWorker(
 
     companion object {
         private const val WORK_NAME = "todo_widget_refresh"
+        private const val WORK_NAME_NOW = "todo_widget_refresh_now"
 
+        /** 周期刷新（15 分钟，系统调度，App 关闭也能跑）。 */
         fun enqueue(context: Context) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -44,6 +48,21 @@ class RefreshWorker(
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
                 ExistingPeriodicWorkPolicy.KEEP,
+                request
+            )
+        }
+
+        /** 立即刷新一次（登录/手动刷新后调用）。 */
+        fun enqueueImmediate(context: Context) {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+            val request = OneTimeWorkRequestBuilder<RefreshWorker>()
+                .setConstraints(constraints)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                WORK_NAME_NOW,
+                ExistingWorkPolicy.REPLACE,
                 request
             )
         }
