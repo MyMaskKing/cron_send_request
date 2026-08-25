@@ -106,6 +106,82 @@ npm run tail      # 查看线上实时日志
 
 手动触发一次全量定时调度（调试用）：`GET /cron?key=<CRON_SECRET>`。
 
+## Android 客户端
+
+`android/` 是独立的 Gradle/Compose 项目（包名 `xyz.a10023456.todowidget`，minSdk 26，JVM 17），实现待办清单的桌面小组件（Glance App Widget）+ 内嵌网页的应用壳，通过 Worker 的 todo 公开/登录态接口通信。
+
+### 本地构建
+
+```bash
+cd android
+./gradlew :app:assembleDebug     # 输出 app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assembleRelease   # 输出 app/build/outputs/apk/release/app-release.apk
+```
+
+### CI 自动构建
+
+`.github/workflows/build-android.yml`：push 到 `main`（改动 `android/` 或 workflow 本身）自动构建并发布为 pre-release；也可在 Actions 页手动触发并指定版本号。
+
+版本号由 CI 环境变量注入：`VERSION_CODE`（默认取 `github.run_number`）、`VERSION_NAME`；本地构建回退 `1` / `1.0.0`。
+
+### Release 签名配置
+
+CI 从 GitHub Secrets 读取 release 签名；**未配置时自动回退 debug 签名**，不影响构建。配置后所有 CI 包使用同一把 release key，可互相覆盖升级（首次需先卸载手机上的旧 debug 包）。
+
+> [!WARNING]
+> keystore 文件和密码是**应用身份凭证**，丢失后将无法再发布同签名升级包。请自行妥善备份，**切勿**把真实密码或 `.keystore` 内容提交到仓库。
+
+#### 1. 生成密钥（本地执行一次）
+
+需要 JDK 的 `keytool`（随 Android Studio 自带）：
+
+```bash
+keytool -genkeypair -v \
+  -keystore release.keystore \
+  -alias todowidget \
+  -keyalg RSA -keysize 2048 -validity 36500 \
+  -storepass <你的库密码> \
+  -keypass <你的密钥密码>
+```
+
+记下：`.keystore` 文件路径、`-alias`（别名，如 `todowidget`）、库密码、密钥密码。
+
+#### 2. 配置 GitHub Secrets
+
+仓库 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**，添加以下 4 个：
+
+| Secret 名 | 值 |
+|-----------|-----|
+| `RELEASE_KEYSTORE_BASE64` | `release.keystore` 文件的 base64 编码（见下） |
+| `RELEASE_STORE_PASSWORD` | 上一步的库密码 `<你的库密码>` |
+| `RELEASE_KEY_ALIAS` | 上一步的别名，如 `todowidget` |
+| `RELEASE_KEY_PASSWORD` | 上一步的密钥密码 `<你的密钥密码>` |
+
+生成 base64（在 `release.keystore` 所在目录）：
+
+```bash
+# Linux / macOS / Git Bash
+base64 -w 0 release.keystore
+
+# Windows PowerShell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("$PWD\release.keystore"))
+```
+
+把输出整段粘贴进 `RELEASE_KEYSTORE_BASE64`（不要换行或加引号）。
+
+#### 3. 本地用 release 签名构建（可选）
+
+Gradle 通过以下环境变量读取签名（与 CI 同名），设置后 `assembleRelease` 即使用 release 签名：
+
+| 环境变量 | 说明 |
+|----------|------|
+| `RELEASE_KEYSTORE_PATH` | `release.keystore` 的绝对/相对路径 |
+| `RELEASE_STORE_PASSWORD` | 库密码 |
+| `RELEASE_KEY_ALIAS` | 别名 |
+| `RELEASE_KEY_PASSWORD` | 密钥密码 |
+
+未设置这些变量（或路径不存在）时，`assembleRelease` 不启用自定义签名，`assembleDebug` 始终使用本机 debug key。
+
 ## 二次开发
 
 架构分层、模块地图、定时调度原理、数据模型、时区坑等详见 **[`DEV_GUIDE.md`](./DEV_GUIDE.md)**。

@@ -1,5 +1,8 @@
+.**
 !.gitignore
 !.github
-.**
+!.claude/
+.claude/*
+!.claude/settings.json
 docs/
 test/

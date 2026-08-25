@@ -1,3 +1,5 @@
+import java.io.File
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -8,6 +10,21 @@ plugins {
 android {
     namespace = "xyz.a10023456.todowidget"
     compileSdk = 35
+
+    // CI 通过环境变量注入 release 签名；未配置（本地/未设 Secret）时不启用，回退 debug 签名
+    val releaseKeystorePath = System.getenv("RELEASE_KEYSTORE_PATH")
+    val hasReleaseSigning = releaseKeystorePath?.let { File(it).exists() } ?: false
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = File(releaseKeystorePath!!)
+                storePassword = System.getenv("RELEASE_STORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "xyz.a10023456.todowidget"
@@ -25,6 +42,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

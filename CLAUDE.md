@@ -109,3 +109,22 @@ token 缺失时代码自动 `generateToken()` 并持久化。
 ## 代码分析工具
 
 仓库根有 `.codegraph/` 索引。定位符号、调用链、影响面时优先使用 CodeGraph MCP（`mcp__codegraph__codegraph_explore`）或 `codegraph explore` 命令，再用 LSP/grep 兜底。
+
+## Claude Code 插件（项目级）
+
+项目级插件配置写在 `.claude/settings.json`（已入库，随仓库同步），新机器 clone 后启动 Claude Code 会按此自动启用；若提示找不到 marketplace，先执行一次：
+
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official
+```
+
+已启用插件（`@claude-plugins-official`）：
+
+| 插件 | 用途 |
+|------|------|
+| `cloudflare` | Cloudflare 平台 skills（Workers、Wrangler CLI、D1/KV、Durable Objects 等）+ 5 个 MCP（cloudflare-api/docs/bindings/builds/observability）。处理 Worker 部署、绑定、构建时使用。 |
+| `kotlin-lsp` | `android/` 模块（Kotlin + Compose / Glance App Widget）的语言服务器，提供跳转、补全、类型信息。 |
+
+补充：
+- `.claude/settings.json` 只提交插件开关；其余 `.claude/` 内容被 `.gitignore` 忽略，不入库。
+- 新增/卸载项目级插件用 `claude plugin install <plugin> -s project` / `claude plugin uninstall <plugin> -s project`，不要改用用户级配置。
