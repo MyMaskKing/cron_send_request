@@ -14,8 +14,8 @@ const DEFAULT_RESPONSE_TIMEOUT = 60000;
 const DEFAULT_CONCURRENCY_LIMIT = 5;
 const DEFAULT_BATCH_DELAY = 1000;
 
-// 会话有效期（秒）：7 天
-const SESSION_TTL = 7 * 24 * 3600;
+// 会话有效期（秒）：30 天
+const SESSION_TTL = 30 * 24 * 3600;
 
 // 企业微信机器人默认地址
 const DEFAULT_WEBHOOK_URL = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send';
