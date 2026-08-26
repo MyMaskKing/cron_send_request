@@ -72,6 +72,7 @@ dependencies {
     implementation(libs.androidx.glance.material3)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.webkit)
+    implementation(libs.androidx.swiperefreshlayout)
     implementation(libs.google.material)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)

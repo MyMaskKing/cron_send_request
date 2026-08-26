@@ -157,7 +157,8 @@ private fun AppShell(initialUrl: String?) {
             // WebView 始终存在（保留登录态/历史），仅在「我的」页隐藏
             AndroidView(
                 factory = { ctx ->
-                    lateinit var swipe: SwipeRefreshLayout
+                    // 先创建下拉刷新容器，WebView 的 WebViewClient 需要在页面加载完成时收起它的指示器
+                    val swipe = SwipeRefreshLayout(ctx)
                     val wv = WebView(ctx).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
@@ -190,7 +191,7 @@ private fun AppShell(initialUrl: String?) {
                             override fun onPageFinished(view: WebView, url: String?) {
                                 super.onPageFinished(view, url)
                                 // 下拉刷新触发的 reload 完成后收起指示器
-                                if (::swipe.isInitialized) swipe.isRefreshing = false
+                                swipe.isRefreshing = false
                                 // 同步登录会话给小组件：从 Cookie 取 sid（native 可读 HttpOnly Cookie）
                                 val cookieUrl = url ?: currentBaseUrl
                                 val cookies = CookieManager.getInstance().getCookie(cookieUrl) ?: ""
@@ -235,17 +236,15 @@ private fun AppShell(initialUrl: String?) {
                         loadUrl(targetUrl, APP_HEADERS)
                     }
                     // 下拉刷新：网页滚到顶部时下拉触发 reload，onPageFinished 收起指示器
-                    swipe = SwipeRefreshLayout(ctx).apply {
-                        addView(
-                            wv,
-                            ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
+                    swipe.addView(
+                        wv,
+                        ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
                         )
-                        setColorSchemeColors(0xFFA855F7.toInt())
-                        setOnRefreshListener { wv.reload() }
-                    }
+                    )
+                    swipe.setColorSchemeColors(0xFFA855F7.toInt())
+                    swipe.setOnRefreshListener { wv.reload() }
                     webViewRef = wv
                     swipe
                 },
