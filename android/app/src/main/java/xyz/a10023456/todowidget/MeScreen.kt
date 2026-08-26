@@ -81,7 +81,7 @@ fun MeScreen(
                 OutlinedTextField(
                     value = pendingUrl,
                     onValueChange = { pendingUrl = it },
-                    label = { Text("https://...") },
+                    label = { Text("http(s)://...") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )

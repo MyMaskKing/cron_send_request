@@ -5,8 +5,12 @@ import androidx.glance.GlanceId
 import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.updateAll
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -31,17 +35,48 @@ private const val LOADING_MIN_MS = 180L
 private const val RESULT_HOLD_MS = 1400L
 
 /**
+ * 进程级、与广播生命周期解耦的协程作用域。
+ *
+ * ActionCallback.onAction 跑在 goAsync 广播里，pendingResult.finish() 只有在 onAction 返回后才
+ * 调用；而系统对同一 BroadcastReceiver 的广播串行投递——若 onAction 内做网络(最长 10s)+延时，
+ * 会占住广播，后续点击全部排队"无反应"。故 onAction 必须立即返回，把耗时流程丢到本作用域异步执行。
+ * Prefs.uiState 带 6s 过期兜底，进程被杀时遮罩也不会常驻。
+ */
+private val actionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+/** 每个 widget 当前在跑的动作 Job；同一 widget 新点击会取消上一次，避免堆叠。 */
+private val activeJobs = mutableMapOf<Int, Job>()
+
+/** 启动一个与 widget 绑定的异步动作；同 widget 上一个未完成的动作会被取消。 */
+private fun runWidgetAction(widgetId: Int, block: suspend CoroutineScope.() -> Unit) {
+    lateinit var job: Job
+    job = actionScope.launch {
+        try {
+            block()
+        } finally {
+            // 仅在自己仍是当前活动 Job 时移除，避免清掉后续新启动的动作
+            synchronized(activeJobs) {
+                if (activeJobs[widgetId] === job) activeJobs.remove(widgetId)
+            }
+        }
+    }
+    synchronized(activeJobs) {
+        activeJobs.remove(widgetId)?.cancel()
+        activeJobs[widgetId] = job
+    }
+}
+
+/**
  * 刷新小组件界面。
  *
- * ActionCallback.onAction 由 Glance 在 [Dispatchers.Default]（goAsync 后台协程）中调度，
- * 而 Glance 的组合/翻译/RemoteViews 落地需要主线程推进；在后台线程直接调 updateAll 会导致
- * 重绘不推进、遮罩停在 loading。故统一切到 [Dispatchers.Main]（与已验证可用的 RefreshWorker 一致）。
+ * Glance 的组合/翻译/RemoteViews 落地需要主线程推进；在后台线程直接调 updateAll 会导致重绘不推进
+ * （与已验证可用的 RefreshWorker 一致，统一切到 [Dispatchers.Main]）。
  */
 private suspend fun updateWidgets(context: Context) = withContext(Dispatchers.Main) {
     TodoAppWidget().updateAll(context)
 }
 
-/** 刷新：遮罩 → 拉取最新数据写缓存 → 结果提示 → 自动重绘。 */
+/** 刷新：遮罩 → 拉取最新数据写缓存 → 结果提示 → 自动重绘。onAction 立即返回，流程在 actionScope 跑。 */
 class RefreshAction : ActionCallback {
     override suspend fun onAction(
         context: Context,
@@ -49,19 +84,22 @@ class RefreshAction : ActionCallback {
         parameters: ActionParameters
     ) {
         val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId()
-        Prefs.setUiState(context, widgetId, "loading", "刷新中…")
-        updateWidgets(context)
-        delay(LOADING_MIN_MS)
-        val ok = WidgetRepo.refresh(context, widgetId)
-        Prefs.setUiState(
-            context, widgetId,
-            if (ok) "done" else "error",
-            if (ok) "已刷新" else "刷新失败，请检查登录/网络"
-        )
-        updateWidgets(context)
-        delay(RESULT_HOLD_MS)
-        Prefs.setUiState(context, widgetId, "idle", "")
-        updateWidgets(context)
+        val appCtx = context.applicationContext
+        runWidgetAction(widgetId) {
+            Prefs.setUiState(appCtx, widgetId, "loading", "刷新中…")
+            updateWidgets(appCtx)
+            delay(LOADING_MIN_MS)
+            val ok = WidgetRepo.refresh(appCtx, widgetId)
+            Prefs.setUiState(
+                appCtx, widgetId,
+                if (ok) "done" else "error",
+                if (ok) "已刷新" else "刷新失败，请检查登录/网络"
+            )
+            updateWidgets(appCtx)
+            delay(RESULT_HOLD_MS)
+            Prefs.setUiState(appCtx, widgetId, "idle", "")
+            updateWidgets(appCtx)
+        }
     }
 }
 
@@ -75,32 +113,35 @@ class CompleteAction : ActionCallback {
         val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId()
         val itemId = parameters[Keys.ItemId] ?: -1L
         if (itemId <= 0) return
-        Prefs.setUiState(context, widgetId, "loading", "处理中…")
-        updateWidgets(context)
-        delay(LOADING_MIN_MS)
-        val result = withContext(Dispatchers.IO) {
-            runCatching {
-                val baseUrl = Prefs.getBaseUrl(context, widgetId)
-                val sid = Prefs.getSid(context)
-                val token = Prefs.getToken(context, widgetId)
-                val resp = ApiClient.markDone(baseUrl, sid, token, itemId)
-                WidgetRepo.refresh(context, widgetId)
-                if (!resp.message.isNullOrBlank()) resp.message else "已完成"
+        val appCtx = context.applicationContext
+        runWidgetAction(widgetId) {
+            Prefs.setUiState(appCtx, widgetId, "loading", "处理中…")
+            updateWidgets(appCtx)
+            delay(LOADING_MIN_MS)
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val baseUrl = Prefs.getBaseUrl(appCtx, widgetId)
+                    val sid = Prefs.getSid(appCtx)
+                    val token = Prefs.getToken(appCtx, widgetId)
+                    val resp = ApiClient.markDone(baseUrl, sid, token, itemId)
+                    WidgetRepo.refresh(appCtx, widgetId)
+                    if (!resp.message.isNullOrBlank()) resp.message else "已完成"
+                }
             }
+            val (state, msg) = result.fold(
+                onSuccess = { "done" to (if (it.isNotBlank()) it else "已完成") },
+                onFailure = { "error" to (it.message ?: "操作失败") }
+            )
+            Prefs.setUiState(appCtx, widgetId, state, msg)
+            updateWidgets(appCtx)
+            delay(RESULT_HOLD_MS)
+            Prefs.setUiState(appCtx, widgetId, "idle", "")
+            updateWidgets(appCtx)
         }
-        val (state, msg) = result.fold(
-            onSuccess = { "done" to (if (it.isNotBlank()) it else "已完成") },
-            onFailure = { "error" to (it.message ?: "操作失败") }
-        )
-        Prefs.setUiState(context, widgetId, state, msg)
-        updateWidgets(context)
-        delay(RESULT_HOLD_MS)
-        Prefs.setUiState(context, widgetId, "idle", "")
-        updateWidgets(context)
     }
 }
 
-/** 折叠/展开分组：仅切换本地折叠状态后重绘（瞬时，无遮罩）。 */
+/** 折叠/展开分组：仅切换本地折叠状态后重绘（瞬时，无遮罩）。onAction 立即返回。 */
 class CollapseAction : ActionCallback {
     override suspend fun onAction(
         context: Context,
@@ -109,8 +150,10 @@ class CollapseAction : ActionCallback {
     ) {
         val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId()
         val rootId = parameters[Keys.RootId] ?: -1L
-        if (rootId > 0) Prefs.toggleCollapsed(context, widgetId, rootId)
-        updateWidgets(context)
+        val appCtx = context.applicationContext
+        // 独立启动，不经过 activeJobs：折叠不应取消正在进行的刷新/完成动作
+        if (rootId > 0) Prefs.toggleCollapsed(appCtx, widgetId, rootId)
+        actionScope.launch { updateWidgets(appCtx) }
     }
 }
 

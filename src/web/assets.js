@@ -4275,8 +4275,11 @@ function renderTodoTree(container, trees, opts) {
   // opts.forcedRootDue: 显式指定的顶层截止日期(供 startDepth>0 用, 因为首层不再是根节点)
   function walk(node, depth, rootDue) {
     if (opts.hideDone && !todoSubtreePending(node)) return null;
-    // 有效截止日期：顶层用自身 due_date，子任务继承顶层（rootDue）
-    var effDue = depth === 0 ? node.due_date : rootDue;
+    // 有效截止日期：完整树的顶层用自身 due_date，子任务继承顶层（rootDue）。
+    // 详情页（显式传 forcedRootDue）首层是 root 的直接子任务，自身不存日期，必须沿用 rootDue，
+    // 否则 depth=0 取到子任务自身 null 会让孙任务继承到 null 被判成备忘录而不显示勾选框。
+    var isDetail = Object.prototype.hasOwnProperty.call(opts, 'forcedRootDue');
+    var effDue = (depth === 0 && !isDetail) ? node.due_date : rootDue;
     var wrap = document.createElement('div');
     wrap.className = 'todo-node';
     wrap.setAttribute('data-depth', depth);
