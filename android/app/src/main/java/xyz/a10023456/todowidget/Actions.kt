@@ -11,9 +11,9 @@ import kotlinx.coroutines.launch
 /**
  * 小组件生命周期：注册刷新任务、初次添加/系统更新时拉取数据、删除时清理。
  *
- * 点击动作（刷新/完成/折叠）统一走 [WidgetActionActivity]（actionStartActivity），
- * 不再使用 BroadcastReceiver：Glance 对 LazyColumn item 内的 actionSendBroadcast 会强制
- * 套透明 Activity trampoline，在部分设备上被拦截导致勾选无响应。
+ * 点击动作（刷新/完成/折叠）统一走 Glance ActionCallback（actionRunCallback，见
+ * [RefreshAction]/[CompleteAction]/[CollapseAction]）：进程内挂起执行，不启动 Activity/
+ * Broadcast，避免 LazyColumn item 内点击在部分 ROM 被拦截，以及启动透明窗口造成的闪烁。
  */
 class TodoAppWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = TodoAppWidget()

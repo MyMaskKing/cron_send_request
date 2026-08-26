@@ -19,9 +19,22 @@ object AppConfig {
             .edit().putString(KEY_BASE_URL, normalize(url)).apply()
     }
 
-    /** 去尾部 /，并要求 https；非法输入回退默认地址 */
+    /**
+     * 规范化地址：去尾部 /、要求 http(s) 前缀、非法输入回退默认地址。
+     * 公网 http 自动升级 https：Cloudflare 会 301 强制跳 https，而 OkHttp 跟随
+     * 301/302 时会把 PUT 降级为 GET，导致 PUT /api/todo/:id/done 命中 HTML 404。
+     * 局域网/本机（Docker 本地、wrangler dev 等）保留 http，避免无证书环境无法连接。
+     */
     fun normalize(url: String): String {
-        val t = url.trim().trimEnd('/')
-        return if (t.startsWith("http://") || t.startsWith("https://")) t else DEFAULT_BASE_URL
+        var t = url.trim().trimEnd('/')
+        if (!t.startsWith("http://") && !t.startsWith("https://")) t = DEFAULT_BASE_URL
+        if (t.startsWith("http://")) {
+            val host = t.removePrefix("http://").substringBefore('/').substringBefore(':').lowercase()
+            val isPrivate = host == "localhost" || host == "127.0.0.1" ||
+                host.startsWith("192.168.") || host.startsWith("10.") ||
+                (host.startsWith("172.") && host.split('.').getOrNull(1)?.toIntOrNull()?.let { it in 16..31 } == true)
+            if (!isPrivate) t = "https://" + t.removePrefix("http://")
+        }
+        return t
     }
 }

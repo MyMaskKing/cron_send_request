@@ -9,6 +9,7 @@ import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
+import androidx.glance.action.actionRunCallback
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -215,10 +216,9 @@ private fun GroupRow(g: WidgetGroup, widgetId: Int) {
             .fillMaxWidth()
             .padding(vertical = 5.dp)
             .clickable(
-                actionStartActivity<WidgetActionActivity>(
+                actionRunCallback<CollapseAction>(
                     actionParametersOf(
                         Keys.AppWidgetId to widgetId,
-                        Keys.ActionType to WidgetActionActivity.ACTION_COLLAPSE,
                         Keys.RootId to g.id
                     )
                 )
@@ -263,10 +263,9 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
                 .size(22.dp)
                 .background(imageProvider = ImageProvider(R.drawable.bg_circle_brand))
                 .clickable(
-                    actionStartActivity<WidgetActionActivity>(
+                    actionRunCallback<CompleteAction>(
                         actionParametersOf(
                             Keys.AppWidgetId to widgetId,
-                            Keys.ActionType to WidgetActionActivity.ACTION_COMPLETE,
                             Keys.ItemId to child.id
                         )
                     )
@@ -325,11 +324,8 @@ private fun Footer(widgetId: Int) {
             "↻ $time",
             style = TextStyle(color = W.sub, fontSize = 11.sp),
             modifier = GlanceModifier.clickable(
-                actionStartActivity<WidgetActionActivity>(
-                    actionParametersOf(
-                        Keys.AppWidgetId to widgetId,
-                        Keys.ActionType to WidgetActionActivity.ACTION_REFRESH
-                    )
+                actionRunCallback<RefreshAction>(
+                    actionParametersOf(Keys.AppWidgetId to widgetId)
                 )
             )
         )
@@ -342,5 +338,4 @@ object Keys {
     val ItemId = ActionParameters.Key<Long>("itemId")
     val RootId = ActionParameters.Key<Long>("rootId")
     val Url = ActionParameters.Key<String>("extra_url")
-    val ActionType = ActionParameters.Key<String>("action_type")
 }
