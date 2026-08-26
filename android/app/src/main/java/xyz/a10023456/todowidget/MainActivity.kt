@@ -248,9 +248,12 @@ private fun AppShell(initialUrl: String?) {
                     webViewRef = wv
                     swipe
                 },
-                update = { host ->
-                    val wv = host.getChildAt(0) as WebView
-                    if (wv.url != targetUrl) {
+                update = {
+                    // 不能用 getChildAt(0)：SwipeRefreshLayout 内部自带一个 CircleImageView
+                    // （下拉转圈 mCircleView）占住 index 0，WebView 在 index 1，强转会崩溃。
+                    // 直接用 factory 中保存的 webViewRef。
+                    val wv = webViewRef
+                    if (wv != null && wv.url != targetUrl) {
                         CookieManager.getInstance().setCookie(baseUrl, "app_shell=1; Path=/")
                         wv.loadUrl(targetUrl, APP_HEADERS)
                     }
