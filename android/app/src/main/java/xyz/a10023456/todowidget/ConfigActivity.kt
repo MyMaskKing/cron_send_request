@@ -103,9 +103,24 @@ class ConfigActivity : ComponentActivity() {
             withContext(Dispatchers.Main) {
                 val msg = result.fold(
                     onSuccess = {
-                        if (it.success)
-                            "✅ 连接成功（${it.stats.pending} 待办 / ${it.stats.overdue} 逾期）"
-                        else "❌ 后端返回 success=false"
+                        if (it.success) {
+                            // 测试数字必须与组件当前 scope 实际显示一致：groups 已按 scope 过滤，
+                            // stats 是全量统计（含未来任务），不能用它判断"组件是否有数据"
+                            val totalItems = it.groups.sumOf { g -> g.children.size }
+                            val scopeLabel = when (scope) {
+                                "today" -> "仅今天到期"
+                                "overdue" -> "仅逾期"
+                                "all" -> "全部未完成"
+                                else -> "今日+逾期"
+                            }
+                            if (it.groups.isEmpty())
+                                "✅ 连接成功，但「$scopeLabel」范围无待办\n" +
+                                    "（总待办 ${it.stats.pending} / 逾期 ${it.stats.overdue}，\n" +
+                                    "未来日期或无日期任务不在此范围显示）"
+                            else
+                                "✅ 连接成功\n「$scopeLabel」范围 ${it.groups.size} 组 / $totalItems 条\n" +
+                                    "（总待办 ${it.stats.pending} / 逾期 ${it.stats.overdue}）"
+                        } else "❌ 后端返回 success=false"
                     },
                     onFailure = { e ->
                         // 直出真实原因（HTTP 401/404、网络、证书等），便于排查

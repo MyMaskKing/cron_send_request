@@ -3,6 +3,8 @@ package xyz.a10023456.todowidget
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
@@ -10,7 +12,6 @@ import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * 小组件点击统一接收器。
@@ -49,11 +50,14 @@ class WidgetActionReceiver : BroadcastReceiver() {
             } catch (e: Exception) {
                 toastMsg = "❌ 操作失败：${e.message ?: "未知错误"}"
             } finally {
-                TodoAppWidget().updateAll(context)
-                withContext(Dispatchers.Main) {
-                    toastMsg?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
-                    pending.finish()
+                // updateAll 是挂起函数，在 IO 协程内完成即可；Toast 必须主线程，用 Handler post 兜底，
+                // 避免部分 ROM 上 withContext(Main) 未及时调度导致刷新提示丢失
+                runCatching { TodoAppWidget().updateAll(context) }
+                val main = Handler(Looper.getMainLooper())
+                toastMsg?.let { msg ->
+                    main.post { Toast.makeText(context, msg, Toast.LENGTH_LONG).show() }
                 }
+                main.post { pending.finish() }
             }
         }
     }
