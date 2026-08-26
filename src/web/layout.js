@@ -615,23 +615,6 @@ body.todo-dragging { user-select: none; -webkit-user-select: none; touch-action:
 .todo-card__enter { color: #A855F7; font-size: 13px; font-weight: 600; user-select: none; }
 .todo-card__count { background: #eef1ff; color: #A855F7; font-weight: 600; }
 .todo-card__count.done { background: #f6ffed; color: #389e0d; }
-/* 卡片内直接子任务列表：勾选框 + 标题，点击勾选就地完成 */
-.todo-card__subs { margin-top: 10px; padding-top: 8px; border-top: 1px dashed #eef0f7; display: flex; flex-direction: column; gap: 2px; }
-.todo-card__sub { display: flex; align-items: center; gap: 8px; padding: 5px 2px; border-radius: 8px; cursor: default; transition: background .15s; }
-.todo-card__sub:hover { background: #f7f8fd; }
-.todo-card__subcheck {
-  flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
-  border: 2px solid #d9d9d9; background: #fff; cursor: pointer; padding: 0;
-  display: flex; align-items: center; justify-content: center;
-  transition: border-color .18s, background .18s;
-}
-.todo-card__subcheck:hover { border-color: #A855F7; }
-.todo-card__subcheck.done { background: linear-gradient(135deg, #52c41a, #34b34a); border-color: #34b34a; }
-.todo-card__subcheck::after { content: '✓'; color: #fff; font-size: 11px; font-weight: 700; opacity: 0; transform: scale(.4); transition: .18s; }
-.todo-card__subcheck.done::after { opacity: 1; transform: scale(1); }
-.todo-card__sub-title { flex: 1; min-width: 0; font-size: 14px; color: #4a5170; line-height: 1.4; word-break: break-word; }
-.todo-card__sub.is-done .todo-card__sub-title { color: #b0b6c8; text-decoration: line-through; }
-@media (prefers-reduced-motion: reduce) { .todo-card__sub, .todo-card__subcheck, .todo-card__subcheck::after { transition: none; } }
 
 /* 内联子任务添加行: 卡片视图挂在卡片下方; 完整树视图挂在该行下方 */
 .todo-inline-add {

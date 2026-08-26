@@ -142,6 +142,7 @@ class ConfigActivity : ComponentActivity() {
             Prefs.setScope(this@ConfigActivity, appWidgetId, scope)
             RefreshWorker.enqueue(this@ConfigActivity)
             WidgetRepo.refresh(this@ConfigActivity, appWidgetId)
+            // updateAll 必须在主线程（Glance 组合需要主线程推进）
             withContext(Dispatchers.Main) {
                 TodoAppWidget().updateAll(this@ConfigActivity)
                 val result = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)

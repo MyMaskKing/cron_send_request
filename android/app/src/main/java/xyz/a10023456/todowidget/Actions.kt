@@ -7,6 +7,7 @@ import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 小组件生命周期：注册刷新任务、初次添加/系统更新时拉取数据、删除时清理。
@@ -29,9 +30,10 @@ class TodoAppWidgetReceiver : GlanceAppWidgetReceiver() {
         val ready = Prefs.isLoggedIn(context)
         appWidgetIds.forEach { id ->
             if (ready || Prefs.isConfigured(context, id)) {
+                // updateAll 必须在主线程（Glance 组合/翻译需要主线程推进），先在 IO 拉数据再切 Main 重绘
                 CoroutineScope(Dispatchers.IO).launch {
                     WidgetRepo.refresh(context, id)
-                    TodoAppWidget().updateAll(context)
+                    withContext(Dispatchers.Main) { TodoAppWidget().updateAll(context) }
                 }
             }
         }

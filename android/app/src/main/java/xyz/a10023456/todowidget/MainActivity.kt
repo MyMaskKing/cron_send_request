@@ -41,6 +41,7 @@ import androidx.glance.appwidget.updateAll
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * App 主体：原生壳 + 单 WebView + 底部 5 Tab。
@@ -219,14 +220,15 @@ private fun AppShell(initialUrl: String?) {
                                                 .map { it.resolveAppWidgetId() }
                                                 .filter { it >= 0 }
                                             ids.forEach { id -> WidgetRepo.refresh(context, id) }
-                                            TodoAppWidget().updateAll(context)
+                                            // updateAll 必须在主线程（Glance 组合需要主线程推进）
+                                            withContext(Dispatchers.Main) { TodoAppWidget().updateAll(context) }
                                         }
                                     }
                                     sid.isNullOrBlank() && oldSid.isNotBlank() -> {
                                         // 登出/会话失效：清除并刷新小组件
                                         Prefs.clearSid(context)
                                         kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
-                                            TodoAppWidget().updateAll(context)
+                                            withContext(Dispatchers.Main) { TodoAppWidget().updateAll(context) }
                                         }
                                     }
                                 }

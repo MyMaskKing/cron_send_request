@@ -30,6 +30,17 @@ private const val LOADING_MIN_MS = 180L
 /** 结果遮罩停留时长，给用户阅读庆祝词/错误。 */
 private const val RESULT_HOLD_MS = 1400L
 
+/**
+ * 刷新小组件界面。
+ *
+ * ActionCallback.onAction 由 Glance 在 [Dispatchers.Default]（goAsync 后台协程）中调度，
+ * 而 Glance 的组合/翻译/RemoteViews 落地需要主线程推进；在后台线程直接调 updateAll 会导致
+ * 重绘不推进、遮罩停在 loading。故统一切到 [Dispatchers.Main]（与已验证可用的 RefreshWorker 一致）。
+ */
+private suspend fun updateWidgets(context: Context) = withContext(Dispatchers.Main) {
+    TodoAppWidget().updateAll(context)
+}
+
 /** 刷新：遮罩 → 拉取最新数据写缓存 → 结果提示 → 自动重绘。 */
 class RefreshAction : ActionCallback {
     override suspend fun onAction(
@@ -39,7 +50,7 @@ class RefreshAction : ActionCallback {
     ) {
         val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId()
         Prefs.setUiState(context, widgetId, "loading", "刷新中…")
-        TodoAppWidget().updateAll(context)
+        updateWidgets(context)
         delay(LOADING_MIN_MS)
         val ok = WidgetRepo.refresh(context, widgetId)
         Prefs.setUiState(
@@ -47,10 +58,10 @@ class RefreshAction : ActionCallback {
             if (ok) "done" else "error",
             if (ok) "已刷新" else "刷新失败，请检查登录/网络"
         )
-        TodoAppWidget().updateAll(context)
+        updateWidgets(context)
         delay(RESULT_HOLD_MS)
         Prefs.setUiState(context, widgetId, "idle", "")
-        TodoAppWidget().updateAll(context)
+        updateWidgets(context)
     }
 }
 
@@ -65,7 +76,7 @@ class CompleteAction : ActionCallback {
         val itemId = parameters[Keys.ItemId] ?: -1L
         if (itemId <= 0) return
         Prefs.setUiState(context, widgetId, "loading", "处理中…")
-        TodoAppWidget().updateAll(context)
+        updateWidgets(context)
         delay(LOADING_MIN_MS)
         val result = withContext(Dispatchers.IO) {
             runCatching {
@@ -82,10 +93,10 @@ class CompleteAction : ActionCallback {
             onFailure = { "error" to (it.message ?: "操作失败") }
         )
         Prefs.setUiState(context, widgetId, state, msg)
-        TodoAppWidget().updateAll(context)
+        updateWidgets(context)
         delay(RESULT_HOLD_MS)
         Prefs.setUiState(context, widgetId, "idle", "")
-        TodoAppWidget().updateAll(context)
+        updateWidgets(context)
     }
 }
 
@@ -99,7 +110,7 @@ class CollapseAction : ActionCallback {
         val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId()
         val rootId = parameters[Keys.RootId] ?: -1L
         if (rootId > 0) Prefs.toggleCollapsed(context, widgetId, rootId)
-        TodoAppWidget().updateAll(context)
+        updateWidgets(context)
     }
 }
 
