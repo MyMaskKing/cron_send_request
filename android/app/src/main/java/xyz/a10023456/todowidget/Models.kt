@@ -35,7 +35,9 @@ data class WidgetGroup(
 @Serializable
 data class WidgetItem(
     val id: Long,
-    val title: String
+    val title: String,
+    /** 祖先标题链（不含顶层分组、不含自身）；直接子节点为空，用于标题上方显示面包屑。 */
+    val path: List<String> = emptyList()
 )
 
 /** PUT /api/public/todo-all/:token/:id/done 响应 */

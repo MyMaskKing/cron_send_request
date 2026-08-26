@@ -140,7 +140,7 @@ function countStats(rows, today) {
  * @param {string} today - YYYY-MM-DD（北京时区）
  * @param {'cur'|'today'|'overdue'|'all'} scope - 顶层过滤口径
  * @param {number} limit - 返回顶层分组数量上限
- * @returns {Array<{id:number,title:string,due_label:string,overdue:boolean,recurring:boolean,collapsible:boolean,children:Array<{id:number,title:string}>}>}
+ * @returns {Array<{id:number,title:string,due_label:string,overdue:boolean,recurring:boolean,collapsible:boolean,children:Array<{id:number,title:string,path:Array<string>}>}>}
  */
 function buildWidgetGroups(rows, today, scope, limit) {
   const trees = buildTree(rows);
@@ -148,15 +148,19 @@ function buildWidgetGroups(rows, today, scope, limit) {
 
   // 收集某顶层子树下全部未完成节点（flattenPending 已剪掉完成枝，走到的节点均未完成），
   // 含中间层级父任务，使其在小组件里也能单独勾选完成；根节点除外（根由分组标题承载）。
+  // 每项带 path：从 root 直接子节点到该节点父级的标题链（不含 root、不含自身），
+  // 用于小组件在标题上方渲染祖先面包屑；root 的直接子节点 path 为空。
   // 若该根本身是叶子（无后代），回退为根自身，保证至少有一条可勾选。
   const itemsOf = (node) => {
     const out = [];
-    const walk = (n, isRoot) => {
-      if (!isRoot) out.push({ id: n.id, title: n.title });
-      for (const c of n.children) walk(c, false);
+    const walk = (n, ancestors, isRoot) => {
+      if (!isRoot) out.push({ id: n.id, title: n.title, path: ancestors });
+      for (const c of n.children) {
+        walk(c, isRoot ? [] : [...ancestors, n.title], false);
+      }
     };
-    walk(node, true);
-    if (out.length === 0) out.push({ id: node.id, title: node.title });
+    walk(node, [], true);
+    if (out.length === 0) out.push({ id: node.id, title: node.title, path: [] });
     return out;
   };
 

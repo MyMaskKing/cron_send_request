@@ -280,14 +280,22 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
             ) {}
         }
         Spacer(GlanceModifier.width(8.dp))
-        Text(
-            child.title,
-            style = TextStyle(fontSize = 13.sp, color = W.text),
-            maxLines = 2,
-            modifier = GlanceModifier.defaultWeight().clickable(
-                actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to editUrl))
+        Column(modifier = GlanceModifier.defaultWeight().clickable(
+            actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to editUrl))
+        )) {
+            if (child.path.isNotEmpty()) {
+                Text(
+                    child.path.joinToString(" › "),
+                    style = TextStyle(color = W.sub, fontSize = 10.sp),
+                    maxLines = 1
+                )
+            }
+            Text(
+                child.title,
+                style = TextStyle(fontSize = 13.sp, color = W.text),
+                maxLines = 2
             )
-        )
+        }
     }
 }
 
