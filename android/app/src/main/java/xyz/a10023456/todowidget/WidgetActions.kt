@@ -5,6 +5,7 @@ import androidx.glance.GlanceId
 import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.updateAll
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -67,13 +68,16 @@ private fun runWidgetAction(widgetId: Int, block: suspend CoroutineScope.() -> U
 }
 
 /**
- * 刷新小组件界面。
+ * 触发小组件重绘。
  *
- * Glance 的组合/翻译/RemoteViews 落地需要主线程推进；在后台线程直接调 updateAll 会导致重绘不推进
- * （与已验证可用的 RefreshWorker 一致，统一切到 [Dispatchers.Main]）。
+ * Glance 的 [ActionCallback.onAction] 本身就跑在 [Dispatchers.Default] 的 goAsync 协程里，
+ * 官方范式即直接调用 updateAll（其内部是挂起调用：抢 Session 锁、WorkManager 入队/发送
+ * UNLIMITED 事件，均不阻塞线程），无需也不应切到主线程等待——切主线程等待在某些时序下会与
+ * Glance 自己的 SessionWorker 产生调度竞争。这里用 runCatching 包住：重绘失败（如 session
+ * 瞬时未就绪）绝不能中断后续的网络请求与状态复位，否则 loading 遮罩会一直卡住。
  */
-private suspend fun updateWidgets(context: Context) = withContext(Dispatchers.Main) {
-    TodoAppWidget().updateAll(context)
+private suspend fun updateWidgets(context: Context) {
+    runCatching { TodoAppWidget().updateAll(context) }
 }
 
 /** 刷新：遮罩 → 拉取最新数据写缓存 → 结果提示 → 自动重绘。onAction 立即返回，流程在 actionScope 跑。 */
@@ -88,17 +92,26 @@ class RefreshAction : ActionCallback {
         runWidgetAction(widgetId) {
             Prefs.setUiState(appCtx, widgetId, "loading", "刷新中…")
             updateWidgets(appCtx)
-            delay(LOADING_MIN_MS)
-            val ok = WidgetRepo.refresh(appCtx, widgetId)
-            Prefs.setUiState(
-                appCtx, widgetId,
-                if (ok) "done" else "error",
-                if (ok) "已刷新" else "刷新失败，请检查登录/网络"
-            )
-            updateWidgets(appCtx)
-            delay(RESULT_HOLD_MS)
-            Prefs.setUiState(appCtx, widgetId, "idle", "")
-            updateWidgets(appCtx)
+            try {
+                delay(LOADING_MIN_MS)
+                val ok = WidgetRepo.refresh(appCtx, widgetId)
+                Prefs.setUiState(
+                    appCtx, widgetId,
+                    if (ok) "done" else "error",
+                    if (ok) "已刷新" else "刷新失败，请检查登录/网络"
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Prefs.setUiState(appCtx, widgetId, "error", e.message ?: "刷新失败")
+            }
+            // 仅在未被新点击取消时展示结果并复位；被取消说明有更新的动作接管，不要覆盖其状态
+            if (isActive) {
+                updateWidgets(appCtx)
+                delay(RESULT_HOLD_MS)
+                Prefs.setUiState(appCtx, widgetId, "idle", "")
+                updateWidgets(appCtx)
+            }
         }
     }
 }
@@ -117,9 +130,9 @@ class CompleteAction : ActionCallback {
         runWidgetAction(widgetId) {
             Prefs.setUiState(appCtx, widgetId, "loading", "处理中…")
             updateWidgets(appCtx)
-            delay(LOADING_MIN_MS)
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
+            try {
+                delay(LOADING_MIN_MS)
+                val msg = withContext(Dispatchers.IO) {
                     val baseUrl = Prefs.getBaseUrl(appCtx, widgetId)
                     val sid = Prefs.getSid(appCtx)
                     val token = Prefs.getToken(appCtx, widgetId)
@@ -127,16 +140,22 @@ class CompleteAction : ActionCallback {
                     WidgetRepo.refresh(appCtx, widgetId)
                     if (!resp.message.isNullOrBlank()) resp.message else "已完成"
                 }
+                Prefs.setUiState(
+                    appCtx, widgetId, "done",
+                    if (msg.isNotBlank()) msg else "已完成"
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Prefs.setUiState(appCtx, widgetId, "error", e.message ?: "操作失败")
             }
-            val (state, msg) = result.fold(
-                onSuccess = { "done" to (if (it.isNotBlank()) it else "已完成") },
-                onFailure = { "error" to (it.message ?: "操作失败") }
-            )
-            Prefs.setUiState(appCtx, widgetId, state, msg)
-            updateWidgets(appCtx)
-            delay(RESULT_HOLD_MS)
-            Prefs.setUiState(appCtx, widgetId, "idle", "")
-            updateWidgets(appCtx)
+            // 仅在未被新点击取消时展示结果并复位；被取消说明有更新的动作接管，不要覆盖其状态
+            if (isActive) {
+                updateWidgets(appCtx)
+                delay(RESULT_HOLD_MS)
+                Prefs.setUiState(appCtx, widgetId, "idle", "")
+                updateWidgets(appCtx)
+            }
         }
     }
 }
