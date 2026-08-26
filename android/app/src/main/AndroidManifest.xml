@@ -45,10 +45,13 @@
                 android:resource="@xml/todo_widget" />
         </receiver>
 
-        <!-- 小组件点击直达接收器：刷新/完成/折叠，绕过 Glance trampoline -->
-        <receiver
-            android:name=".WidgetActionReceiver"
-            android:exported="false" />
+        <!-- 小组件点击动作中转：透明、无界面，完成即 finish（刷新/完成/折叠） -->
+        <activity
+            android:name=".WidgetActionActivity"
+            android:exported="false"
+            android:theme="@style/Theme.TodoWidget.Transparent"
+            android:excludeFromRecents="true"
+            android:noHistory="true" />
 
     </application>
 </manifest>

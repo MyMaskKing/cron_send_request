@@ -4,4 +4,15 @@
         <item name="android:statusBarColor">@color/brand</item>
         <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
     </style>
+
+    <!-- 小组件动作中转：透明、无动画、不进最近任务，完成即 finish -->
+    <style name="Theme.TodoWidget.Transparent" parent="android:Theme.Translucent.NoTitleBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:noHistory">true</item>
+        <item name="android:excludeFromRecents">true</item>
+    </style>
 </resources>
