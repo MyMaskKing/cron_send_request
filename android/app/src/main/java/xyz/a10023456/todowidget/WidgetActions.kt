@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.glance.GlanceId
 import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.action.ActionCallback
-import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -72,13 +71,17 @@ private fun runWidgetAction(widgetId: Int, block: suspend CoroutineScope.() -> U
  * 触发小组件重绘。
  *
  * Glance 的 [ActionCallback.onAction] 本身就跑在 [Dispatchers.Default] 的 goAsync 协程里，
- * 官方范式即直接调用 updateAll（其内部是挂起调用：抢 Session 锁、WorkManager 入队/发送
+ * 官方范式即直接调用 update（其内部是挂起调用：抢 Session 锁、WorkManager 入队/发送
  * UNLIMITED 事件，均不阻塞线程），无需也不应切到主线程等待——切主线程等待在某些时序下会与
- * Glance 自己的 SessionWorker 产生调度竞争。这里用 runCatching 包住：重绘失败（如 session
- * 瞬时未就绪）绝不能中断后续的网络请求与状态复位，否则 loading 遮罩会一直卡住。
+ * Glance 自己的 SessionWorker 产生调度竞争。这里用定向 update(context, glanceId)（onAction
+ * 直接给出 glanceId），并 runCatching 包住：重绘失败（如 session 瞬时未就绪）绝不能中断后续的
+ * 网络请求与状态复位，否则 loading 遮罩会一直卡住。
+ *
+ * session 存活时 update 走 updateGlance()，仅更新 glanceState；靠 provideContent 中对 LocalState
+ * 的订阅触发整体重组重读磁盘，界面才会刷新（见 WidgetUi.kt）。
  */
-private suspend fun updateWidgets(context: Context) {
-    runCatching { TodoAppWidget().updateAll(context) }
+private suspend fun updateWidgets(context: Context, glanceId: GlanceId) {
+    runCatching { TodoAppWidget().update(context, glanceId) }
 }
 
 /** 刷新：遮罩 → 拉取最新数据写缓存 → 结果提示 → 自动重绘。onAction 立即返回，流程在 actionScope 跑。 */
@@ -92,7 +95,7 @@ class RefreshAction : ActionCallback {
         val appCtx = context.applicationContext
         runWidgetAction(widgetId) {
             Prefs.setUiState(appCtx, widgetId, "loading", "刷新中…")
-            updateWidgets(appCtx)
+            updateWidgets(appCtx, glanceId)
             try {
                 delay(LOADING_MIN_MS)
                 val ok = WidgetRepo.refresh(appCtx, widgetId)
@@ -108,10 +111,10 @@ class RefreshAction : ActionCallback {
             }
             // 仅在未被新点击取消时展示结果并复位；被取消说明有更新的动作接管，不要覆盖其状态
             if (isActive) {
-                updateWidgets(appCtx)
+                updateWidgets(appCtx, glanceId)
                 delay(RESULT_HOLD_MS)
                 Prefs.setUiState(appCtx, widgetId, "idle", "")
-                updateWidgets(appCtx)
+                updateWidgets(appCtx, glanceId)
             }
         }
     }
@@ -130,7 +133,7 @@ class CompleteAction : ActionCallback {
         val appCtx = context.applicationContext
         runWidgetAction(widgetId) {
             Prefs.setUiState(appCtx, widgetId, "loading", "处理中…")
-            updateWidgets(appCtx)
+            updateWidgets(appCtx, glanceId)
             try {
                 delay(LOADING_MIN_MS)
                 val msg = withContext(Dispatchers.IO) {
@@ -152,10 +155,10 @@ class CompleteAction : ActionCallback {
             }
             // 仅在未被新点击取消时展示结果并复位；被取消说明有更新的动作接管，不要覆盖其状态
             if (isActive) {
-                updateWidgets(appCtx)
+                updateWidgets(appCtx, glanceId)
                 delay(RESULT_HOLD_MS)
                 Prefs.setUiState(appCtx, widgetId, "idle", "")
-                updateWidgets(appCtx)
+                updateWidgets(appCtx, glanceId)
             }
         }
     }
@@ -173,7 +176,7 @@ class CollapseAction : ActionCallback {
         val appCtx = context.applicationContext
         // 独立启动，不经过 activeJobs：折叠不应取消正在进行的刷新/完成动作
         if (rootId > 0) Prefs.toggleCollapsed(appCtx, widgetId, rootId)
-        actionScope.launch { updateWidgets(appCtx) }
+        actionScope.launch { updateWidgets(appCtx, glanceId) }
     }
 }
 

@@ -7,6 +7,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.LocalState
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
@@ -63,7 +64,14 @@ class TodoAppWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val appWidgetId = id.resolveAppWidgetId()
         provideContent {
-            // 直接读取最新缓存：每次 provideGlance（含操作后 updateAll 触发的重绘）都读磁盘，
+            // 订阅 Glance 会话状态（glanceState）。关键：provideContent 的内容 lambda 在每个
+            // session 里只捕获一次；动作后调用 update() 时，若 session 仍存活（45s 窗口内）走的是
+            // updateGlance()，仅更新 glanceState（neverEqualPolicy，必触发变化）。若内容不订阅任何
+            // 快照状态，Compose 会因「稳定 lambda 入参不变」跳过重组，导致读不到最新的缓存/遮罩状态
+            // （表现为勾选后无反应、刷新卡在「刷新中」）。读取 LocalState 即建立订阅，update() 后
+            // 本内容整体重组，下面的磁盘读取随之拿到最新值。
+            LocalState.current
+            // 直接读取最新缓存：重组时（含动作后 update 触发的重绘）都读磁盘，
             // 避免 remember 缓存导致勾选/刷新后界面不更新。
             val data = WidgetRepo.cached(context, appWidgetId)
             val failed = Prefs.isFailed(context, appWidgetId)
