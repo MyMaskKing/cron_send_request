@@ -73,6 +73,29 @@ object Prefs {
     fun isFailed(context: Context, widgetId: Int): Boolean =
         sp(context).getBoolean("failed_$widgetId", false)
 
+    // ── 瞬时操作状态（点击遮罩/结果提示）：idle | loading | done | error ──
+    // 带过期时间，进程被杀来不及清除时也能自动回落到 idle，避免遮罩常驻
+    fun setUiState(context: Context, widgetId: Int, state: String, msg: String) {
+        val e = sp(context).edit()
+        if (state == "idle") {
+            e.remove("ui_state_$widgetId").remove("ui_msg_$widgetId").remove("ui_until_$widgetId")
+        } else {
+            e.putString("ui_state_$widgetId", state)
+                .putString("ui_msg_$widgetId", msg)
+                .putLong("ui_until_$widgetId", System.currentTimeMillis() + 6000L)
+        }
+        e.apply()
+    }
+
+    /** 返回 (state, msg)，过期或不存在返回 ("idle", "")。 */
+    fun getUiState(context: Context, widgetId: Int): Pair<String, String> {
+        val until = sp(context).getLong("ui_until_$widgetId", 0L)
+        if (until < System.currentTimeMillis()) return "idle" to ""
+        val s = sp(context).getString("ui_state_$widgetId", "idle") ?: "idle"
+        if (s == "idle") return "idle" to ""
+        return s to (sp(context).getString("ui_msg_$widgetId", "") ?: "")
+    }
+
     /** 删除某小组件时清理其全部键 */
     fun clear(context: Context, widgetId: Int) {
         val e = sp(context).edit()

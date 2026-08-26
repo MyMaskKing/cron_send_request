@@ -4533,6 +4533,36 @@ function renderTodoCards(container, trees, opts) {
       noteEl.textContent = root.note;
       body.appendChild(noteEl);
     }
+
+    // 直接子任务列表：每个带勾选框，点击就地完成/取消，无需进详情（与「添加子任务」创建的直接子项对应）
+    // 只读页（无 onToggle）不渲染，保持原行为
+    if (hasChildren && opts.onToggle && !opts.readOnly) {
+      var subs = document.createElement('div');
+      subs.className = 'todo-card__subs';
+      root.children.forEach(function(child){
+        var sub = document.createElement('div');
+        sub.className = 'todo-card__sub' + (child.done ? ' is-done' : '');
+        var subCheck = document.createElement('button');
+        subCheck.type = 'button';
+        subCheck.className = 'todo-card__subcheck' + (child.done ? ' done' : '');
+        subCheck.title = child.done ? '取消完成' : '标记完成';
+        subCheck.addEventListener('click', async function(e){
+          e.stopPropagation();
+          if (subCheck.disabled) return;
+          subCheck.disabled = true;
+          subCheck.setAttribute('data-busy', '1');
+          try { await opts.onToggle(child, !child.done); }
+          finally { subCheck.disabled = false; subCheck.removeAttribute('data-busy'); }
+        });
+        var subTitle = document.createElement('div');
+        subTitle.className = 'todo-card__sub-title';
+        subTitle.textContent = child.title;
+        sub.appendChild(subCheck);
+        sub.appendChild(subTitle);
+        subs.appendChild(sub);
+      });
+      body.appendChild(subs);
+    }
     card.appendChild(body);
 
     // 底部操作 + 进入指示
@@ -4564,7 +4594,7 @@ function renderTodoCards(container, trees, opts) {
     // 整卡点击进入详情：忽略勾选/操作按钮区
     if (canEnter) {
       card.addEventListener('click', function(e){
-        if (e.target.closest('.todo-card__check, .todo-card__ops')) return;
+        if (e.target.closest('.todo-card__check, .todo-card__subcheck, .todo-card__ops')) return;
         opts.onEnter(root);
       });
     }

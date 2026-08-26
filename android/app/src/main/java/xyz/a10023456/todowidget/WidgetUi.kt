@@ -68,18 +68,28 @@ class TodoAppWidget : GlanceAppWidget() {
             val data = WidgetRepo.cached(context, appWidgetId)
             val failed = Prefs.isFailed(context, appWidgetId)
             val ready = Prefs.isLoggedIn(context) || Prefs.isConfigured(context, appWidgetId)
+            val (uiState, uiMsg) = Prefs.getUiState(context, appWidgetId)
             WidgetRoot(
                 ready = ready,
                 data = data,
                 failed = failed,
-                widgetId = appWidgetId
+                widgetId = appWidgetId,
+                overlayState = uiState,
+                overlayMsg = uiMsg
             )
         }
     }
 }
 
 @Composable
-private fun WidgetRoot(ready: Boolean, data: WidgetResponse?, failed: Boolean, widgetId: Int) {
+private fun WidgetRoot(
+    ready: Boolean,
+    data: WidgetResponse?,
+    failed: Boolean,
+    widgetId: Int,
+    overlayState: String,
+    overlayMsg: String
+) {
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
@@ -91,6 +101,37 @@ private fun WidgetRoot(ready: Boolean, data: WidgetResponse?, failed: Boolean, w
             NotReady()
         } else {
             WidgetBody(data, failed, widgetId)
+        }
+        if (overlayState != "idle") WidgetOverlay(overlayState, overlayMsg)
+    }
+}
+
+/** 点击处理中的遮罩：半透明覆盖层拦截误触，居中显示状态图标 + 文案。 */
+@Composable
+private fun WidgetOverlay(state: String, msg: String) {
+    val (emoji, bg) = when (state) {
+        "loading" -> "⏳" to Color(0x9914141E)
+        "error" -> "❌" to Color(0xDD14141E)
+        else -> "🎉" to Color(0xDD14141E)
+    }
+    Box(
+        modifier = GlanceModifier
+            .fillMaxSize()
+            .background(ColorProvider(bg))
+            .clickable(actionRunCallback<NoopAction>()),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(emoji, style = TextStyle(fontSize = 30.sp))
+            Spacer(GlanceModifier.height(8.dp))
+            Text(
+                msg,
+                style = TextStyle(
+                    color = ColorProvider(Color.White),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            )
         }
     }
 }
@@ -283,7 +324,7 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
         )) {
             if (child.path.isNotEmpty()) {
                 Text(
-                    child.path.joinToString(" › "),
+                    child.path.joinToString(" → "),
                     style = TextStyle(color = W.sub, fontSize = 10.sp),
                     maxLines = 1
                 )
@@ -291,7 +332,7 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
             Text(
                 child.title,
                 style = TextStyle(fontSize = 13.sp, color = W.text),
-                maxLines = 2
+                maxLines = 1
             )
         }
     }

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -37,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.updateAll
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -155,7 +157,8 @@ private fun AppShell(initialUrl: String?) {
             // WebView 始终存在（保留登录态/历史），仅在「我的」页隐藏
             AndroidView(
                 factory = { ctx ->
-                    WebView(ctx).apply {
+                    lateinit var swipe: SwipeRefreshLayout
+                    val wv = WebView(ctx).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         settings.databaseEnabled = true
@@ -186,6 +189,8 @@ private fun AppShell(initialUrl: String?) {
 
                             override fun onPageFinished(view: WebView, url: String?) {
                                 super.onPageFinished(view, url)
+                                // 下拉刷新触发的 reload 完成后收起指示器
+                                if (::swipe.isInitialized) swipe.isRefreshing = false
                                 // 同步登录会话给小组件：从 Cookie 取 sid（native 可读 HttpOnly Cookie）
                                 val cookieUrl = url ?: currentBaseUrl
                                 val cookies = CookieManager.getInstance().getCookie(cookieUrl) ?: ""
@@ -228,10 +233,24 @@ private fun AppShell(initialUrl: String?) {
                         }
                         webChromeClient = WebChromeClient()
                         loadUrl(targetUrl, APP_HEADERS)
-                        webViewRef = this
                     }
+                    // 下拉刷新：网页滚到顶部时下拉触发 reload，onPageFinished 收起指示器
+                    swipe = SwipeRefreshLayout(ctx).apply {
+                        addView(
+                            wv,
+                            ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        )
+                        setColorSchemeColors(0xFFA855F7.toInt())
+                        setOnRefreshListener { wv.reload() }
+                    }
+                    webViewRef = wv
+                    swipe
                 },
-                update = { wv ->
+                update = { host ->
+                    val wv = host.getChildAt(0) as WebView
                     if (wv.url != targetUrl) {
                         CookieManager.getInstance().setCookie(baseUrl, "app_shell=1; Path=/")
                         wv.loadUrl(targetUrl, APP_HEADERS)

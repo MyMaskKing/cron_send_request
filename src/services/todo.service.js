@@ -146,15 +146,17 @@ function buildWidgetGroups(rows, today, scope, limit) {
   const trees = buildTree(rows);
   const pending = flattenPending(trees); // 仅保留仍有未完成叶子的顶层子树（已完成祖先整棵剔除）
 
-  // 收集某顶层子树下全部未完成节点（flattenPending 已剪掉完成枝，走到的节点均未完成），
-  // 含中间层级父任务，使其在小组件里也能单独勾选完成；根节点除外（根由分组标题承载）。
-  // 每项带 path：从 root 直接子节点到该节点父级的标题链（不含 root、不含自身），
-  // 用于小组件在标题上方渲染祖先面包屑；root 的直接子节点 path 为空。
+  // 收集某顶层子树下全部未完成叶子（flattenPending 已剪掉完成枝，保留下来的叶子均未完成），
+  // 中间层级父任务不单列成行，只通过叶子的 path 小文字面包屑体现层级；根节点除外（根由分组标题承载）。
+  // 每项带 path：从 root 直接子节点到该叶子父级的标题链（不含 root、不含自身），
+  // 用于小组件在叶子标题上方渲染祖先面包屑；root 的直接子叶子 path 为空。
   // 若该根本身是叶子（无后代），回退为根自身，保证至少有一条可勾选。
   const itemsOf = (node) => {
     const out = [];
     const walk = (n, ancestors, isRoot) => {
-      if (!isRoot) out.push({ id: n.id, title: n.title, path: ancestors });
+      if (!isRoot && n.children.length === 0) {
+        out.push({ id: n.id, title: n.title, path: ancestors });
+      }
       for (const c of n.children) {
         walk(c, isRoot ? [] : [...ancestors, n.title], false);
       }
