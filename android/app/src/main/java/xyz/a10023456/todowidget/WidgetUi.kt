@@ -1,6 +1,7 @@
 package xyz.a10023456.todowidget
 
 import android.content.Context
+import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -57,6 +58,24 @@ private fun addUrlOf(ctx: Context, baseUrl: String, token: String): String =
 /** 点击任务：已登录跳到 /todo?edit=<id> 由网页自动打开编辑弹窗；未登录回退到免密报告页。 */
 private fun editUrlOf(ctx: Context, baseUrl: String, token: String, itemId: Long): String =
     if (Prefs.isLoggedIn(ctx)) "$baseUrl/todo?edit=$itemId" else openUrlOf(ctx, baseUrl, token)
+
+/**
+ * 构造直达 [WidgetActionReceiver] 的广播 Intent。
+ * Glance 1.1.0 的 actionSendBroadcast 无接受 ActionParameters 的重载，统一用 Intent extras 传参；
+ * 底层为 PendingIntent.getBroadcast，不经过 trampoline Activity。
+ */
+private fun widgetActionIntent(
+    ctx: Context,
+    widgetId: Int,
+    actionType: String,
+    itemId: Long? = null,
+    rootId: Long? = null
+): Intent = Intent(ctx, WidgetActionReceiver::class.java).apply {
+    putExtra(Keys.AppWidgetId.name, widgetId)
+    putExtra(Keys.ActionType.name, actionType)
+    itemId?.let { putExtra(Keys.ItemId.name, it) }
+    rootId?.let { putExtra(Keys.RootId.name, it) }
+}
 
 /** 小组件渲染入口。 */
 class TodoAppWidget : GlanceAppWidget() {
@@ -216,12 +235,8 @@ private fun GroupRow(g: WidgetGroup, widgetId: Int) {
             .fillMaxWidth()
             .padding(vertical = 5.dp)
             .clickable(
-                actionSendBroadcast<WidgetActionReceiver>(
-                    actionParametersOf(
-                        Keys.ActionType to WidgetActionReceiver.ACTION_COLLAPSE,
-                        Keys.RootId to g.id,
-                        Keys.AppWidgetId to widgetId
-                    )
+                actionSendBroadcast(
+                    widgetActionIntent(ctx, widgetId, WidgetActionReceiver.ACTION_COLLAPSE, rootId = g.id)
                 )
             ),
         verticalAlignment = Alignment.CenterVertically
@@ -264,12 +279,8 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
                 .size(22.dp)
                 .background(imageProvider = ImageProvider(R.drawable.bg_circle_brand))
                 .clickable(
-                    actionSendBroadcast<WidgetActionReceiver>(
-                        actionParametersOf(
-                            Keys.ActionType to WidgetActionReceiver.ACTION_COMPLETE,
-                            Keys.ItemId to child.id,
-                            Keys.AppWidgetId to widgetId
-                        )
+                    actionSendBroadcast(
+                        widgetActionIntent(ctx, widgetId, WidgetActionReceiver.ACTION_COMPLETE, itemId = child.id)
                     )
                 ),
             contentAlignment = Alignment.Center
@@ -326,11 +337,8 @@ private fun Footer(widgetId: Int) {
             "↻ $time",
             style = TextStyle(color = W.sub, fontSize = 11.sp),
             modifier = GlanceModifier.clickable(
-                actionSendBroadcast<WidgetActionReceiver>(
-                    actionParametersOf(
-                        Keys.ActionType to WidgetActionReceiver.ACTION_REFRESH,
-                        Keys.AppWidgetId to widgetId
-                    )
+                actionSendBroadcast(
+                    widgetActionIntent(ctx, widgetId, WidgetActionReceiver.ACTION_REFRESH)
                 )
             )
         )
