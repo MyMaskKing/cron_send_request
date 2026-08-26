@@ -1,85 +1,78 @@
 package xyz.a10023456.todowidget
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
 import android.widget.Toast
-import androidx.glance.GlanceId
-import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
-import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.updateAll
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** 手动刷新：重新拉取并更新当前小组件，并用 Toast 提示结果。 */
-class RefreshAction : ActionCallback {
-    override suspend fun onAction(
-        context: Context,
-        glanceId: GlanceId,
-        parameters: ActionParameters
-    ) {
-        val widgetId = parameters[Keys.AppWidgetId] ?: return
-        Toast.makeText(context, "⏳ 刷新中…", Toast.LENGTH_SHORT).show()
-        val ok = WidgetRepo.refresh(context, widgetId)
-        TodoAppWidget().update(context, glanceId)
-        Toast.makeText(
-            context,
-            if (ok) "✅ 已刷新" else "❌ 刷新失败，请检查登录/网络",
-            Toast.LENGTH_SHORT
-        ).show()
-    }
-}
-
-/** 勾选完成：调用勾选接口，再刷新当前小组件，并用 Toast 提示结果（与网页端一致）。 */
-class CompleteAction : ActionCallback {
-    override suspend fun onAction(
-        context: Context,
-        glanceId: GlanceId,
-        parameters: ActionParameters
-    ) {
-        val widgetId = parameters[Keys.AppWidgetId] ?: return
-        val itemId = parameters[Keys.ItemId] ?: return
-        val result = withContext(Dispatchers.IO) {
-            var ok = false
-            var msg: String? = null
+/**
+ * 小组件点击统一接收器。
+ *
+ * 直接走 BroadcastReceiver（PendingIntent.getBroadcast），绕过 Glance
+ * actionRunCallback 的 trampoline Activity（InvisibleActionTrampolineActivity →
+ * ActionCallbackBroadcastReceiver）。部分设备/启动器上该 trampoline 会被拦截，
+ * 导致 ActionCallback.onAction 完全不触发；直接广播可避免该问题。
+ *
+ * 通过 actionParametersOf 传入 [Keys.ActionType] 区分刷新/完成/折叠，其余参数复用
+ * [Keys] 中已有键。
+ */
+class WidgetActionReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val widgetId = intent.getIntExtra(Keys.AppWidgetId.name, -1)
+        if (widgetId < 0) return
+        val actionType = intent.getStringExtra(Keys.ActionType.name) ?: return
+        val pending = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            var toastMsg: String? = null
             try {
-                val baseUrl = Prefs.getBaseUrl(context, widgetId)
-                val sid = Prefs.getSid(context)
-                val token = Prefs.getToken(context, widgetId)
-                val resp = ApiClient.markDone(baseUrl, sid, token, itemId)
-                ok = true
-                msg = resp.message
+                when (actionType) {
+                    ACTION_REFRESH -> {
+                        toastMsg = if (WidgetRepo.refresh(context, widgetId))
+                            "✅ 已刷新" else "❌ 刷新失败，请检查登录/网络"
+                    }
+                    ACTION_COMPLETE -> {
+                        val itemId = intent.getLongExtra(Keys.ItemId.name, -1L)
+                        if (itemId > 0) toastMsg = doComplete(context, widgetId, itemId)
+                    }
+                    ACTION_COLLAPSE -> {
+                        val rootId = intent.getLongExtra(Keys.RootId.name, -1L)
+                        if (rootId > 0) Prefs.toggleCollapsed(context, widgetId, rootId)
+                    }
+                }
             } catch (e: Exception) {
-                msg = e.message
+                toastMsg = "❌ 操作失败：${e.message ?: "未知错误"}"
+            } finally {
+                TodoAppWidget().updateAll(context)
+                withContext(Dispatchers.Main) {
+                    toastMsg?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                    pending.finish()
+                }
             }
-            // 无论成功失败都刷新，把服务端真实状态拉回
-            WidgetRepo.refresh(context, widgetId)
-            ok to msg
         }
-        TodoAppWidget().update(context, glanceId)
-        val (ok, msg) = result
-        val text = when {
-            ok && !msg.isNullOrBlank() -> "✅ $msg"
-            ok -> "✅ 已完成"
-            else -> "❌ 操作失败：${msg ?: "未知错误"}"
-        }
-        Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
     }
-}
 
-/** 折叠/展开顶层分组：仅写本地状态，不发网络。 */
-class CollapseAction : ActionCallback {
-    override suspend fun onAction(
-        context: Context,
-        glanceId: GlanceId,
-        parameters: ActionParameters
-    ) {
-        val widgetId = parameters[Keys.AppWidgetId] ?: return
-        val rootId = parameters[Keys.RootId] ?: return
-        Prefs.toggleCollapsed(context, widgetId, rootId)
-        TodoAppWidget().update(context, glanceId)
+    /** 勾选完成：调接口后刷新缓存，返回提示文案。 */
+    private suspend fun doComplete(context: Context, widgetId: Int, itemId: Long): String {
+        val baseUrl = Prefs.getBaseUrl(context, widgetId)
+        val sid = Prefs.getSid(context)
+        val token = Prefs.getToken(context, widgetId)
+        val resp = ApiClient.markDone(baseUrl, sid, token, itemId)
+        // 无论成功失败都刷新，把服务端真实状态拉回
+        WidgetRepo.refresh(context, widgetId)
+        return if (!resp.message.isNullOrBlank()) "✅ ${resp.message}" else "✅ 已完成"
+    }
+
+    companion object {
+        const val ACTION_REFRESH = "refresh"
+        const val ACTION_COMPLETE = "complete"
+        const val ACTION_COLLAPSE = "collapse"
     }
 }
 
@@ -98,7 +91,7 @@ class TodoAppWidgetReceiver : GlanceAppWidgetReceiver() {
         val ready = Prefs.isLoggedIn(context)
         appWidgetIds.forEach { id ->
             if (ready || Prefs.isConfigured(context, id)) {
-                GlobalScope.launch(Dispatchers.IO) {
+                CoroutineScope(Dispatchers.IO).launch {
                     WidgetRepo.refresh(context, id)
                     TodoAppWidget().updateAll(context)
                 }

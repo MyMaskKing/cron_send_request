@@ -2,7 +2,6 @@ package xyz.a10023456.todowidget
 
 import android.content.Context
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -13,7 +12,7 @@ import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
-import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.action.actionSendBroadcast
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
@@ -64,7 +63,9 @@ class TodoAppWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val appWidgetId = id.resolveAppWidgetId()
         provideContent {
-            val data = remember(appWidgetId) { WidgetRepo.cached(context, appWidgetId) }
+            // 直接读取最新缓存：每次 provideGlance（含操作后 updateAll 触发的重绘）都读磁盘，
+            // 避免 remember 缓存导致勾选/刷新后界面不更新。
+            val data = WidgetRepo.cached(context, appWidgetId)
             val failed = Prefs.isFailed(context, appWidgetId)
             val ready = Prefs.isLoggedIn(context) || Prefs.isConfigured(context, appWidgetId)
             WidgetRoot(
@@ -215,8 +216,12 @@ private fun GroupRow(g: WidgetGroup, widgetId: Int) {
             .fillMaxWidth()
             .padding(vertical = 5.dp)
             .clickable(
-                actionRunCallback<CollapseAction>(
-                    actionParametersOf(Keys.RootId to g.id, Keys.AppWidgetId to widgetId)
+                actionSendBroadcast<WidgetActionReceiver>(
+                    actionParametersOf(
+                        Keys.ActionType to WidgetActionReceiver.ACTION_COLLAPSE,
+                        Keys.RootId to g.id,
+                        Keys.AppWidgetId to widgetId
+                    )
                 )
             ),
         verticalAlignment = Alignment.CenterVertically
@@ -259,8 +264,9 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
                 .size(22.dp)
                 .background(imageProvider = ImageProvider(R.drawable.bg_circle_brand))
                 .clickable(
-                    actionRunCallback<CompleteAction>(
+                    actionSendBroadcast<WidgetActionReceiver>(
                         actionParametersOf(
+                            Keys.ActionType to WidgetActionReceiver.ACTION_COMPLETE,
                             Keys.ItemId to child.id,
                             Keys.AppWidgetId to widgetId
                         )
@@ -312,8 +318,11 @@ private fun Footer(widgetId: Int) {
             "↻ $time",
             style = TextStyle(color = W.sub, fontSize = 11.sp),
             modifier = GlanceModifier.clickable(
-                actionRunCallback<RefreshAction>(
-                    actionParametersOf(Keys.AppWidgetId to widgetId)
+                actionSendBroadcast<WidgetActionReceiver>(
+                    actionParametersOf(
+                        Keys.ActionType to WidgetActionReceiver.ACTION_REFRESH,
+                        Keys.AppWidgetId to widgetId
+                    )
                 )
             )
         )
@@ -326,4 +335,5 @@ object Keys {
     val ItemId = ActionParameters.Key<Long>("itemId")
     val RootId = ActionParameters.Key<Long>("rootId")
     val Url = ActionParameters.Key<String>("extra_url")
+    val ActionType = ActionParameters.Key<String>("action_type")
 }
