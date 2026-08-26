@@ -65,7 +65,8 @@ object ApiClient {
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
                 val err = runCatching { json.decodeFromString<ErrorResponse>(body) }.getOrNull()
-                throw RuntimeException(err?.message ?: "HTTP ${resp.code}")
+                // 带上 method+url，便于定位路由未命中/反代拦截等问题（404 HTML 页面无法解析为 ErrorResponse）
+                throw RuntimeException(err?.message ?: "PUT $url → HTTP ${resp.code}")
             }
             return json.decodeFromString<DoneResponse>(body)
         }

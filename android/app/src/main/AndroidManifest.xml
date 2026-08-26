@@ -45,11 +45,14 @@
                 android:resource="@xml/todo_widget" />
         </receiver>
 
-        <!-- 小组件点击动作中转：透明、无界面，完成即 finish（刷新/完成/折叠） -->
+        <!-- 小组件点击动作中转：透明、无界面，完成即 finish（刷新/完成/折叠）。
+             taskAffinity 留空 + excludeFromRecents + noHistory：避免启动时把已在最近任务里的
+             主 app 任务栈带到前台（Glance 自带 trampoline 也是用独立 affinity 解决同一问题）。 -->
         <activity
             android:name=".WidgetActionActivity"
             android:exported="false"
             android:theme="@style/Theme.TodoWidget.Transparent"
+            android:taskAffinity=""
             android:excludeFromRecents="true"
             android:noHistory="true" />
 
