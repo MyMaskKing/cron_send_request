@@ -1,8 +1,5 @@
 package xyz.a10023456.todowidget
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Bundle
@@ -46,7 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -227,7 +223,6 @@ private fun ConfigSheet(
     onFontScale: (Int) -> Unit,
     onSave: (String, String, Int, Int) -> Unit
 ) {
-    val context = LocalContext.current
     var token by remember { mutableStateOf(initialToken) }
     var scope by remember { mutableStateOf(initialScope) }
     var opacity by remember { mutableStateOf(initialOpacity.toFloat()) }
