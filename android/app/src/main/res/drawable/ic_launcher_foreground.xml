@@ -3,7 +3,7 @@
   DIRECTION CONTRACT (seed f7c4ebab, IMPECCABLE'S PICK 拼布被)
   THESIS: 五个生活模块是五块补丁缝在同一床被子上；「补丁」双关自托管的 patch。拒绝品类默认的"渐变底+白色对勾便签"。
   OWN-WORLD: 奶白织物补丁 + 翻折深紫内衬 + 十字绣断续针脚勾选 + 四周明线；全部落在 66dp 安全区内。
-  STORY: 补丁一角翻起、针脚外露--生活被"缝补"而非"管理"；勾选是一针一针绣出来的。
+  STORY: 补丁一角翻起、针脚外露——生活被"缝补"而非"管理"；勾选是一针一针绣出来的。
   FIRST VIEWPORT: 44dp 圆角补丁居中 (32,32)-(76,76)，右上角翻折 (64,32)-(76,44)；十字绣勾选 A(40,58)->B(50,68)->C(68,47)，笔宽 4.5，六段针脚；补丁内缩 2.5dp 一圈明线。
   FORM: 拼布被（本清单第 1 位，我的 top 候选），seed f7c4ebab。
   FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
