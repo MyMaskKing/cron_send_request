@@ -34,6 +34,13 @@ object Prefs {
     fun setScope(context: Context, widgetId: Int, scope: String) =
         sp(context).edit().putString("scope_$widgetId", scope).apply()
 
+    /** 小组件背景不透明度 0-100，默认 100（完全不透明） */
+    fun getOpacity(context: Context, widgetId: Int): Int =
+        sp(context).getInt("opacity_$widgetId", 100)
+
+    fun setOpacity(context: Context, widgetId: Int, opacity: Int) =
+        sp(context).edit().putInt("opacity_$widgetId", opacity.coerceIn(0, 100)).apply()
+
     fun getBaseUrl(context: Context, widgetId: Int): String {
         val per = sp(context).getString("baseurl_$widgetId", "") ?: ""
         return if (per.isNotBlank()) AppConfig.normalize(per) else AppConfig.getBaseUrl(context)
@@ -112,7 +119,8 @@ object Prefs {
             .forEach { e.remove(it) }
         e.remove("cache_$widgetId").remove("updated_$widgetId")
             .remove("failed_$widgetId").remove("token_$widgetId")
-            .remove("scope_$widgetId").remove("baseurl_$widgetId").apply()
+            .remove("scope_$widgetId").remove("baseurl_$widgetId")
+            .remove("opacity_$widgetId").apply()
     }
 
     /** 返回所有已配置（有 token）的 widgetId，用于周期刷新。 */

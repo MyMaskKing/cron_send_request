@@ -122,13 +122,20 @@ private fun WidgetRoot(
     overlayState: String,
     overlayMsg: String
 ) {
+    val ctx = androidx.glance.LocalContext.current
+    val opacity = Prefs.getOpacity(ctx, widgetId) / 100f
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
-            .padding(6.dp)
-            .background(imageProvider = ImageProvider(R.drawable.bg_card)),
+            .padding(6.dp),
         contentAlignment = Alignment.TopStart
     ) {
+        Box(
+            modifier = GlanceModifier
+                .fillMaxSize()
+                .background(imageProvider = ImageProvider(R.drawable.bg_card))
+                .alpha(opacity)
+        ) {}
         if (!ready) {
             NotReady()
         } else {

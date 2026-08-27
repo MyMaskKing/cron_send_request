@@ -24,6 +24,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -61,6 +63,7 @@ class ConfigActivity : ComponentActivity() {
 
         val token = Prefs.getToken(this, appWidgetId)
         val scope = Prefs.getScope(this, appWidgetId)
+        val opacity = Prefs.getOpacity(this, appWidgetId)
         val baseUrl = AppConfig.getBaseUrl(this)
 
         setContent {
@@ -69,10 +72,11 @@ class ConfigActivity : ComponentActivity() {
                     ConfigScreen(
                         initialToken = token,
                         initialScope = scope,
+                        initialOpacity = opacity,
                         baseUrl = baseUrl,
                         sid = Prefs.getSid(this),
                         onTest = { t -> testConnection(t) },
-                        onSave = { t, s -> save(t, s) }
+                        onSave = { t, s, o -> save(t, s, o) }
                     )
                 }
             }
@@ -132,7 +136,7 @@ class ConfigActivity : ComponentActivity() {
         }
     }
 
-    private fun save(token: String, scope: String) {
+    private fun save(token: String, scope: String, opacity: Int) {
         if (Prefs.getSid(this).isBlank() && token.isBlank()) {
             Toast.makeText(this, "请先在 App 内登录，或填写 report_token", Toast.LENGTH_SHORT).show()
             return
@@ -140,6 +144,7 @@ class ConfigActivity : ComponentActivity() {
         kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
             Prefs.setToken(this@ConfigActivity, appWidgetId, token)
             Prefs.setScope(this@ConfigActivity, appWidgetId, scope)
+            Prefs.setOpacity(this@ConfigActivity, appWidgetId, opacity)
             RefreshWorker.enqueue(this@ConfigActivity)
             WidgetRepo.refresh(this@ConfigActivity, appWidgetId)
             // updateAll 必须在主线程（Glance 组合需要主线程推进）
@@ -157,14 +162,16 @@ class ConfigActivity : ComponentActivity() {
 private fun ConfigScreen(
     initialToken: String,
     initialScope: String,
+    initialOpacity: Int,
     baseUrl: String,
     sid: String,
     onTest: (String) -> Unit,
-    onSave: (String, String) -> Unit
+    onSave: (String, String, Int) -> Unit
 ) {
     val context = LocalContext.current
     var token by remember { mutableStateOf(initialToken) }
     var scope by remember { mutableStateOf(initialScope) }
+    var opacity by remember { mutableStateOf(initialOpacity.toFloat()) }
     val loggedIn = sid.isNotBlank()
     val scopes = listOf(
         "cur" to "今日 + 逾期（推荐）",
@@ -232,11 +239,37 @@ private fun ConfigScreen(
                 }
             }
         }
+        Spacer(Modifier.height(16.dp))
+        Text("背景不透明度", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Slider(
+                value = opacity,
+                onValueChange = { opacity = it },
+                valueRange = 0f..100f,
+                steps = 9,
+                modifier = Modifier.weight(1f),
+                colors = SliderDefaults.colors(
+                    thumbColor = Color(0xFFA855F7),
+                    activeTrackColor = Color(0xFFA855F7)
+                )
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                "${opacity.toInt()}%",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.width(48.dp)
+            )
+        }
+
         Spacer(Modifier.height(20.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TextButton(onClick = { onTest(if (loggedIn) "" else token) }) { Text("测试连接") }
             Spacer(Modifier.weight(1f))
-            Button(onClick = { onSave(if (loggedIn) "" else token, scope) }) { Text("保存") }
+            Button(onClick = { onSave(if (loggedIn) "" else token, scope, opacity.toInt()) }) { Text("保存") }
         }
     }
 }
