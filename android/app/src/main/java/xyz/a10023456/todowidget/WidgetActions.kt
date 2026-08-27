@@ -43,7 +43,7 @@ class RefreshAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters
     ) {
-        val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId()
+        val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId(context)
         val appCtx = context.applicationContext
         Log.d("TodoWidget", "RefreshAction.onAction, widget=$widgetId")
         Prefs.setUiState(appCtx, widgetId, "loading", "刷新中…")
@@ -61,7 +61,7 @@ class CompleteAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters
     ) {
-        val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId()
+        val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId(context)
         val itemId = parameters[Keys.ItemId] ?: -1L
         if (itemId <= 0) return
         val appCtx = context.applicationContext
@@ -80,7 +80,7 @@ class CollapseAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters
     ) {
-        val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId()
+        val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId(context)
         val rootId = parameters[Keys.RootId] ?: -1L
         val appCtx = context.applicationContext
         if (rootId > 0) Prefs.toggleCollapsed(appCtx, widgetId, rootId)

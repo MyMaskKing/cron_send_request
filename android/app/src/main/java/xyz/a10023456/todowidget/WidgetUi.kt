@@ -62,7 +62,7 @@ private fun editUrlOf(ctx: Context, baseUrl: String, token: String, itemId: Long
 /** 小组件渲染入口。 */
 class TodoAppWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val appWidgetId = id.resolveAppWidgetId()
+        val appWidgetId = id.resolveAppWidgetId(context)
         provideContent {
             // 订阅 Glance 会话状态（glanceState）。关键：provideContent 的内容 lambda 在每个
             // session 里只捕获一次；动作后调用 update() 时，若 session 仍存活（45s 窗口内）走的是

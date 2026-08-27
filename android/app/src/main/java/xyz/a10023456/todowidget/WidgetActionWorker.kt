@@ -44,7 +44,7 @@ class WidgetActionWorker(
         if (widgetId < 0) return Result.success()
         val glanceId = GlanceAppWidgetManager(applicationContext)
             .getGlanceIds(TodoAppWidget::class.java)
-            .firstOrNull { it.resolveAppWidgetId() == widgetId }
+            .firstOrNull { it.resolveAppWidgetId(applicationContext) == widgetId }
             ?: run {
                 Log.w(TAG, "doWork: glanceId not found for widget=$widgetId（小组件已被移除？）")
                 return Result.success()
@@ -102,7 +102,7 @@ class WidgetActionWorker(
         // 探针：查 Glance SessionWorker（unique work 名 = "appWidget-<id>"）此刻状态，
         // 判断 update() 内部走 updateGlance 事件（session 存活）还是 startSession（session 已死）
         runCatching {
-            val widgetId = glanceId.resolveAppWidgetId()
+            val widgetId = glanceId.resolveAppWidgetId(applicationContext)
             val infos = WorkManager.getInstance(applicationContext)
                 .getWorkInfosForUniqueWork("appWidget-$widgetId").get()
             val states = infos.joinToString { it.state.name + "(attempt=" + it.runAttemptCount + ")" }

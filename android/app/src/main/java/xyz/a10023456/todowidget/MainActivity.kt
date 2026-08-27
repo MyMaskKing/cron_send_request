@@ -217,7 +217,7 @@ private fun AppShell(initialUrl: String?) {
                                         kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
                                             val ids = GlanceAppWidgetManager(context)
                                                 .getGlanceIds(TodoAppWidget::class.java)
-                                                .map { it.resolveAppWidgetId() }
+                                                .map { it.resolveAppWidgetId(context) }
                                                 .filter { it >= 0 }
                                             ids.forEach { id -> WidgetRepo.refresh(context, id) }
                                             // updateAll 必须在主线程（Glance 组合需要主线程推进）

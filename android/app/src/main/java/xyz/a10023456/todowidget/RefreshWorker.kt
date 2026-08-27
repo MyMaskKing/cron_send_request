@@ -26,7 +26,7 @@ class RefreshWorker(
         // 枚举桌面上当前存在的小组件（登录态为全局会话，不再依赖每个 widget 的 token）
         val ids = GlanceAppWidgetManager(applicationContext)
             .getGlanceIds(TodoAppWidget::class.java)
-            .map { it.resolveAppWidgetId() }
+            .map { it.resolveAppWidgetId(applicationContext) }
             .filter { it >= 0 }
         ids.forEach { id -> WidgetRepo.refresh(applicationContext, id) }
         withContext(Dispatchers.Main) { TodoAppWidget().updateAll(applicationContext) }

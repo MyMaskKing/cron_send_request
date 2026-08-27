@@ -21,8 +21,34 @@ object ApiClient {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .writeTimeout(10, TimeUnit.SECONDS)
+        .followRedirects(false)
         .build()
     private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
+
+    /**
+     * 手动跟随重定向：3xx 保持原 method 与 body 重发（最多 3 跳）。
+     * OkHttp 自动跟随会把 301/302 的 PUT 降级为 GET：Cloudflare 的 http->https 301 曾把
+     * PUT /api/todo/:id/done 变成 GET 打到不存在的路由返回 404。手动跟随不受影响，
+     * 纯 http 部署（局域网 Docker）无 3xx 也不受影响。
+     */
+    private fun execute(req: Request): Response {
+        var request = req
+        var response = client.newCall(request).execute()
+        var hops = 0
+        while (hops < 3) {
+            val location = when (response.code) {
+                301, 302, 307, 308 -> response.header("Location")
+                else -> null
+            } ?: return response
+            val newUrl = request.url.resolve(location)
+            response.close()
+            if (newUrl == null) throw RuntimeException("无效重定向: $location")
+            request = request.newBuilder().url(newUrl).build()
+            response = client.newCall(request).execute()
+            hops++
+        }
+        return response
+    }
 
     private fun baseUrlOf(baseUrl: String): String = AppConfig.normalize(baseUrl).trimEnd('/')
 
@@ -40,7 +66,7 @@ object ApiClient {
         else
             "$base/api/public/todo-widget/$token?scope=$scope&limit=20"
         val req = Request.Builder().url(url).get().auth(sid, token).build()
-        client.newCall(req).execute().use { resp ->
+        execute(req).use { resp ->
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
                 val err = runCatching { json.decodeFromString<ErrorResponse>(body) }.getOrNull()
@@ -61,7 +87,7 @@ object ApiClient {
             .put("""{"done":true}""".toRequestBody(JSON_MEDIA))
             .auth(sid, token)
             .build()
-        client.newCall(req).execute().use { resp ->
+        execute(req).use { resp ->
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
                 val err = runCatching { json.decodeFromString<ErrorResponse>(body) }.getOrNull()
