@@ -127,15 +127,13 @@ private fun WidgetRoot(
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
-            .padding(6.dp),
+            .padding(6.dp)
+            .background(
+                imageProvider = ImageProvider(R.drawable.bg_card),
+                alpha = opacity
+            ),
         contentAlignment = Alignment.TopStart
     ) {
-        Box(
-            modifier = GlanceModifier
-                .fillMaxSize()
-                .background(imageProvider = ImageProvider(R.drawable.bg_card))
-                .alpha(opacity)
-        ) {}
         if (!ready) {
             NotReady()
         } else {
