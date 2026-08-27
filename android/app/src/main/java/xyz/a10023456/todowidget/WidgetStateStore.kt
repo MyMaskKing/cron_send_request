@@ -37,7 +37,8 @@ object WidgetStateStore {
 
     /** 从 SP 全量重读并发布。任何写 SP 的代码路径之后调用，驱动存活 session 重组。 */
     fun publish(context: Context, widgetId: Int) {
-        observe(context, widgetId).value = readFrame(context, widgetId)
+        flows.getOrPut(widgetId) { MutableStateFlow(readFrame(context, widgetId)) }
+            .value = readFrame(context, widgetId)
     }
 
     /** 遮罩/结果状态：写 SP（进程死亡兜底）+ 发布到流（驱动重组）。 */
