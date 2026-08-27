@@ -44,7 +44,8 @@ import java.util.Locale
 /** 小组件配色：day/night 两套，跟随系统深色（仅用于文字；圆角背景走 drawable 以兼容 Glance 1.1）。 */
 private object W {
     val text = DayNightColor(day = Color(0xFF14141E), night = Color(0xFFF2F1F7))
-    val sub = DayNightColor(day = Color(0xFF8890B8), night = Color(0xFF9A93B5))
+    // 次要文字（日期/面包屑/图标）：面板与卡片半透明时仍要可读，取比旧版更深/更亮的灰
+    val sub = DayNightColor(day = Color(0xFF666E8F), night = Color(0xFFB6B0CC))
     val overdue = DayNightColor(day = Color(0xFFCF1322), night = Color(0xFFFF6B6B))
     val brand = DayNightColor(day = Color(0xFFA855F7), night = Color(0xFFA855F7))
 }
@@ -126,18 +127,27 @@ private fun fontFactor(scale: Int): Float = when (scale) {
 private fun fs(scale: Int, baseSp: Int) = (baseSp * fontFactor(scale)).sp
 
 /**
- * 分组卡片底色：日=白、夜=深紫灰（与 res/values(-night)/colors.xml 的 widget_bg 一致），
- * alpha 即用户设置的背景不透明度。走纯色 background 修饰符（setBackgroundColor，全版本
- * 稳定生效；此前垫底 Image + tint 方案真机不显示）；圆角用 cornerRadius（API31+ 生效，
- * 低版本直角降级）。
+ * 整体面板底色（白灰色）：承载标题栏/卡片/底栏，卡片间缝隙也露出这个颜色。
+ * alpha 即用户设置的背景不透明度。纯色 background（setBackgroundColor）全版本稳定；
+ * cornerRadius 仅 API31+ 生效（低版本直角降级）。
+ */
+private fun panelBgColor(opacity: Int): ColorProvider =
+    DayNightColor(
+        day = Color(0xFFF1F2F7).copy(alpha = opacity / 100f),
+        night = Color(0xFF272434).copy(alpha = opacity / 100f)
+    )
+
+/**
+ * 分组卡片底色：日=纯白、夜=比面板亮一档的紫灰，与外层面板拉开层次；
+ * alpha 随不透明度设置（半透明时卡片仍比面板亮，层次感保留）。
  */
 private fun cardBgColor(opacity: Int): ColorProvider =
     DayNightColor(
         day = Color(0xFFFFFFFF).copy(alpha = opacity / 100f),
-        night = Color(0xFF1E1B2A).copy(alpha = opacity / 100f)
+        night = Color(0xFF3A3648).copy(alpha = opacity / 100f)
     )
 
-/** 一张圆角分组卡片的容器：卡片列自带底色/圆角/内边距。 */
+/** 一张圆角分组卡片的容器：卡片列自带底色/圆角/内边距；bottom padding 即卡片间缝隙（露出面板灰）。 */
 @Composable
 private fun CardScaffold(opacity: Int, content: @Composable ColumnScope.() -> Unit) {
     Column(
@@ -145,7 +155,7 @@ private fun CardScaffold(opacity: Int, content: @Composable ColumnScope.() -> Un
             .fillMaxWidth()
             .padding(bottom = 8.dp)
             .background(cardBgColor(opacity))
-            .cornerRadius(18.dp)
+            .cornerRadius(16.dp)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         content = content
     )
@@ -166,11 +176,13 @@ private fun WidgetRoot(
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
-            .padding(6.dp),
+            .padding(6.dp)
+            // 整体白灰色面板：标题栏/卡片/底栏都在它之上，卡片间缝隙露出面板色；
+            // opacity/fontScale 随 WidgetStateStore 帧驱动重组，设置面板拖动即实时预览。
+            .background(panelBgColor(opacity))
+            .cornerRadius(22.dp),
         contentAlignment = Alignment.TopStart
     ) {
-        // 背景下沉到每个分组卡片（CardScaffold），卡片之间透明处露出壁纸；
-        // opacity/fontScale 随 WidgetStateStore 帧驱动重组，设置面板拖动即实时预览。
         if (!ready) {
             NotReady(fontScale)
         } else {
@@ -192,6 +204,7 @@ private fun WidgetOverlay(state: String, msg: String, fontScale: Int) {
         modifier = GlanceModifier
             .fillMaxSize()
             .background(ColorProvider(bg))
+            .cornerRadius(22.dp)
             .clickable(actionRunCallback<NoopAction>()),
         contentAlignment = Alignment.Center
     ) {
@@ -237,7 +250,8 @@ private fun WidgetBody(
     opacity: Int,
     fontScale: Int
 ) {
-    Column(modifier = GlanceModifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 8.dp)) {
+    // 面板内边距（根 Box 已承载面板背景与圆角）
+    Column(modifier = GlanceModifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 10.dp)) {
         Header(data, widgetId, fontScale)
         Spacer(GlanceModifier.height(6.dp))
         if (failed) {
