@@ -87,20 +87,29 @@ class WidgetActionWorker(
         }
         // 业务成败均已落到遮罩状态，统一 success：不触发 WorkManager 重试，避免遮罩复位后又弹结果
         Log.d(TAG, "done/error frame: uiState=${Prefs.getUiState(applicationContext, widgetId)}, widget=$widgetId")
-        updateWidget(glanceId)
+        updateWidget(glanceId, "done-frame")
         Log.d(TAG, "done frame update() returned, widget=$widgetId")
         delay(RESULT_HOLD_MS)
         Prefs.setUiState(applicationContext, widgetId, "idle", "")
         Log.d(TAG, "idle written: uiState=${Prefs.getUiState(applicationContext, widgetId)}, widget=$widgetId")
-        updateWidget(glanceId)
+        updateWidget(glanceId, "idle-frame")
         Log.d(TAG, "idle frame update() returned, widget=$widgetId")
         return Result.success().also { Log.d(TAG, "doWork end success, widget=$widgetId") }
     }
 
     /** 定向重绘；runCatching 兜底：重绘失败不能中断后续状态复位。 */
-    private suspend fun updateWidget(glanceId: GlanceId) {
+    private suspend fun updateWidget(glanceId: GlanceId, tag: String) {
+        // 探针：查 Glance SessionWorker（unique work 名 = "appWidget-<id>"）此刻状态，
+        // 判断 update() 内部走 updateGlance 事件（session 存活）还是 startSession（session 已死）
+        runCatching {
+            val widgetId = glanceId.resolveAppWidgetId()
+            val infos = WorkManager.getInstance(applicationContext)
+                .getWorkInfosForUniqueWork("appWidget-$widgetId").get()
+            val states = infos.joinToString { it.state.name + "(attempt=" + it.runAttemptCount + ")" }
+            Log.d(TAG, "[$tag] before update(): SessionWorker infos=[$states]")
+        }.onFailure { Log.e(TAG, "[$tag] probe failed", it) }
         runCatching { TodoAppWidget().update(applicationContext, glanceId) }
-            .onFailure { Log.e(TAG, "update() threw", it) }
+            .onFailure { Log.e(TAG, "[$tag] update() threw", it) }
     }
 
     companion object {
