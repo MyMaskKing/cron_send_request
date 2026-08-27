@@ -164,7 +164,7 @@ private fun CardScaffold(opacity: Int, content: @Composable ColumnScope.() -> Un
             .fillMaxWidth()
             .background(cardBgColor(opacity))
             .cornerRadius(16.dp)
-            .padding(horizontal = 12.dp, top = 6.dp, bottom = 3.dp),
+            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 3.dp),
         content = content
     )
 }
@@ -263,7 +263,7 @@ private fun WidgetBody(
         // 内容区：浅灰底（根 Box 面板色），卡片在其内；底部留白由末张卡片后的 Spacer 提供
         Column(
             modifier = GlanceModifier.fillMaxWidth().defaultWeight()
-                .padding(horizontal = 10.dp, top = 8.dp)
+                .padding(start = 10.dp, end = 10.dp, top = 8.dp)
         ) {
             if (failed) {
                 Text(
