@@ -79,6 +79,7 @@ class ConfigActivity : ComponentActivity() {
         val opacity = Prefs.getOpacity(this, appWidgetId)
         val fontScale = Prefs.getFontScale(this, appWidgetId)
         val baseUrl = AppConfig.getBaseUrl(this)
+        val sid = Prefs.getSid(this)
 
         setContent {
             MaterialTheme(colorScheme = if (isNight()) darkColorScheme() else lightColorScheme()) {
@@ -108,7 +109,7 @@ class ConfigActivity : ComponentActivity() {
                             initialOpacity = opacity,
                             initialFontScale = fontScale,
                             baseUrl = baseUrl,
-                            sid = Prefs.getSid(this),
+                            sid = sid,
                             onTest = { t -> testConnection(t) },
                             onOpacity = { v -> previewOpacity(v) },
                             onFontScale = { v -> previewFontScale(v) },
