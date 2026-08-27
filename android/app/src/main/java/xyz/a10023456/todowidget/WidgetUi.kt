@@ -19,6 +19,7 @@ import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
 import androidx.glance.ImageProvider
+import androidx.glance.alpha
 import androidx.glance.background
 import androidx.glance.color.ColorProvider as DayNightColor
 import androidx.glance.layout.Alignment
@@ -128,10 +129,8 @@ private fun WidgetRoot(
         modifier = GlanceModifier
             .fillMaxSize()
             .padding(6.dp)
-            .background(
-                imageProvider = ImageProvider(R.drawable.bg_card),
-                alpha = opacity
-            ),
+            .background(imageProvider = ImageProvider(R.drawable.bg_card))
+            .alpha(opacity),
         contentAlignment = Alignment.TopStart
     ) {
         if (!ready) {
