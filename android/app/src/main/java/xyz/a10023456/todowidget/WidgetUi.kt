@@ -90,7 +90,9 @@ class TodoAppWidget : GlanceAppWidget() {
                 widgetId = appWidgetId,
                 collapsed = frame.collapsed,
                 overlayState = frame.uiState,
-                overlayMsg = frame.uiMsg
+                overlayMsg = frame.uiMsg,
+                opacity = frame.opacity,
+                fontScale = frame.fontScale
             )
         }
     }
@@ -115,6 +117,49 @@ private fun maybeAutoRefresh(context: Context, appWidgetId: Int) {
     }
 }
 
+/** 字号档位（Prefs.getFontScale）→ 缩放系数：0=小 1=中 2=大 */
+private fun fontFactor(scale: Int): Float = when (scale) {
+    0 -> 0.88f
+    2 -> 1.15f
+    else -> 1f
+}
+
+/** 按档位缩放后的字号（sp）。 */
+private fun fs(scale: Int, baseSp: Int) = (baseSp * fontFactor(scale)).sp
+
+/**
+ * 分组卡片背景 tint：bg_card 是纯色圆角 shape，用垫底 Image + tint 着色
+ * （背景图片的 colorFilter 在 Glance 翻译层被忽略；ImageView tint 全版本生效，
+ * shape 自身 18dp 圆角也全版本保留）。tint 色日/夜与 res/values(-night)/colors.xml
+ * 的 widget_bg 一致，alpha 即用户设置的背景不透明度。
+ */
+private fun cardColorFilter(opacity: Int): ColorFilter =
+    ColorFilter.tint(
+        DayNightColor(
+            day = Color(0xFFFFFFFF).copy(alpha = opacity / 100f),
+            night = Color(0xFF1E1B2A).copy(alpha = opacity / 100f)
+        )
+    )
+
+/** 一张圆角分组卡片的容器：垫底背景图 + 内容列。 */
+@Composable
+private fun CardScaffold(opacity: Int, content: @Composable () -> Unit) {
+    Box(modifier = GlanceModifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        Image(
+            provider = ImageProvider(R.drawable.bg_card),
+            contentDescription = null,
+            modifier = GlanceModifier.fillMaxSize(),
+            contentScale = ContentScale.FillBounds,
+            colorFilter = cardColorFilter(opacity)
+        )
+        Column(
+            modifier = GlanceModifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            content()
+        }
+    }
+}
+
 @Composable
 private fun WidgetRoot(
     ready: Boolean,
@@ -123,45 +168,30 @@ private fun WidgetRoot(
     widgetId: Int,
     collapsed: Set<Long>,
     overlayState: String,
-    overlayMsg: String
+    overlayMsg: String,
+    opacity: Int,
+    fontScale: Int
 ) {
-    val ctx = androidx.glance.LocalContext.current
-    val opacity = Prefs.getOpacity(ctx, widgetId) / 100f
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
             .padding(6.dp),
         contentAlignment = Alignment.TopStart
     ) {
-        // 卡片背景：bg_card 是纯色圆角 shape。不能用 background(imageProvider,colorFilter)--
-        // 背景图片的 colorFilter 在 Glance 翻译层被忽略（ApplyModifiers 只 setViewBackgroundResource）；
-        // 用垫底 Image + tint 着色：ImageView tint 全版本生效（API<31 走 core-widget 兼容），
-        // shape 自身 18dp 圆角也全版本保留。tint 色日/夜与 res/values(-night)/colors.xml 的
-        // widget_bg 保持一致，alpha 即用户设置的背景不透明度。
-        Image(
-            provider = ImageProvider(R.drawable.bg_card),
-            contentDescription = null,
-            modifier = GlanceModifier.fillMaxSize(),
-            contentScale = ContentScale.FillBounds,
-            colorFilter = ColorFilter.tint(
-                DayNightColor(
-                    day = Color(0xFFFFFFFF).copy(alpha = opacity),
-                    night = Color(0xFF1E1B2A).copy(alpha = opacity)
-                )
-            )
-        )
+        // 背景下沉到每个分组卡片（CardScaffold），卡片之间透明处露出壁纸；
+        // opacity/fontScale 随 WidgetStateStore 帧驱动重组，设置面板拖动即实时预览。
         if (!ready) {
-            NotReady()
+            NotReady(fontScale)
         } else {
-            WidgetBody(data, failed, widgetId, collapsed)
+            WidgetBody(data, failed, widgetId, collapsed, opacity, fontScale)
         }
-        if (overlayState != "idle") WidgetOverlay(overlayState, overlayMsg)
+        if (overlayState != "idle") WidgetOverlay(overlayState, overlayMsg, fontScale)
     }
 }
 
 /** 点击处理中的遮罩：半透明覆盖层拦截误触，居中显示状态图标 + 文案。 */
 @Composable
-private fun WidgetOverlay(state: String, msg: String) {
+private fun WidgetOverlay(state: String, msg: String, fontScale: Int) {
     val (emoji, bg) = when (state) {
         "loading" -> "⏳" to Color(0x9914141E)
         "error" -> "❌" to Color(0xDD14141E)
@@ -175,13 +205,13 @@ private fun WidgetOverlay(state: String, msg: String) {
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(emoji, style = TextStyle(fontSize = 30.sp))
+            Text(emoji, style = TextStyle(fontSize = fs(fontScale, 30)))
             Spacer(GlanceModifier.height(8.dp))
             Text(
                 msg,
                 style = TextStyle(
                     color = ColorProvider(Color.White),
-                    fontSize = 13.sp,
+                    fontSize = fs(fontScale, 13),
                     fontWeight = FontWeight.Medium
                 )
             )
@@ -190,7 +220,7 @@ private fun WidgetOverlay(state: String, msg: String) {
 }
 
 @Composable
-private fun NotReady() {
+private fun NotReady(fontScale: Int) {
     Column(
         modifier = GlanceModifier.fillMaxSize().padding(16.dp).clickable(
             actionStartActivity<MainActivity>()
@@ -202,7 +232,7 @@ private fun NotReady() {
         Spacer(GlanceModifier.height(6.dp))
         Text(
             "打开 App 登录后显示待办",
-            style = TextStyle(color = W.brand, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+            style = TextStyle(color = W.brand, fontWeight = FontWeight.Medium, fontSize = fs(fontScale, 13))
         )
     }
 }
@@ -212,52 +242,157 @@ private fun WidgetBody(
     data: WidgetResponse?,
     failed: Boolean,
     widgetId: Int,
-    collapsed: Set<Long>
+    collapsed: Set<Long>,
+    opacity: Int,
+    fontScale: Int
 ) {
-    Column(modifier = GlanceModifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
-        Header(data, widgetId)
+    Column(modifier = GlanceModifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 8.dp)) {
+        Header(data, widgetId, fontScale)
         Spacer(GlanceModifier.height(6.dp))
         if (failed) {
             Text(
                 "⚠️ 连接失败，显示上次数据",
-                style = TextStyle(color = W.overdue, fontSize = 11.sp),
+                style = TextStyle(color = W.overdue, fontSize = fs(fontScale, 11)),
                 maxLines = 1
             )
             Spacer(GlanceModifier.height(2.dp))
         }
         val groups = data?.groups.orEmpty()
         if (groups.isEmpty()) {
-            Box(
-                modifier = GlanceModifier.fillMaxWidth().height(56.dp).defaultWeight(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("🎉 当前范围没有待办", style = TextStyle(color = W.sub, fontSize = 13.sp))
+            CardScaffold(opacity) {
+                Box(
+                    modifier = GlanceModifier.fillMaxWidth().padding(vertical = 18.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("🎉 当前范围没有待办", style = TextStyle(color = W.sub, fontSize = fs(fontScale, 13)))
+                }
             }
         } else {
             LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
                 groups.forEach { g ->
-                    item(itemId = g.id) { GroupRow(g, widgetId, collapsed.contains(g.id)) }
-                    if (!collapsed.contains(g.id)) {
-                        items(g.children, itemId = { it.id }) { child ->
-                            ChildRow(child, widgetId)
-                        }
+                    item(itemId = g.id) {
+                        GroupCard(g, widgetId, collapsed.contains(g.id), opacity, fontScale)
                     }
                 }
             }
         }
         Spacer(GlanceModifier.height(4.dp))
-        Footer(widgetId)
+        Footer(widgetId, fontScale)
+    }
+}
+
+/**
+ * 分组卡片：一个主任务（顶层清单）一张圆角卡片。
+ * 单主任务（无子任务，后端回退项 id == 分组 id）：标题行自带勾选圈，整行即一条可勾选任务，
+ * 不再渲染重复子行（修复"只有一个主任务时内容被省略/重复"的问题）；
+ * 其余分组：标题行为折叠头（保留折叠），展开时列出叶子任务行。
+ */
+@Composable
+private fun GroupCard(
+    g: WidgetGroup,
+    widgetId: Int,
+    isCollapsed: Boolean,
+    opacity: Int,
+    fontScale: Int
+) {
+    CardScaffold(opacity) {
+        GroupTitleRow(g, widgetId, isCollapsed, fontScale)
+        val solo = !g.collapsible && g.children.firstOrNull()?.id == g.id
+        if (!solo && !isCollapsed) {
+            g.children.forEach { child -> ChildRow(child, widgetId, fontScale) }
+        }
+    }
+}
+
+/** 卡片标题行：单主任务带勾选圈；否则折叠箭头 + 标题，右侧重复图标/截止日期。 */
+@Composable
+private fun GroupTitleRow(g: WidgetGroup, widgetId: Int, isCollapsed: Boolean, fontScale: Int) {
+    val solo = !g.collapsible && g.children.firstOrNull()?.id == g.id
+    val rowModifier = if (solo) {
+        GlanceModifier.fillMaxWidth().padding(vertical = 2.dp)
+    } else {
+        GlanceModifier.fillMaxWidth().padding(vertical = 2.dp).clickable(
+            actionRunCallback<CollapseAction>(
+                actionParametersOf(
+                    Keys.AppWidgetId to widgetId,
+                    Keys.RootId to g.id
+                )
+            )
+        )
+    }
+    Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {
+        if (solo) {
+            CheckCircle(widgetId, g.id)
+            Spacer(GlanceModifier.width(8.dp))
+            Text(
+                g.title,
+                style = TextStyle(fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 13), color = W.text),
+                maxLines = 1,
+                modifier = GlanceModifier.defaultWeight()
+            )
+        } else {
+            Text(
+                if (g.collapsible) (if (isCollapsed) "▶ " else "▼ ") else "• ",
+                style = TextStyle(color = W.sub, fontSize = fs(fontScale, 11))
+            )
+            Spacer(GlanceModifier.width(2.dp))
+            Text(
+                g.title,
+                style = TextStyle(fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 13), color = W.text),
+                maxLines = 1,
+                modifier = GlanceModifier.defaultWeight()
+            )
+        }
+        if (g.recurring) {
+            Spacer(GlanceModifier.width(6.dp))
+            Text("🔁", style = TextStyle(fontSize = fs(fontScale, 11)))
+        }
+        if (g.due_label.isNotBlank()) {
+            Spacer(GlanceModifier.width(6.dp))
+            Text(
+                g.due_label,
+                style = TextStyle(
+                    fontSize = fs(fontScale, 11),
+                    color = if (g.overdue) W.overdue else W.sub
+                ),
+                maxLines = 1
+            )
+        }
+    }
+}
+
+/** 圆形勾选框（外层品牌圆 + 内层表面圆 = 环形），点击 → 完成。 */
+@Composable
+private fun CheckCircle(widgetId: Int, itemId: Long) {
+    Box(
+        modifier = GlanceModifier
+            .size(22.dp)
+            .background(imageProvider = ImageProvider(R.drawable.bg_circle_brand))
+            .clickable(
+                actionRunCallback<CompleteAction>(
+                    actionParametersOf(
+                        Keys.AppWidgetId to widgetId,
+                        Keys.ItemId to itemId
+                    )
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = GlanceModifier.size(18.dp)
+                .background(imageProvider = ImageProvider(R.drawable.bg_circle_surface))
+        ) {}
     }
 }
 
 @Composable
-private fun Header(data: WidgetResponse?, widgetId: Int) {
+private fun Header(data: WidgetResponse?, widgetId: Int, fontScale: Int) {
     val ctx = androidx.glance.LocalContext.current
     val token = Prefs.getToken(ctx, widgetId)
     val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
     val openUrl = openUrlOf(ctx, baseUrl, token)
     Row(
-        modifier = GlanceModifier.fillMaxWidth(),
+        modifier = GlanceModifier.fillMaxWidth().padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
@@ -269,21 +404,21 @@ private fun Header(data: WidgetResponse?, widgetId: Int) {
         ) {
             Text(
                 "📝 待办",
-                style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp, color = W.text)
+                style = TextStyle(fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 14), color = W.text)
             )
             if (data != null) {
                 Spacer(GlanceModifier.width(6.dp))
-                StatChip(data.stats.pending, W.text)
+                StatChip(data.stats.pending, W.text, fontScale)
                 Spacer(GlanceModifier.width(4.dp))
-                StatChip(data.stats.overdue, W.overdue)
+                StatChip(data.stats.overdue, W.overdue, fontScale)
                 Spacer(GlanceModifier.width(4.dp))
-                StatChip(data.stats.memo, W.sub)
+                StatChip(data.stats.memo, W.sub, fontScale)
             }
         }
         Spacer(GlanceModifier.width(8.dp))
         Text(
             "⚙️",
-            style = TextStyle(fontSize = 14.sp, color = W.sub),
+            style = TextStyle(fontSize = fs(fontScale, 14), color = W.sub),
             modifier = GlanceModifier.clickable(
                 actionStartActivity<ConfigActivity>(
                     actionParametersOf(Keys.AppWidgetId to widgetId)
@@ -294,84 +429,27 @@ private fun Header(data: WidgetResponse?, widgetId: Int) {
 }
 
 @Composable
-private fun StatChip(value: Int, color: ColorProvider) {
+private fun StatChip(value: Int, color: ColorProvider, fontScale: Int) {
     Box(
         modifier = GlanceModifier
             .background(imageProvider = ImageProvider(R.drawable.bg_chip))
             .padding(horizontal = 7.dp, vertical = 2.dp)
     ) {
-        Text(value.toString(), style = TextStyle(color = color, fontWeight = FontWeight.Bold, fontSize = 12.sp))
+        Text(value.toString(), style = TextStyle(color = color, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
     }
 }
 
 @Composable
-private fun GroupRow(g: WidgetGroup, widgetId: Int, collapsed: Boolean) {
-    Row(
-        modifier = GlanceModifier
-            .fillMaxWidth()
-            .padding(vertical = 5.dp)
-            .clickable(
-                actionRunCallback<CollapseAction>(
-                    actionParametersOf(
-                        Keys.AppWidgetId to widgetId,
-                        Keys.RootId to g.id
-                    )
-                )
-            ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            if (g.collapsible) (if (collapsed) "▶ " else "▼ ") else "• ",
-            style = TextStyle(color = W.sub, fontSize = 11.sp)
-        )
-        Spacer(GlanceModifier.width(2.dp))
-        Text(
-            g.title,
-            style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 13.sp, color = W.text),
-            maxLines = 1,
-            modifier = GlanceModifier.defaultWeight()
-        )
-        if (g.due_label.isNotBlank()) {
-            Spacer(GlanceModifier.width(6.dp))
-            Text(
-                g.due_label,
-                style = TextStyle(fontSize = 11.sp, color = if (g.overdue) W.overdue else W.sub),
-                maxLines = 1
-            )
-        }
-    }
-}
-
-@Composable
-private fun ChildRow(child: WidgetItem, widgetId: Int) {
+private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int) {
     val ctx = androidx.glance.LocalContext.current
     val token = Prefs.getToken(ctx, widgetId)
     val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
     val editUrl = editUrlOf(ctx, baseUrl, token, child.id)
     Row(
-        modifier = GlanceModifier.fillMaxWidth().padding(start = 14.dp, top = 2.dp, bottom = 2.dp),
+        modifier = GlanceModifier.fillMaxWidth().padding(start = 6.dp, top = 3.dp, bottom = 3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 圆形勾选框（外层品牌圆 + 内层表面圆 = 环形），点击 → 完成
-        Box(
-            modifier = GlanceModifier
-                .size(22.dp)
-                .background(imageProvider = ImageProvider(R.drawable.bg_circle_brand))
-                .clickable(
-                    actionRunCallback<CompleteAction>(
-                        actionParametersOf(
-                            Keys.AppWidgetId to widgetId,
-                            Keys.ItemId to child.id
-                        )
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = GlanceModifier.size(18.dp)
-                    .background(imageProvider = ImageProvider(R.drawable.bg_circle_surface))
-            ) {}
-        }
+        CheckCircle(widgetId, child.id)
         Spacer(GlanceModifier.width(8.dp))
         Column(modifier = GlanceModifier.defaultWeight().clickable(
             actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to editUrl))
@@ -379,13 +457,13 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
             if (child.path.isNotEmpty()) {
                 Text(
                     child.path.joinToString(" → "),
-                    style = TextStyle(color = W.sub, fontSize = 10.sp),
+                    style = TextStyle(color = W.sub, fontSize = fs(fontScale, 10)),
                     maxLines = 1
                 )
             }
             Text(
                 child.title,
-                style = TextStyle(fontSize = 13.sp, color = W.text),
+                style = TextStyle(fontSize = fs(fontScale, 13), color = W.text),
                 maxLines = 1
             )
         }
@@ -393,7 +471,7 @@ private fun ChildRow(child: WidgetItem, widgetId: Int) {
 }
 
 @Composable
-private fun Footer(widgetId: Int) {
+private fun Footer(widgetId: Int, fontScale: Int) {
     val ctx = androidx.glance.LocalContext.current
     val token = Prefs.getToken(ctx, widgetId)
     val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
@@ -402,12 +480,12 @@ private fun Footer(widgetId: Int) {
     val time = if (updated > 0)
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(updated)) else "--:--"
     Row(
-        modifier = GlanceModifier.fillMaxWidth(),
+        modifier = GlanceModifier.fillMaxWidth().padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             "＋ 新增",
-            style = TextStyle(color = W.brand, fontSize = 12.sp, fontWeight = FontWeight.Medium),
+            style = TextStyle(color = W.brand, fontSize = fs(fontScale, 12), fontWeight = FontWeight.Medium),
             modifier = GlanceModifier.clickable(
                 actionStartActivity<MainActivity>(
                     actionParametersOf(Keys.Url to addUrl)
@@ -417,7 +495,7 @@ private fun Footer(widgetId: Int) {
         Spacer(GlanceModifier.defaultWeight())
         Text(
             "↻ $time",
-            style = TextStyle(color = W.sub, fontSize = 11.sp),
+            style = TextStyle(color = W.sub, fontSize = fs(fontScale, 11)),
             modifier = GlanceModifier.clickable(
                 actionRunCallback<RefreshAction>(
                     actionParametersOf(Keys.AppWidgetId to widgetId)

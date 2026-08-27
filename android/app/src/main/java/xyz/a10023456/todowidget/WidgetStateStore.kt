@@ -26,7 +26,9 @@ object WidgetStateStore {
         val collapsed: Set<Long>,
         val uiState: String, // idle | loading | done | error
         val uiMsg: String,
-        val updated: Long
+        val updated: Long,
+        val opacity: Int, // 背景不透明度 0-100
+        val fontScale: Int // 字号档位 0=小 1=中 2=大
     )
 
     private val flows = ConcurrentHashMap<Int, MutableStateFlow<WidgetFrame>>()
@@ -56,7 +58,9 @@ object WidgetStateStore {
             collapsed = Prefs.getCollapsedIds(context, widgetId),
             uiState = state,
             uiMsg = msg,
-            updated = Prefs.getLastUpdated(context, widgetId)
+            updated = Prefs.getLastUpdated(context, widgetId),
+            opacity = Prefs.getOpacity(context, widgetId),
+            fontScale = Prefs.getFontScale(context, widgetId)
         )
     }
 }

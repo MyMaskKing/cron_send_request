@@ -192,20 +192,21 @@ function buildWidgetGroups(rows, today, scope, limit) {
     });
   }
 
-  // 排序：逾期在前 → 其余有日期按 due 升序 → 无日期(memo) 最后；同序按 sort_order, id
+  // 排序与浏览器 /todo 页一致（assets.js todoBuildTree）：顶层按截止日期倒序
+  // （有日期的越晚越靠前，无日期排最后）；同日期按 sort_order, id 升序。
+  // 叶子（children）顺序沿用 buildTree 的 sort_order+id 升序，与浏览器子任务排序同口径。
   const byId = new Map(rows.map(r => [r.id, r]));
   const sortKey = (g) => {
     const r = byId.get(g.id) || {};
     return [r.sort_order || 0, r.id || 0];
   };
   groups.sort((a, b) => {
-    const ao = a.overdue ? 0 : (a.due_label ? 1 : 2);
-    const bo = b.overdue ? 0 : (b.due_label ? 1 : 2);
-    if (ao !== bo) return ao - bo;
-    if (a.due_label && b.due_label) {
-      const ad = byId.get(a.id)?.due_date || '';
-      const bd = byId.get(b.id)?.due_date || '';
-      if (ad !== bd) return ad < bd ? -1 : 1;
+    const ad = byId.get(a.id)?.due_date || '';
+    const bd = byId.get(b.id)?.due_date || '';
+    if (ad !== bd) {
+      if (!ad) return 1;
+      if (!bd) return -1;
+      return ad < bd ? 1 : -1;
     }
     const [as0, as1] = sortKey(a), [bs0, bs1] = sortKey(b);
     return as0 - bs0 || as1 - bs1;

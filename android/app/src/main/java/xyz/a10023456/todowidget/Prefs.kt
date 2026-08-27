@@ -41,6 +41,13 @@ object Prefs {
     fun setOpacity(context: Context, widgetId: Int, opacity: Int) =
         sp(context).edit().putInt("opacity_$widgetId", opacity.coerceIn(0, 100)).apply()
 
+    /** 小组件字号档位：0=小 1=中（默认） 2=大 */
+    fun getFontScale(context: Context, widgetId: Int): Int =
+        sp(context).getInt("font_$widgetId", 1).coerceIn(0, 2)
+
+    fun setFontScale(context: Context, widgetId: Int, scale: Int) =
+        sp(context).edit().putInt("font_$widgetId", scale.coerceIn(0, 2)).apply()
+
     fun getBaseUrl(context: Context, widgetId: Int): String {
         val per = sp(context).getString("baseurl_$widgetId", "") ?: ""
         return if (per.isNotBlank()) AppConfig.normalize(per) else AppConfig.getBaseUrl(context)
@@ -120,7 +127,7 @@ object Prefs {
         e.remove("cache_$widgetId").remove("updated_$widgetId")
             .remove("failed_$widgetId").remove("token_$widgetId")
             .remove("scope_$widgetId").remove("baseurl_$widgetId")
-            .remove("opacity_$widgetId").apply()
+            .remove("opacity_$widgetId").remove("font_$widgetId").apply()
     }
 
     /** 返回所有已配置（有 token）的 widgetId，用于周期刷新。 */

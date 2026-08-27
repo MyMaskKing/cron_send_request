@@ -27,7 +27,7 @@
         <activity
             android:name=".ConfigActivity"
             android:exported="true"
-            android:theme="@style/Theme.TodoWidget">
+            android:theme="@style/Theme.TodoWidget.Transparent">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>
