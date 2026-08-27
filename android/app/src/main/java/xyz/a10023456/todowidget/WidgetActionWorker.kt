@@ -1,6 +1,7 @@
 package xyz.a10023456.todowidget
 
 import android.content.Context
+import android.util.Log
 import androidx.glance.GlanceId
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.work.CoroutineWorker
@@ -39,11 +40,15 @@ class WidgetActionWorker(
 
     override suspend fun doWork(): Result {
         val widgetId = inputData.getInt(KEY_WIDGET_ID, -1)
+        Log.d(TAG, "doWork start: action=${inputData.getString(KEY_ACTION)}, widget=$widgetId, attempt=$runAttemptCount")
         if (widgetId < 0) return Result.success()
         val glanceId = GlanceAppWidgetManager(applicationContext)
             .getGlanceIds(TodoAppWidget::class.java)
             .firstOrNull { it.resolveAppWidgetId() == widgetId }
-            ?: return Result.success() // 小组件已被移除
+            ?: run {
+                Log.w(TAG, "doWork: glanceId not found for widget=$widgetId（小组件已被移除？）")
+                return Result.success()
+            }
 
         try {
             when (inputData.getString(KEY_ACTION)) {
@@ -65,6 +70,7 @@ class WidgetActionWorker(
                 }
                 else -> {
                     val ok = WidgetRepo.refresh(applicationContext, widgetId)
+                    Log.d(TAG, "refresh result: ok=$ok, widget=$widgetId")
                     Prefs.setUiState(
                         applicationContext, widgetId,
                         if (ok) "done" else "error",
@@ -73,24 +79,32 @@ class WidgetActionWorker(
                 }
             }
         } catch (e: CancellationException) {
+            Log.d(TAG, "doWork cancelled（被新动作 REPLACE），widget=$widgetId")
             throw e // 被新动作 REPLACE 取消：不要写终态覆盖新动作的 loading
         } catch (e: Exception) {
+            Log.e(TAG, "doWork action failed, widget=$widgetId", e)
             Prefs.setUiState(applicationContext, widgetId, "error", e.message ?: "操作失败")
         }
         // 业务成败均已落到遮罩状态，统一 success：不触发 WorkManager 重试，避免遮罩复位后又弹结果
+        Log.d(TAG, "done/error frame: uiState=${Prefs.getUiState(applicationContext, widgetId)}, widget=$widgetId")
         updateWidget(glanceId)
+        Log.d(TAG, "done frame update() returned, widget=$widgetId")
         delay(RESULT_HOLD_MS)
         Prefs.setUiState(applicationContext, widgetId, "idle", "")
+        Log.d(TAG, "idle written: uiState=${Prefs.getUiState(applicationContext, widgetId)}, widget=$widgetId")
         updateWidget(glanceId)
-        return Result.success()
+        Log.d(TAG, "idle frame update() returned, widget=$widgetId")
+        return Result.success().also { Log.d(TAG, "doWork end success, widget=$widgetId") }
     }
 
     /** 定向重绘；runCatching 兜底：重绘失败不能中断后续状态复位。 */
     private suspend fun updateWidget(glanceId: GlanceId) {
         runCatching { TodoAppWidget().update(applicationContext, glanceId) }
+            .onFailure { Log.e(TAG, "update() threw", it) }
     }
 
     companion object {
+        private const val TAG = "TodoWidget"
         const val ACTION_REFRESH = "refresh"
         const val ACTION_COMPLETE = "complete"
 

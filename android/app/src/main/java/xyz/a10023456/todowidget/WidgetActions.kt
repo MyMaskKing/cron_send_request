@@ -1,6 +1,7 @@
 package xyz.a10023456.todowidget
 
 import android.content.Context
+import android.util.Log
 import androidx.glance.GlanceId
 import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.action.ActionCallback
@@ -44,9 +45,12 @@ class RefreshAction : ActionCallback {
     ) {
         val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId()
         val appCtx = context.applicationContext
+        Log.d("TodoWidget", "RefreshAction.onAction, widget=$widgetId")
         Prefs.setUiState(appCtx, widgetId, "loading", "刷新中…")
         updateWidgets(appCtx, glanceId)
+        Log.d("TodoWidget", "RefreshAction: loading update() returned, enqueue worker")
         WidgetActionWorker.enqueue(appCtx, widgetId, WidgetActionWorker.ACTION_REFRESH)
+        Log.d("TodoWidget", "RefreshAction: worker enqueued, onAction end")
     }
 }
 
@@ -61,9 +65,11 @@ class CompleteAction : ActionCallback {
         val itemId = parameters[Keys.ItemId] ?: -1L
         if (itemId <= 0) return
         val appCtx = context.applicationContext
+        Log.d("TodoWidget", "CompleteAction.onAction, widget=$widgetId, item=$itemId")
         Prefs.setUiState(appCtx, widgetId, "loading", "处理中…")
         updateWidgets(appCtx, glanceId)
         WidgetActionWorker.enqueue(appCtx, widgetId, WidgetActionWorker.ACTION_COMPLETE, itemId)
+        Log.d("TodoWidget", "CompleteAction: worker enqueued, onAction end")
     }
 }
 
