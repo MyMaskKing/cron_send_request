@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.action.ActionParameters
@@ -18,12 +19,14 @@ import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
+import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.background
 import androidx.glance.color.ColorProvider as DayNightColor
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
+import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
@@ -127,13 +130,26 @@ private fun WidgetRoot(
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
-            .padding(6.dp)
-            .background(
-                imageProvider = ImageProvider(R.drawable.bg_card),
-                tint = ColorProvider(Color.White.copy(alpha = opacity))
-            ),
+            .padding(6.dp),
         contentAlignment = Alignment.TopStart
     ) {
+        // 卡片背景：bg_card 是纯色圆角 shape。不能用 background(imageProvider,colorFilter)--
+        // 背景图片的 colorFilter 在 Glance 翻译层被忽略（ApplyModifiers 只 setViewBackgroundResource）；
+        // 用垫底 Image + tint 着色：ImageView tint 全版本生效（API<31 走 core-widget 兼容），
+        // shape 自身 18dp 圆角也全版本保留。tint 色日/夜与 res/values(-night)/colors.xml 的
+        // widget_bg 保持一致，alpha 即用户设置的背景不透明度。
+        Image(
+            provider = ImageProvider(R.drawable.bg_card),
+            contentDescription = null,
+            modifier = GlanceModifier.fillMaxSize(),
+            contentScale = ContentScale.FillBounds,
+            colorFilter = ColorFilter.tint(
+                DayNightColor(
+                    day = Color(0xFFFFFFFF).copy(alpha = opacity),
+                    night = Color(0xFF1E1B2A).copy(alpha = opacity)
+                )
+            )
+        )
         if (!ready) {
             NotReady()
         } else {
