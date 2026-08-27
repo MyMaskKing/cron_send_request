@@ -24,9 +24,15 @@
             </intent-filter>
         </activity>
 
+        <!-- 透明底部弹窗：独立 task（空 taskAffinity + 不进最近任务），保证从小组件
+             打开时浮在桌面/启动器之上，而不是压在 App 的 MainActivity task 里；
+             singleTop 复用已打开的弹窗，onNewIntent 更新 appWidgetId。 -->
         <activity
             android:name=".ConfigActivity"
             android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
             android:theme="@style/Theme.TodoWidget.Transparent">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />

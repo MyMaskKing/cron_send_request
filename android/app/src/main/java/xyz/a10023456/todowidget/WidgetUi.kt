@@ -7,7 +7,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.action.ActionParameters
@@ -16,16 +15,16 @@ import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.provideContent
-import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.background
 import androidx.glance.color.ColorProvider as DayNightColor
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
-import androidx.glance.layout.ContentScale
+import androidx.glance.layout.ColumnScope
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
@@ -127,36 +126,29 @@ private fun fontFactor(scale: Int): Float = when (scale) {
 private fun fs(scale: Int, baseSp: Int) = (baseSp * fontFactor(scale)).sp
 
 /**
- * 分组卡片背景 tint：bg_card 是纯色圆角 shape，用垫底 Image + tint 着色
- * （背景图片的 colorFilter 在 Glance 翻译层被忽略；ImageView tint 全版本生效，
- * shape 自身 18dp 圆角也全版本保留）。tint 色日/夜与 res/values(-night)/colors.xml
- * 的 widget_bg 一致，alpha 即用户设置的背景不透明度。
+ * 分组卡片底色：日=白、夜=深紫灰（与 res/values(-night)/colors.xml 的 widget_bg 一致），
+ * alpha 即用户设置的背景不透明度。走纯色 background 修饰符（setBackgroundColor，全版本
+ * 稳定生效；此前垫底 Image + tint 方案真机不显示）；圆角用 cornerRadius（API31+ 生效，
+ * 低版本直角降级）。
  */
-private fun cardColorFilter(opacity: Int): ColorFilter =
-    ColorFilter.tint(
-        DayNightColor(
-            day = Color(0xFFFFFFFF).copy(alpha = opacity / 100f),
-            night = Color(0xFF1E1B2A).copy(alpha = opacity / 100f)
-        )
+private fun cardBgColor(opacity: Int): ColorProvider =
+    DayNightColor(
+        day = Color(0xFFFFFFFF).copy(alpha = opacity / 100f),
+        night = Color(0xFF1E1B2A).copy(alpha = opacity / 100f)
     )
 
-/** 一张圆角分组卡片的容器：垫底背景图 + 内容列。 */
+/** 一张圆角分组卡片的容器：卡片列自带底色/圆角/内边距。 */
 @Composable
-private fun CardScaffold(opacity: Int, content: @Composable () -> Unit) {
-    Box(modifier = GlanceModifier.fillMaxWidth().padding(bottom = 8.dp)) {
-        Image(
-            provider = ImageProvider(R.drawable.bg_card),
-            contentDescription = null,
-            modifier = GlanceModifier.fillMaxSize(),
-            contentScale = ContentScale.FillBounds,
-            colorFilter = cardColorFilter(opacity)
-        )
-        Column(
-            modifier = GlanceModifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
-            content()
-        }
-    }
+private fun CardScaffold(opacity: Int, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp)
+            .background(cardBgColor(opacity))
+            .cornerRadius(18.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        content = content
+    )
 }
 
 @Composable
@@ -282,9 +274,9 @@ private fun WidgetBody(
 
 /**
  * 分组卡片：一个主任务（顶层清单）一张圆角卡片。
- * 单主任务（无子任务，后端回退项 id == 分组 id）：标题行自带勾选圈，整行即一条可勾选任务，
- * 不再渲染重复子行（修复"只有一个主任务时内容被省略/重复"的问题）；
- * 其余分组：标题行为折叠头（保留折叠），展开时列出叶子任务行。
+ * 标题行恒为分组标题（主任务名）；下方列出子任务位的叶子任务行。
+ * 单主任务（无子任务，后端回退项 id == 分组 id，collapsible=false）：不折叠，
+ * 主任务自身作为唯一一行可勾选任务显示在子任务位（分组标题 + 缩进勾选行的层级）。
  */
 @Composable
 private fun GroupCard(
@@ -296,14 +288,13 @@ private fun GroupCard(
 ) {
     CardScaffold(opacity) {
         GroupTitleRow(g, widgetId, isCollapsed, fontScale)
-        val solo = !g.collapsible && g.children.firstOrNull()?.id == g.id
-        if (!solo && !isCollapsed) {
-            g.children.forEach { child -> ChildRow(child, widgetId, fontScale) }
-        }
+        // 仅多任务分组可折叠；折叠时隐藏子行。单主任务组恒显示其唯一子行（主任务自身）。
+        if (g.collapsible && isCollapsed) return@CardScaffold
+        g.children.forEach { child -> ChildRow(child, widgetId, fontScale) }
     }
 }
 
-/** 卡片标题行：单主任务带勾选圈；否则折叠箭头 + 标题，右侧重复图标/截止日期。 */
+/** 卡片标题行：分组名（主任务名）粗体；可折叠组整行点击折叠并带 ▼/▶ 箭头，单主任务组无箭头不可点。右侧重复图标/截止日期。 */
 @Composable
 private fun GroupTitleRow(g: WidgetGroup, widgetId: Int, isCollapsed: Boolean, fontScale: Int) {
     val solo = !g.collapsible && g.children.firstOrNull()?.id == g.id
@@ -320,28 +311,19 @@ private fun GroupTitleRow(g: WidgetGroup, widgetId: Int, isCollapsed: Boolean, f
         )
     }
     Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {
-        if (solo) {
-            CheckCircle(widgetId, g.id)
-            Spacer(GlanceModifier.width(8.dp))
-            Text(
-                g.title,
-                style = TextStyle(fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 13), color = W.text),
-                maxLines = 1,
-                modifier = GlanceModifier.defaultWeight()
-            )
-        } else {
+        if (!solo) {
             Text(
                 if (g.collapsible) (if (isCollapsed) "▶ " else "▼ ") else "• ",
                 style = TextStyle(color = W.sub, fontSize = fs(fontScale, 11))
             )
             Spacer(GlanceModifier.width(2.dp))
-            Text(
-                g.title,
-                style = TextStyle(fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 13), color = W.text),
-                maxLines = 1,
-                modifier = GlanceModifier.defaultWeight()
-            )
         }
+        Text(
+            g.title,
+            style = TextStyle(fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 13), color = W.text),
+            maxLines = 1,
+            modifier = GlanceModifier.defaultWeight()
+        )
         if (g.recurring) {
             Spacer(GlanceModifier.width(6.dp))
             Text("🔁", style = TextStyle(fontSize = fs(fontScale, 11)))

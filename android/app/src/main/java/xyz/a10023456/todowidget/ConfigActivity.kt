@@ -73,6 +73,7 @@ class ConfigActivity : ComponentActivity() {
 
         // 系统默认：用户取消配置则不放置小组件
         setResult(RESULT_CANCELED)
+        // 首次放置走 onCreate；singleTop 下从小组件再次点⚙️复用本实例，走 onNewIntent
 
         val token = Prefs.getToken(this, appWidgetId)
         val scope = Prefs.getScope(this, appWidgetId)
@@ -86,7 +87,7 @@ class ConfigActivity : ComponentActivity() {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.45f))
+                        .background(Color.Black.copy(alpha = 0.32f))
                         .clickable(
                             indication = null,
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -119,6 +120,17 @@ class ConfigActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // singleTop 复用：小组件再次点⚙️时带上该 widgetId，预览/保存要落到正确的小组件
+        val id = intent.extras?.getInt(
+            AppWidgetManager.EXTRA_APPWIDGET_ID,
+            AppWidgetManager.INVALID_APPWIDGET_ID
+        ) ?: AppWidgetManager.INVALID_APPWIDGET_ID
+        if (id != AppWidgetManager.INVALID_APPWIDGET_ID) appWidgetId = id
     }
 
     /** 实时预览：写 SP 后发布到状态流，驱动桌面小组件即时重组。 */
