@@ -45,6 +45,15 @@ object Prefs {
     fun isCollapsed(context: Context, widgetId: Int, rootId: Long): Boolean =
         sp(context).getBoolean("collapsed_${widgetId}_$rootId", false)
 
+    /** 该小组件当前所有已折叠分组的 rootId 集合（WidgetStateStore 全量重读用）。 */
+    fun getCollapsedIds(context: Context, widgetId: Int): Set<Long> {
+        val s = sp(context)
+        return s.all.keys
+            .filter { it.startsWith("collapsed_${widgetId}_") && s.getBoolean(it, false) }
+            .mapNotNull { it.removePrefix("collapsed_${widgetId}_").toLongOrNull() }
+            .toSet()
+    }
+
     fun setCollapsed(context: Context, widgetId: Int, rootId: Long, value: Boolean) =
         sp(context).edit().putBoolean("collapsed_${widgetId}_$rootId", value).apply()
 

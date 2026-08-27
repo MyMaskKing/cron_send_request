@@ -29,7 +29,7 @@ object WidgetRepo {
             Prefs.setFailed(context, widgetId, true)
             false
         }
-    }
+    }.also { WidgetStateStore.publish(context, widgetId) }
 
     /** 读取最近一次缓存（无缓存返回 null）。 */
     fun cached(context: Context, widgetId: Int): WidgetResponse? {

@@ -28,9 +28,10 @@ import androidx.glance.appwidget.action.ActionCallback
 /**
  * 定向重绘。
  *
- * session 存活时 update 走 updateGlance()，仅更新 glanceState；靠 provideContent 中对 LocalState
- * 的订阅触发整体重组重读磁盘，界面才会刷新（见 WidgetUi.kt）。runCatching 兜底：重绘失败
- * （如 session 瞬时未就绪）不能中断后续入队。
+ * session 存活时：状态写入 [WidgetStateStore] 的 StateFlow 已直接驱动内容重组，update()
+ * 只是兜底（对存活 session 是无害的会话事件）；session 已死（45s 空闲超时后）时 update()
+ * 走 startSession 重建组合，从 SP 读到最新状态。runCatching 兜底：重绘失败（如 session
+ * 瞬时未就绪）不能中断后续入队。
  */
 private suspend fun updateWidgets(context: Context, glanceId: GlanceId) {
     runCatching { TodoAppWidget().update(context, glanceId) }
@@ -46,9 +47,9 @@ class RefreshAction : ActionCallback {
         val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId(context)
         val appCtx = context.applicationContext
         Log.d("TodoWidget", "RefreshAction.onAction, widget=$widgetId")
-        Prefs.setUiState(appCtx, widgetId, "loading", "刷新中…")
+        WidgetStateStore.setUiState(appCtx, widgetId, "loading", "刷新中…")
         updateWidgets(appCtx, glanceId)
-        Log.d("TodoWidget", "RefreshAction: loading update() returned, enqueue worker")
+        Log.d("TodoWidget", "RefreshAction: loading published, enqueue worker")
         WidgetActionWorker.enqueue(appCtx, widgetId, WidgetActionWorker.ACTION_REFRESH)
         Log.d("TodoWidget", "RefreshAction: worker enqueued, onAction end")
     }
@@ -66,7 +67,7 @@ class CompleteAction : ActionCallback {
         if (itemId <= 0) return
         val appCtx = context.applicationContext
         Log.d("TodoWidget", "CompleteAction.onAction, widget=$widgetId, item=$itemId")
-        Prefs.setUiState(appCtx, widgetId, "loading", "处理中…")
+        WidgetStateStore.setUiState(appCtx, widgetId, "loading", "处理中…")
         updateWidgets(appCtx, glanceId)
         WidgetActionWorker.enqueue(appCtx, widgetId, WidgetActionWorker.ACTION_COMPLETE, itemId)
         Log.d("TodoWidget", "CompleteAction: worker enqueued, onAction end")
@@ -83,7 +84,11 @@ class CollapseAction : ActionCallback {
         val widgetId = parameters[Keys.AppWidgetId] ?: glanceId.resolveAppWidgetId(context)
         val rootId = parameters[Keys.RootId] ?: -1L
         val appCtx = context.applicationContext
-        if (rootId > 0) Prefs.toggleCollapsed(appCtx, widgetId, rootId)
+        if (rootId > 0) {
+            Prefs.toggleCollapsed(appCtx, widgetId, rootId)
+            // 折叠状态在 WidgetFrame.collapsed 里，发布后驱动重组（SP 写入本身不触发重绘）
+            WidgetStateStore.publish(appCtx, widgetId)
+        }
         updateWidgets(appCtx, glanceId)
     }
 }

@@ -40,7 +40,12 @@ class WidgetActionWorker(
 
     override suspend fun doWork(): Result {
         val widgetId = inputData.getInt(KEY_WIDGET_ID, -1)
-        Log.d(TAG, "doWork start: action=${inputData.getString(KEY_ACTION)}, widget=$widgetId, attempt=$runAttemptCount")
+        val silent = inputData.getBoolean(KEY_SILENT, false)
+        Log.d(
+            TAG,
+            "doWork start: action=${inputData.getString(KEY_ACTION)}, widget=$widgetId, " +
+                "attempt=$runAttemptCount, silent=$silent"
+        )
         if (widgetId < 0) return Result.success()
         val glanceId = GlanceAppWidgetManager(applicationContext)
             .getGlanceIds(TodoAppWidget::class.java)
@@ -63,7 +68,7 @@ class WidgetActionWorker(
                         WidgetRepo.refresh(applicationContext, widgetId)
                         if (!resp.message.isNullOrBlank()) resp.message else "已完成"
                     }
-                    Prefs.setUiState(
+                    if (!silent) WidgetStateStore.setUiState(
                         applicationContext, widgetId, "done",
                         if (msg.isNotBlank()) msg else "已完成"
                     )
@@ -71,7 +76,7 @@ class WidgetActionWorker(
                 else -> {
                     val ok = WidgetRepo.refresh(applicationContext, widgetId)
                     Log.d(TAG, "refresh result: ok=$ok, widget=$widgetId")
-                    Prefs.setUiState(
+                    if (!silent) WidgetStateStore.setUiState(
                         applicationContext, widgetId,
                         if (ok) "done" else "error",
                         if (ok) "已刷新" else "刷新失败，请检查登录/网络"
@@ -83,14 +88,22 @@ class WidgetActionWorker(
             throw e // 被新动作 REPLACE 取消：不要写终态覆盖新动作的 loading
         } catch (e: Exception) {
             Log.e(TAG, "doWork action failed, widget=$widgetId", e)
-            Prefs.setUiState(applicationContext, widgetId, "error", e.message ?: "操作失败")
+            if (!silent) WidgetStateStore.setUiState(
+                applicationContext, widgetId, "error", e.message ?: "操作失败"
+            )
         }
         // 业务成败均已落到遮罩状态，统一 success：不触发 WorkManager 重试，避免遮罩复位后又弹结果
+        if (silent) {
+            // 静默初始化刷新：不弹遮罩；数据已由 WidgetRepo.refresh -> publish 驱动重组，
+            // 此处仅兜底一次重绘（session 死亡时走 startSession 重建读到新缓存）。
+            updateWidget(glanceId, "silent-frame")
+            return Result.success().also { Log.d(TAG, "doWork end success (silent), widget=$widgetId") }
+        }
         Log.d(TAG, "done/error frame: uiState=${Prefs.getUiState(applicationContext, widgetId)}, widget=$widgetId")
         updateWidget(glanceId, "done-frame")
         Log.d(TAG, "done frame update() returned, widget=$widgetId")
         delay(RESULT_HOLD_MS)
-        Prefs.setUiState(applicationContext, widgetId, "idle", "")
+        WidgetStateStore.setUiState(applicationContext, widgetId, "idle", "")
         Log.d(TAG, "idle written: uiState=${Prefs.getUiState(applicationContext, widgetId)}, widget=$widgetId")
         updateWidget(glanceId, "idle-frame")
         Log.d(TAG, "idle frame update() returned, widget=$widgetId")
@@ -121,18 +134,29 @@ class WidgetActionWorker(
         private const val KEY_WIDGET_ID = "widget_id"
         private const val KEY_ACTION = "action"
         private const val KEY_ITEM_ID = "item_id"
+        private const val KEY_SILENT = "silent"
 
         /** 结果遮罩停留时长，给用户阅读庆祝词/错误。 */
         private const val RESULT_HOLD_MS = 1400L
 
-        /** 入队一个动作任务；同 widget 上一个未完成任务会被 REPLACE 取消。 */
-        fun enqueue(context: Context, widgetId: Int, action: String, itemId: Long = -1L) {
+        /**
+         * 入队一个动作任务；同 widget 上一个未完成任务会被 REPLACE 取消。
+         * silent=true：初始化自动刷新用，不弹 loading/done/error 遮罩。
+         */
+        fun enqueue(
+            context: Context,
+            widgetId: Int,
+            action: String,
+            itemId: Long = -1L,
+            silent: Boolean = false
+        ) {
             val request = OneTimeWorkRequestBuilder<WidgetActionWorker>()
                 .setInputData(
                     workDataOf(
                         KEY_WIDGET_ID to widgetId,
                         KEY_ACTION to action,
-                        KEY_ITEM_ID to itemId
+                        KEY_ITEM_ID to itemId,
+                        KEY_SILENT to silent
                     )
                 )
                 .build()

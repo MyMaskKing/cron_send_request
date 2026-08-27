@@ -2,12 +2,13 @@ package xyz.a10023456.todowidget
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
-import androidx.glance.LocalState
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
@@ -64,33 +65,50 @@ class TodoAppWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val appWidgetId = id.resolveAppWidgetId(context)
         android.util.Log.d("TodoWidget", "provideGlance: widget=$appWidgetId（新 session 组合开始）")
+        // 初始化自动刷新：新 session 组合（新组件、开机/进程重启后重建）时，若已配置且
+        // 无缓存或缓存超过刷新周期（RefreshWorker 15 分钟）未更新，静默拉取一次（不弹遮罩）。
+        maybeAutoRefresh(context, appWidgetId)
         provideContent {
-            // 订阅 Glance 会话状态（glanceState）。关键：provideContent 的内容 lambda 在每个
-            // session 里只捕获一次；动作后调用 update() 时，若 session 仍存活（45s 窗口内）走的是
-            // updateGlance()，仅更新 glanceState（neverEqualPolicy，必触发变化）。若内容不订阅任何
-            // 快照状态，Compose 会因「稳定 lambda 入参不变」跳过重组，导致读不到最新的缓存/遮罩状态
-            // （表现为勾选后无反应、刷新卡在「刷新中」）。读取 LocalState 即建立订阅，update() 后
-            // 本内容整体重组，下面的磁盘读取随之拿到最新值。
-            LocalState.current
-            // 直接读取最新缓存：重组时（含动作后 update 触发的重绘）都读磁盘，
-            // 避免 remember 缓存导致勾选/刷新后界面不更新。
-            val data = WidgetRepo.cached(context, appWidgetId)
-            val failed = Prefs.isFailed(context, appWidgetId)
-            val ready = Prefs.isLoggedIn(context) || Prefs.isConfigured(context, appWidgetId)
-            val (uiState, uiMsg) = Prefs.getUiState(context, appWidgetId)
+            // 订阅进程级状态流：动作/Worker/Repo 调 WidgetStateStore.publish 写入 StateFlow，
+            // 直接驱动存活 session 的内容重组（Compose 原生机制）。不再依赖 Glance update()
+            // 对存活 session 发的会话事件--真机日志已证明该事件不触发重组（遮罩/结果提示
+            // 全部不上屏）。嵌套的 SP 读取（token/baseUrl 等）随整体重组一并拿到最新值；
+            // session 死亡后的重建由各处的 update() 兜底（新组合从 SP 读初值）。
+            val frame by WidgetStateStore.observe(context, appWidgetId).collectAsState()
             android.util.Log.d(
                 "TodoWidget",
-                "compose: widget=$appWidgetId ui=($uiState,$uiMsg) data=${data != null} ready=$ready"
+                "compose: widget=$appWidgetId ui=(${frame.uiState},${frame.uiMsg}) " +
+                    "data=${frame.data != null} ready=${frame.ready}"
             )
             WidgetRoot(
-                ready = ready,
-                data = data,
-                failed = failed,
+                ready = frame.ready,
+                data = frame.data,
+                failed = frame.failed,
                 widgetId = appWidgetId,
-                overlayState = uiState,
-                overlayMsg = uiMsg
+                collapsed = frame.collapsed,
+                overlayState = frame.uiState,
+                overlayMsg = frame.uiMsg
             )
         }
+    }
+}
+
+/** 初始化自动刷新的缓存过期阈值：对齐 RefreshWorker 周期（15 分钟）。 */
+private const val AUTO_REFRESH_STALE_MS = 15L * 60 * 1000
+
+/** 已配置但无缓存或缓存过期时，入队一次静默刷新 Worker（失败不弹遮罩）。 */
+private fun maybeAutoRefresh(context: Context, appWidgetId: Int) {
+    if (appWidgetId < 0) return
+    val ready = Prefs.isLoggedIn(context) || Prefs.isConfigured(context, appWidgetId)
+    if (!ready) return
+    val updated = Prefs.getLastUpdated(context, appWidgetId)
+    val stale = Prefs.getCache(context, appWidgetId) == null ||
+        System.currentTimeMillis() - updated > AUTO_REFRESH_STALE_MS
+    if (stale) {
+        android.util.Log.d("TodoWidget", "auto refresh enqueued: widget=$appWidgetId, updated=$updated")
+        WidgetActionWorker.enqueue(
+            context, appWidgetId, WidgetActionWorker.ACTION_REFRESH, silent = true
+        )
     }
 }
 
@@ -100,6 +118,7 @@ private fun WidgetRoot(
     data: WidgetResponse?,
     failed: Boolean,
     widgetId: Int,
+    collapsed: Set<Long>,
     overlayState: String,
     overlayMsg: String
 ) {
@@ -113,7 +132,7 @@ private fun WidgetRoot(
         if (!ready) {
             NotReady()
         } else {
-            WidgetBody(data, failed, widgetId)
+            WidgetBody(data, failed, widgetId, collapsed)
         }
         if (overlayState != "idle") WidgetOverlay(overlayState, overlayMsg)
     }
@@ -168,8 +187,12 @@ private fun NotReady() {
 }
 
 @Composable
-private fun WidgetBody(data: WidgetResponse?, failed: Boolean, widgetId: Int) {
-    val ctx = androidx.glance.LocalContext.current
+private fun WidgetBody(
+    data: WidgetResponse?,
+    failed: Boolean,
+    widgetId: Int,
+    collapsed: Set<Long>
+) {
     Column(modifier = GlanceModifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
         Header(data, widgetId)
         Spacer(GlanceModifier.height(6.dp))
@@ -192,9 +215,8 @@ private fun WidgetBody(data: WidgetResponse?, failed: Boolean, widgetId: Int) {
         } else {
             LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
                 groups.forEach { g ->
-                    item(itemId = g.id) { GroupRow(g, widgetId) }
-                    val collapsed = Prefs.isCollapsed(ctx, widgetId, g.id)
-                    if (!collapsed) {
+                    item(itemId = g.id) { GroupRow(g, widgetId, collapsed.contains(g.id)) }
+                    if (!collapsed.contains(g.id)) {
                         items(g.children, itemId = { it.id }) { child ->
                             ChildRow(child, widgetId)
                         }
@@ -262,9 +284,7 @@ private fun StatChip(value: Int, color: ColorProvider) {
 }
 
 @Composable
-private fun GroupRow(g: WidgetGroup, widgetId: Int) {
-    val ctx = androidx.glance.LocalContext.current
-    val collapsed = Prefs.isCollapsed(ctx, widgetId, g.id)
+private fun GroupRow(g: WidgetGroup, widgetId: Int, collapsed: Boolean) {
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
