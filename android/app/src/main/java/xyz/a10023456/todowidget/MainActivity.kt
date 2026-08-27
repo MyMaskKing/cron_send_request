@@ -279,7 +279,16 @@ private fun AppShell(initialUrl: String?) {
                         // 由 update 回调统一带 X-App-Shell 头 + 重写 app_shell cookie 后加载
                     },
                     onOpenInBrowser = {
-                        val url = webViewRef?.url ?: baseUrl
+                        // 免密桥接：系统浏览器与 WebView cookie 仓库独立，sid 带不过去；
+                        // 走服务端 /auth/bridge 用当前会话换 cookie 后 302 到当前页（未登录则直接打开原 URL）
+                        val sid = Prefs.getSid(context)
+                        val url = if (sid.isNotBlank()) {
+                            val path = runCatching { Uri.parse(webViewRef?.url ?: baseUrl).path }.getOrNull()
+                            val to = if (!path.isNullOrBlank()) path else "/todo"
+                            baseUrl + "/auth/bridge?sid=" + Uri.encode(sid) + "&to=" + Uri.encode(to)
+                        } else {
+                            webViewRef?.url ?: baseUrl
+                        }
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                     },
                     onLogout = {

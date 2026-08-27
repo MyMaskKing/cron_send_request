@@ -9,7 +9,7 @@
 import { Router, json, html, error } from './router.js';
 import { getTimeoutConfig, resolveBaseUrl, effectiveFormat } from './config.js';
 import { getStorage } from './storage/adapter.js';
-import { getSession, getTokenFromRequest } from './auth/session.js';
+import { getSession, getTokenFromRequest, buildSessionCookie } from './auth/session.js';
 import { generateToken } from './auth/password.js';
 import { batchAccessUrls, formatResults } from './services/monitor.service.js';
 import { sendNotification } from './services/notify.service.js';
@@ -224,6 +224,21 @@ async function handlePages(request, env) {
   // 公开页
   if (path === '/login') return html(loginPage());
   if (path === '/setup') return html(setupPage());
+  // App「在浏览器中打开」免密桥接 /auth/bridge?sid=<会话token>&to=<站内路径>
+  // 系统浏览器与 App WebView 的 cookie 仓库相互独立，sid 带不过去；
+  // 校验 App WebView 的会话有效后，在系统浏览器重发同一会话 cookie 并 302 到目标页
+  if (path === '/auth/bridge') {
+    const sid = url.searchParams.get('sid') || '';
+    const to = url.searchParams.get('to') || '/dashboard';
+    // 仅放行站内相对路径，防开放重定向
+    const safeTo = /^\/[a-zA-Z0-9/-]*$/.test(to) && !to.startsWith('//') ? to : '/dashboard';
+    const session = await getSession(env, sid);
+    if (!session) return new Response(null, { status: 302, headers: { Location: '/login' } });
+    return new Response(null, {
+      status: 302,
+      headers: { Location: safeTo, 'Set-Cookie': buildSessionCookie(sid, request) }
+    });
+  }
   // 免密加仓公开页 /f/:token
   if (path.startsWith('/f/') && path.split('/').filter(Boolean).length === 2) {
     return html(publicBuyPage());

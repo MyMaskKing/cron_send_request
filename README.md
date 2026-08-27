@@ -28,6 +28,9 @@ Cloudflare Workers · D1 · KV · 原生 ES Module（无前端框架，服务端
 
 ## 部署
 
+> [!TIP]
+> 不想用 Cloudflare？本项目支持 **Docker 自部署**（纯 Node + better-sqlite3 模拟 D1/KV，`src/` 业务代码零改动，迁移全自动）。部署步骤、数据存储/Redis 实现原理详见 **[`docker/README.md`](./docker/README.md)**。
+
 ### 前置
 
 - [Cloudflare](https://cloudflare.com) 账户

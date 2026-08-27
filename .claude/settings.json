@@ -1,6 +1,3 @@
 {
-  "enabledPlugins": {
-    "cloudflare@claude-plugins-official": true,
-    "kotlin-lsp@claude-plugins-official": true
-  }
+  "enabledPlugins": {}
 }
