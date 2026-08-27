@@ -37,9 +37,6 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /** 小组件配色：day/night 两套，跟随系统深色（仅用于文字；圆角背景走 drawable 以兼容 Glance 1.1）。 */
 private object W {
@@ -127,36 +124,47 @@ private fun fontFactor(scale: Int): Float = when (scale) {
 private fun fs(scale: Int, baseSp: Int) = (baseSp * fontFactor(scale)).sp
 
 /**
- * 整体面板底色（白灰色）：承载标题栏/卡片/底栏，卡片间缝隙也露出这个颜色。
+ * 内容区底色（浅灰）：标题栏之下、卡片之外的区域，卡片间缝隙也露出这个颜色。
  * alpha 即用户设置的背景不透明度。纯色 background（setBackgroundColor）全版本稳定；
  * cornerRadius 仅 API31+ 生效（低版本直角降级）。
  */
 private fun panelBgColor(opacity: Int): ColorProvider =
     DayNightColor(
-        day = Color(0xFFF1F2F7).copy(alpha = opacity / 100f),
-        night = Color(0xFF272434).copy(alpha = opacity / 100f)
+        day = Color(0xFFF2F3F7).copy(alpha = opacity / 100f),
+        night = Color(0xFF242130).copy(alpha = opacity / 100f)
+    )
+
+/** 标题行底色（灰白，比内容区深一档；夜间反转为比内容区亮一档）。 */
+private fun headerBgColor(opacity: Int): ColorProvider =
+    DayNightColor(
+        day = Color(0xFFE3E4EC).copy(alpha = opacity / 100f),
+        night = Color(0xFF332F41).copy(alpha = opacity / 100f)
     )
 
 /**
- * 分组卡片底色：日=纯白、夜=比面板亮一档的紫灰，与外层面板拉开层次；
- * alpha 随不透明度设置（半透明时卡片仍比面板亮，层次感保留）。
+ * 分组卡片底色：日=奶白、夜=比内容区亮一档的紫灰，与浅灰内容区拉开层次；
+ * alpha 随不透明度设置（半透明时卡片仍比内容区亮，层次感保留）。
  */
 private fun cardBgColor(opacity: Int): ColorProvider =
     DayNightColor(
-        day = Color(0xFFFFFFFF).copy(alpha = opacity / 100f),
-        night = Color(0xFF3A3648).copy(alpha = opacity / 100f)
+        day = Color(0xFFFFFCF4).copy(alpha = opacity / 100f),
+        night = Color(0xFF383447).copy(alpha = opacity / 100f)
     )
 
-/** 一张圆角分组卡片的容器：卡片列自带底色/圆角/内边距；bottom padding 即卡片间缝隙（露出面板灰）。 */
+/**
+ * 一张圆角分组卡片的容器：卡片列自带底色/圆角/内边距。
+ * 注意：Glance 的 padding 翻译成 View.setPadding，背景会铺满 padding 区，
+ * 所以卡片间距不能用 padding，由调用方在卡片外放透明 Spacer。
+ * 寸土寸金：上下内边距收紧（标题距顶 8dp、末行距底 6dp）。
+ */
 @Composable
 private fun CardScaffold(opacity: Int, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = GlanceModifier
             .fillMaxWidth()
-            .padding(bottom = 8.dp)
             .background(cardBgColor(opacity))
             .cornerRadius(16.dp)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, top = 6.dp, bottom = 3.dp),
         content = content
     )
 }
@@ -176,8 +184,7 @@ private fun WidgetRoot(
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
-            .padding(6.dp)
-            // 整体白灰色面板：标题栏/卡片/底栏都在它之上，卡片间缝隙露出面板色；
+            // 浅灰内容区面板（背景铺满整个小组件，S+ 圆角裁剪；标题条贴顶满宽在其之上）；
             // opacity/fontScale 随 WidgetStateStore 帧驱动重组，设置面板拖动即实时预览。
             .background(panelBgColor(opacity))
             .cornerRadius(22.dp),
@@ -250,39 +257,46 @@ private fun WidgetBody(
     opacity: Int,
     fontScale: Int
 ) {
-    // 面板内边距（根 Box 已承载面板背景与圆角）
-    Column(modifier = GlanceModifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 10.dp)) {
-        Header(data, widgetId, fontScale)
-        Spacer(GlanceModifier.height(6.dp))
-        if (failed) {
-            Text(
-                "⚠️ 连接失败，显示上次数据",
-                style = TextStyle(color = W.overdue, fontSize = fs(fontScale, 11)),
-                maxLines = 1
-            )
-            Spacer(GlanceModifier.height(2.dp))
-        }
-        val groups = data?.groups.orEmpty()
-        if (groups.isEmpty()) {
-            CardScaffold(opacity) {
-                Box(
-                    modifier = GlanceModifier.fillMaxWidth().padding(vertical = 18.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("🎉 当前范围没有待办", style = TextStyle(color = W.sub, fontSize = fs(fontScale, 13)))
-                }
+    Column(modifier = GlanceModifier.fillMaxSize()) {
+        // 标题行：自带深灰白条背景，贴面板顶部满宽（S+ 被面板圆角裁剪顶边两角）
+        Header(data, widgetId, opacity, fontScale)
+        // 内容区：浅灰底（根 Box 面板色），卡片在其内；底部留白由末张卡片后的 Spacer 提供
+        Column(
+            modifier = GlanceModifier.fillMaxWidth().defaultWeight()
+                .padding(horizontal = 10.dp, top = 8.dp)
+        ) {
+            if (failed) {
+                Text(
+                    "⚠️ 连接失败，显示上次数据",
+                    style = TextStyle(color = W.overdue, fontSize = fs(fontScale, 11)),
+                    maxLines = 1
+                )
+                Spacer(GlanceModifier.height(2.dp))
             }
-        } else {
-            LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
-                groups.forEach { g ->
-                    item(itemId = g.id) {
-                        GroupCard(g, widgetId, collapsed.contains(g.id), opacity, fontScale)
+            val groups = data?.groups.orEmpty()
+            if (groups.isEmpty()) {
+                CardScaffold(opacity) {
+                    Box(
+                        modifier = GlanceModifier.fillMaxWidth().padding(vertical = 14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🎉 当前范围没有待办", style = TextStyle(color = W.sub, fontSize = fs(fontScale, 13)))
+                    }
+                }
+            } else {
+                LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
+                    groups.forEach { g ->
+                        item(itemId = g.id) {
+                            // 卡片外的透明 Spacer 才是真缝隙（padding 会被卡片背景铺满）
+                            Column {
+                                GroupCard(g, widgetId, collapsed.contains(g.id), opacity, fontScale)
+                                Spacer(GlanceModifier.height(8.dp))
+                            }
+                        }
                     }
                 }
             }
         }
-        Spacer(GlanceModifier.height(4.dp))
-        Footer(widgetId, fontScale)
     }
 }
 
@@ -380,14 +394,21 @@ private fun CheckCircle(widgetId: Int, itemId: Long) {
     }
 }
 
+/**
+ * 标题行：深灰白底条，贴面板顶部满宽。左侧标题+统计（点击进 App），
+ * 右侧收纳 ↻ 刷新 / ＋ 新增 / ⚙️ 设置三个动作（原底栏已删除，寸土寸金）。
+ */
 @Composable
-private fun Header(data: WidgetResponse?, widgetId: Int, fontScale: Int) {
+private fun Header(data: WidgetResponse?, widgetId: Int, opacity: Int, fontScale: Int) {
     val ctx = androidx.glance.LocalContext.current
     val token = Prefs.getToken(ctx, widgetId)
     val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
     val openUrl = openUrlOf(ctx, baseUrl, token)
+    val addUrl = addUrlOf(ctx, baseUrl, token)
     Row(
-        modifier = GlanceModifier.fillMaxWidth().padding(horizontal = 4.dp),
+        modifier = GlanceModifier.fillMaxWidth()
+            .background(headerBgColor(opacity))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
@@ -410,7 +431,25 @@ private fun Header(data: WidgetResponse?, widgetId: Int, fontScale: Int) {
                 StatChip(data.stats.memo, W.sub, fontScale)
             }
         }
-        Spacer(GlanceModifier.width(8.dp))
+        Spacer(GlanceModifier.width(6.dp))
+        Text(
+            "↻",
+            style = TextStyle(fontSize = fs(fontScale, 16), color = W.brand, fontWeight = FontWeight.Bold),
+            modifier = GlanceModifier.clickable(
+                actionRunCallback<RefreshAction>(
+                    actionParametersOf(Keys.AppWidgetId to widgetId)
+                )
+            )
+        )
+        Spacer(GlanceModifier.width(12.dp))
+        Text(
+            "＋",
+            style = TextStyle(fontSize = fs(fontScale, 17), color = W.brand, fontWeight = FontWeight.Bold),
+            modifier = GlanceModifier.clickable(
+                actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to addUrl))
+            )
+        )
+        Spacer(GlanceModifier.width(12.dp))
         Text(
             "⚙️",
             style = TextStyle(fontSize = fs(fontScale, 14), color = W.sub),
@@ -462,41 +501,6 @@ private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int) {
                 maxLines = 1
             )
         }
-    }
-}
-
-@Composable
-private fun Footer(widgetId: Int, fontScale: Int) {
-    val ctx = androidx.glance.LocalContext.current
-    val token = Prefs.getToken(ctx, widgetId)
-    val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
-    val addUrl = addUrlOf(ctx, baseUrl, token)
-    val updated = Prefs.getLastUpdated(ctx, widgetId)
-    val time = if (updated > 0)
-        SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(updated)) else "--:--"
-    Row(
-        modifier = GlanceModifier.fillMaxWidth().padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            "＋ 新增",
-            style = TextStyle(color = W.brand, fontSize = fs(fontScale, 12), fontWeight = FontWeight.Medium),
-            modifier = GlanceModifier.clickable(
-                actionStartActivity<MainActivity>(
-                    actionParametersOf(Keys.Url to addUrl)
-                )
-            )
-        )
-        Spacer(GlanceModifier.defaultWeight())
-        Text(
-            "↻ $time",
-            style = TextStyle(color = W.sub, fontSize = fs(fontScale, 11)),
-            modifier = GlanceModifier.clickable(
-                actionRunCallback<RefreshAction>(
-                    actionParametersOf(Keys.AppWidgetId to widgetId)
-                )
-            )
-        )
     }
 }
 
