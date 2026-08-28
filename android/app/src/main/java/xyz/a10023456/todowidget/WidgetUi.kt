@@ -495,11 +495,26 @@ private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int) {
                     maxLines = 1
                 )
             }
-            Text(
-                child.title,
-                style = TextStyle(fontSize = fs(fontScale, 13), color = W.text),
-                maxLines = 1
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    child.title,
+                    style = TextStyle(fontSize = fs(fontScale, 13), color = W.text),
+                    maxLines = 1,
+                    modifier = GlanceModifier.defaultWeight()
+                )
+                // 日期徽章: 新模式(child_due)子任务自带截止日期; 旧后端不下发时为空串不显示, 逾期标红
+                if (child.due_label.isNotBlank()) {
+                    Spacer(GlanceModifier.width(6.dp))
+                    Text(
+                        child.due_label,
+                        style = TextStyle(
+                            fontSize = fs(fontScale, 11),
+                            color = if (child.overdue) W.overdue else W.sub
+                        ),
+                        maxLines = 1
+                    )
+                }
+            }
         }
     }
 }

@@ -37,7 +37,11 @@ data class WidgetItem(
     val id: Long,
     val title: String,
     /** 祖先标题链（不含顶层分组、不含自身）；直接子节点为空，用于标题上方显示面包屑。 */
-    val path: List<String> = emptyList()
+    val path: List<String> = emptyList(),
+    /** 有效截止日期标签（新模式子任务为自身日期；旧后端不下发时为空串，旧版 App 忽略不崩）。 */
+    val due_label: String = "",
+    /** 是否逾期（未完成且过期），控制日期徽章颜色。 */
+    val overdue: Boolean = false
 )
 
 /** PUT /api/public/todo-all/:token/:id/done 响应 */

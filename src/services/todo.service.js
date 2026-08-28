@@ -91,9 +91,54 @@ function flattenPending(trees) {
 }
 
 /**
+ * 任务的有效截止日期：自身 due_date 优先；为空则沿 parent 链继承最近祖先的 due_date
+ * 旧模式下子任务自身恒为空，一路继承到顶层主任务，与历史口径完全一致；
+ * child_due 新模式下子任务自身有日期即用自身，否则继承最近的有日期中间父任务
+ * @param {Object} row - todos 扁平行
+ * @param {Map<number,Object>} byId - id → 扁平行
+ * @returns {string|null} YYYY-MM-DD
+ */
+function effDueOf(row, byId) {
+  let cur = row;
+  const guard = new Set();
+  while (cur) {
+    if (cur.due_date) return cur.due_date;
+    if (cur.parent_id == null) break;
+    if (guard.has(cur.parent_id)) break; // 防御异常环
+    guard.add(cur.parent_id);
+    cur = byId.get(cur.parent_id);
+  }
+  return null;
+}
+
+/**
+ * 顶层主任务的显示日期：
+ * - 自身有 due_date（旧模式 / 显式日期）→ 自身
+ * - 自身无日期（child_due 新模式）→ 子树中未完成节点有效日期的最小值
+ *   （逾期的最早、最紧迫；已完成整枝跳过；无任何日期 → null，按备忘录处理）
+ * 输入为 buildTree 产出的树节点（带 children）
+ * @param {Object} root - 顶层树节点
+ * @returns {string|null} YYYY-MM-DD
+ */
+function rootDueOf(root) {
+  if (root.due_date) return root.due_date;
+  let min = null;
+  const walk = (node, inheritedDue) => {
+    if (node.done) return; // 完成枝整枝跳过
+    const own = node.due_date || inheritedDue;
+    // 仅叶子(可完成项)参与显示日期; 中间层父任务的日期只作其下无日期叶子的继承默认值,
+    // 不单独代表到期项(与前端 assets.js todoRootDue 同口径)
+    if (node.children.length === 0 && own && (!min || own < min)) min = own;
+    for (const c of node.children) walk(c, node.due_date || inheritedDue);
+  };
+  walk(root, null);
+  return min;
+}
+
+/**
  * 统计概览（叶子口径）
- * 有子任务的父任务不计入，只统计最末端叶子任务；子任务逾期继承顶层祖先的截止日期
- * 备忘录（无截止日期的未完成叶子）单独计入 memo，不算进 pending
+ * 有子任务的父任务不计入，只统计最末端叶子任务；叶子有效日期按 effDueOf（自身优先，否则继承最近祖先）
+ * 备忘录（无有效截止日期的未完成叶子）单独计入 memo，不算进 pending
  * @param {Array} rows - todos 扁平行
  * @param {string} today - 北京时区当天 YYYY-MM-DD，用于逾期判断
  * @returns {Object} { total, done, pending, overdue, memo }
@@ -113,19 +158,13 @@ function countStats(rows, today) {
     }
     return false;
   };
-  // 有效截止日期：顶层用自身，子任务继承顶层祖先（与树渲染 effDue 口径一致）
-  const effDue = (r) => {
-    let cur = r;
-    while (cur.parent_id != null && byId.has(cur.parent_id)) cur = byId.get(cur.parent_id);
-    return cur.due_date;
-  };
   let total = 0, done = 0, overdue = 0, memo = 0, pending = 0;
   for (const r of rows) {
     if (hasChild.has(r.id)) continue; // 非叶子（父任务）跳过
     if (hasDoneAncestor(r)) continue;
     total++;
     if (r.done) { done++; continue; }
-    const due = effDue(r);
+    const due = effDueOf(r, byId);
     if (!due) { memo++; continue; }        // 无日期未完成 = 备忘录，不计入 pending
     pending++;
     if (today && due < today) overdue++;
@@ -135,12 +174,14 @@ function countStats(rows, today) {
 
 /**
  * 构造小组件用的「顶层分组」数据（无副作用，不碰存储）
- * 口径与 countStats / 前端 todoDoneByFilter 一致：子任务日期继承顶层，未完成叶子才计入
+ * 口径与 countStats / 前端过滤一致：未完成叶子才计入；
+ * 主任务显示日期走 rootDueOf（自身日期优先，否则取子树未完成任务有效日期最小值）；
+ * 叶子有效日期自身优先、否则继承最近祖先（child_due 新模式下子任务可各自带日期）
  * @param {Array} rows - storage.todo.listByUser 的扁平行
  * @param {string} today - YYYY-MM-DD（北京时区）
  * @param {'cur'|'today'|'overdue'|'all'} scope - 顶层过滤口径
  * @param {number} limit - 返回顶层分组数量上限
- * @returns {Array<{id:number,title:string,due_label:string,overdue:boolean,recurring:boolean,collapsible:boolean,children:Array<{id:number,title:string,path:Array<string>}>}>}
+ * @returns {Array<{id:number,title:string,due_label:string,overdue:boolean,recurring:boolean,collapsible:boolean,children:Array<{id:number,title:string,path:Array<string>,due_label:string,overdue:boolean}>}>}
  */
 function buildWidgetGroups(rows, today, scope, limit) {
   const trees = buildTree(rows);
@@ -150,27 +191,45 @@ function buildWidgetGroups(rows, today, scope, limit) {
   // 中间层级父任务不单列成行，只通过叶子的 path 小文字面包屑体现层级；根节点除外（根由分组标题承载）。
   // 每项带 path：从 root 直接子节点到该叶子父级的标题链（不含 root、不含自身），
   // 用于小组件在叶子标题上方渲染祖先面包屑；root 的直接子叶子 path 为空。
+  // 每项带 due_label/overdue：叶子自身日期优先，否则继承最近有日期的祖先（旧模式即主任务日期）。
+  // 同时返回 hasRecur：子树内是否存在重复任务（主任务或任一叶子）。
   // 若该根本身是叶子（无后代），回退为根自身，保证至少有一条可勾选。
   const itemsOf = (node) => {
     const out = [];
-    const walk = (n, ancestors, isRoot) => {
+    let hasRecur = false;
+    const walk = (n, ancestors, isRoot, inheritedDue) => {
+      if (n.recurrence) hasRecur = true;
+      const ownDue = n.due_date || inheritedDue;
       if (!isRoot && n.children.length === 0) {
-        out.push({ id: n.id, title: n.title, path: ancestors });
+        const over = !!(today && ownDue && ownDue < today);
+        out.push({
+          id: n.id, title: n.title, path: ancestors,
+          due_label: ownDue ? todoDateBadge(ownDue, today, over) : '',
+          overdue: over
+        });
       }
       for (const c of n.children) {
-        walk(c, isRoot ? [] : [...ancestors, n.title], false);
+        walk(c, isRoot ? [] : [...ancestors, n.title], false, n.due_date || inheritedDue);
       }
     };
-    walk(node, [], true);
-    if (out.length === 0) out.push({ id: node.id, title: node.title, path: [] });
-    return out;
+    walk(node, [], true, null);
+    if (out.length === 0) {
+      const over = !!(today && node.due_date && node.due_date < today);
+      out.push({
+        id: node.id, title: node.title, path: [],
+        due_label: node.due_date ? todoDateBadge(node.due_date, today, over) : '',
+        overdue: over
+      });
+      if (node.recurrence) hasRecur = true;
+    }
+    return { items: out, hasRecur };
   };
 
   const groups = [];
   for (const root of pending) {
-    const due = root.due_date || null;
+    const due = rootDueOf(root);
     const overdue = !!(today && due && due < today);
-    // scope 按顶层截止日期过滤（与前端口径一致）
+    // scope 按主任务显示日期过滤（与前端口径一致）
     if (scope === 'today') {
       if (!(due && due === today)) continue;
     } else if (scope === 'overdue') {
@@ -179,30 +238,31 @@ function buildWidgetGroups(rows, today, scope, limit) {
       if (!(due && due <= today)) continue;
     } // 'all' 不筛选（含无日期的备忘录型顶层）
 
-    const items = itemsOf(root);
+    const { items, hasRecur } = itemsOf(root);
     if (items.length === 0) continue; // 理论上 flattenPending 已排除，防御一下
     groups.push({
       id: root.id,
       title: root.title,
       due_label: due ? todoDateBadge(due, today, overdue) : '',
       overdue,
-      recurring: !!root.recurrence,
+      recurring: !!root.recurrence || hasRecur,
       collapsible: items.length > 1 || items[0].id !== root.id,
       children: items
     });
   }
 
-  // 排序与浏览器 /todo 页一致（assets.js todoBuildTree）：顶层按截止日期倒序
+  // 排序与浏览器 /todo 页一致（assets.js todoBuildTree）：顶层按显示日期倒序
   // （有日期的越晚越靠前，无日期排最后）；同日期按 sort_order, id 升序。
   // 叶子（children）顺序沿用 buildTree 的 sort_order+id 升序，与浏览器子任务排序同口径。
   const byId = new Map(rows.map(r => [r.id, r]));
+  const rootDueById = new Map(pending.map(r => [r.id, rootDueOf(r)]));
   const sortKey = (g) => {
     const r = byId.get(g.id) || {};
     return [r.sort_order || 0, r.id || 0];
   };
   groups.sort((a, b) => {
-    const ad = byId.get(a.id)?.due_date || '';
-    const bd = byId.get(b.id)?.due_date || '';
+    const ad = rootDueById.get(a.id) || '';
+    const bd = rootDueById.get(b.id) || '';
     if (ad !== bd) {
       if (!ad) return 1;
       if (!bd) return -1;
@@ -446,4 +506,4 @@ function shiftDate(dueDate, recurrence, jumpToCurrent, todayStr, interval, nth, 
   return dueDate;
 }
 
-export { buildTree, flattenPending, countStats, buildWidgetGroups, buildChartSeries, CHART_RANGES, shiftDate, todoDateLabel, todoDateBadge };
+export { buildTree, flattenPending, countStats, buildWidgetGroups, buildChartSeries, CHART_RANGES, shiftDate, todoDateLabel, todoDateBadge, effDueOf, rootDueOf };

@@ -539,45 +539,67 @@ function createD1Adapter(env) {
         return await db.prepare('SELECT * FROM todos WHERE id=?').bind(id).first();
       },
       async create(userId, t) {
-        // 仅顶层任务(parent_id 空)允许 recurrence 非空; 子任务强制置 null
-        const rec = (t.parent_id == null && t.recurrence) ? t.recurrence : null;
+        // recurrence 是否允许由 API 层按模式(顶层旧模式 / child_due 模式下叶子子任务)校验, 此处只做归一
+        const rec = t.recurrence || null;
         // recur_interval: [1..99], 无 recurrence 时强制置 null
         const rawIv = t.recur_interval != null ? parseInt(t.recur_interval, 10) : null;
         const iv = (rec && rawIv >= 1) ? Math.min(rawIv, 99) : null;
         // monthly_nth_weekday 伴生列: 仅该周期启用时保留, 其它一律 null
         const nth = (rec === 'monthly_nth_weekday' && t.recur_nth != null) ? parseInt(t.recur_nth, 10) : null;
         const wd = (rec === 'monthly_nth_weekday' && t.recur_weekday != null) ? parseInt(t.recur_weekday, 10) : null;
+        // child_due 仅顶层任务有意义; 子任务恒为 0
+        const childDue = (t.parent_id == null && t.child_due) ? 1 : 0;
         const res = await db.prepare(
-          'INSERT INTO todos (user_id, parent_id, title, priority, due_date, category, note, sort_order, recurrence, recur_interval, recur_nth, recur_weekday) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO todos (user_id, parent_id, title, priority, due_date, category, note, sort_order, child_due, recurrence, recur_interval, recur_nth, recur_weekday) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         ).bind(
           userId, t.parent_id != null ? t.parent_id : null, t.title,
           t.priority != null ? t.priority : 1,
           t.due_date || null, t.category || null, t.note || null, t.sort_order != null ? t.sort_order : 0,
-          rec, iv, nth, wd
+          childDue, rec, iv, nth, wd
         ).run();
         return res.meta.last_row_id;
       },
       async update(id, userId, t) {
-        // 若 t.recurrence 显式传入(含 null), 则更新; 未传时保持原值不变
+        // 先读当前行: recurrence / child_due 未显式传入时保留原值, 避免编辑标题等字段时误清空
+        const cur = await db.prepare(
+          'SELECT parent_id, child_due, recurrence, recur_interval, recur_nth, recur_weekday FROM todos WHERE id=? AND user_id=?'
+        ).bind(id, userId).first();
+        if (!cur) return;
         const hasRec = Object.prototype.hasOwnProperty.call(t, 'recurrence');
-        if (hasRec) {
-          // 仅顶层允许 recurrence; 子任务强制 null (API 已过滤, 此处再保险)
-          const cur = await db.prepare('SELECT parent_id FROM todos WHERE id=? AND user_id=?').bind(id, userId).first();
-          const rec = (cur && cur.parent_id == null) ? (t.recurrence || null) : null;
-          // recur_interval: 与 rec 同步更新; 无 rec 时强制 null
-          const rawIv = t.recur_interval != null ? parseInt(t.recur_interval, 10) : null;
-          const iv = (rec && rawIv >= 1) ? Math.min(rawIv, 99) : null;
-          // monthly_nth_weekday 伴生列: 仅该周期启用时保留
-          const nth = (rec === 'monthly_nth_weekday' && t.recur_nth != null) ? parseInt(t.recur_nth, 10) : null;
-          const wd = (rec === 'monthly_nth_weekday' && t.recur_weekday != null) ? parseInt(t.recur_weekday, 10) : null;
-          await db.prepare(
-            'UPDATE todos SET title=?, priority=?, due_date=?, category=?, note=?, recurrence=?, recur_interval=?, recur_nth=?, recur_weekday=? WHERE id=? AND user_id=?'
-          ).bind(t.title, t.priority != null ? t.priority : 1, t.due_date || null, t.category || null, t.note || null, rec, iv, nth, wd, id, userId).run();
-        } else {
-          await db.prepare(
-            'UPDATE todos SET title=?, priority=?, due_date=?, category=?, note=? WHERE id=? AND user_id=?'
-          ).bind(t.title, t.priority != null ? t.priority : 1, t.due_date || null, t.category || null, t.note || null, id, userId).run();
-        }
+        const hasChildDue = Object.prototype.hasOwnProperty.call(t, 'child_due');
+        // recurrence 是否允许由 API 层按模式/叶子身份校验; 此处仅归一
+        const rec = hasRec ? (t.recurrence || null) : (cur.recurrence || null);
+        const rawIv = t.recur_interval != null ? parseInt(t.recur_interval, 10)
+          : (cur.recur_interval != null ? cur.recur_interval : null);
+        const iv = (rec && rawIv >= 1) ? Math.min(rawIv, 99) : null;
+        // monthly_nth_weekday 伴生列: 仅该周期启用时保留; 未显式传重复字段时沿用原值
+        const nthSrc = t.recur_nth != null ? t.recur_nth : (!hasRec ? cur.recur_nth : null);
+        const wdSrc = t.recur_weekday != null ? t.recur_weekday : (!hasRec ? cur.recur_weekday : null);
+        const nth = (rec === 'monthly_nth_weekday' && nthSrc != null) ? parseInt(nthSrc, 10) : null;
+        const wd = (rec === 'monthly_nth_weekday' && wdSrc != null) ? parseInt(wdSrc, 10) : null;
+        // child_due 仅顶层任务有意义; 子任务恒写 0 (其值本就为 0)
+        const childDue = hasChildDue ? (t.child_due ? 1 : 0) : (cur.child_due || 0);
+        await db.prepare(
+          'UPDATE todos SET title=?, priority=?, due_date=?, category=?, note=?, child_due=?, recurrence=?, recur_interval=?, recur_nth=?, recur_weekday=? WHERE id=? AND user_id=?'
+        ).bind(
+          t.title, t.priority != null ? t.priority : 1, t.due_date || null, t.category || null, t.note || null,
+          childDue, rec, iv, nth, wd, id, userId
+        ).run();
+      },
+      // 清空单个任务的重复设置（叶子重复任务被添加子任务、不再是叶子时调用）
+      async clearRecur(id) {
+        await db.prepare(
+          'UPDATE todos SET recurrence=NULL, recur_interval=NULL, recur_nth=NULL, recur_weekday=NULL WHERE id=?'
+        ).bind(id).run();
+      },
+      // 清空某顶层任务全部后代(不含自身)的截止日期与重复设置（child_due 模式 1→0 回退时调用）
+      async clearSubtreeDates(rootId) {
+        const ids = await this.collectDescendantIds(rootId);
+        if (!ids || ids.length === 0) return;
+        const placeholders = ids.map(() => '?').join(',');
+        await db.prepare(
+          `UPDATE todos SET due_date=NULL, recurrence=NULL, recur_interval=NULL, recur_nth=NULL, recur_weekday=NULL WHERE id IN (${placeholders})`
+        ).bind(...ids).run();
       },
       // 同级重排：按 orderedIds 顺序批量写 sort_order=0..n
       // 双校验 user_id + parent_id，越权或跨级的 id 不会被更新；parentId 为 null 表顶层
@@ -600,22 +622,45 @@ function createD1Adapter(env) {
           'UPDATE todos SET done=?, done_at=? WHERE id=?'
         ).bind(done ? 1 : 0, done ? (doneAt || null) : null, id).run();
       },
-      // 完成/取消完成当前任务；若命中“顶层重复任务且 done=1”，自动 clone 一条新任务（含子树）
+      // 完成/取消完成当前任务；若命中“重复任务且 done=1”，自动 clone 下一条实例
       // 返回 { cloned: boolean, next_id?, next_due? }
-      // 新周期子任务重置为未完成，原任务子树状态保持不变
+      // 新周期实例重置为未完成，原任务及其子树状态保持不变
+      // 两种克隆形态:
+      //   1. 旧模式顶层重复任务且有子任务: 整棵子树克隆(子任务日期原样, 旧模式下本就为空)
+      //   2. 叶子重复任务(新模式子任务 / 无子女顶层): 单行克隆, parent_id 保持同级
       // userId 双校验用：目标不属该用户视为无效，cloned=false 且不写任何数据
       async markDoneWithRecur(id, userId, done, jumpToCurrent, todayStr) {
         const self = await db.prepare('SELECT * FROM todos WHERE id=? AND user_id=?').bind(id, userId).first();
         if (!self) return { cloned: false };
         await this.setDone(id, !!done, todayStr);
-        // 判断是否需要 clone: 必须 done=1, 顶层, 有 recurrence, 有 due_date
+        // 判断是否需要 clone: 必须 done=1, 有 recurrence, 有 due_date（层级不限）
         if (!done) return { cloned: false };
-        if (self.parent_id != null) return { cloned: false };
         if (!self.recurrence) return { cloned: false };
         if (!self.due_date) return { cloned: false };
         const nextDue = shiftDate(self.due_date, self.recurrence, !!jumpToCurrent, todayStr, self.recur_interval, self.recur_nth, self.recur_weekday);
-        const newRootId = await this._cloneSubtreeForRecur(self, nextDue, userId, todayStr);
-        return { cloned: true, next_id: newRootId, next_due: nextDue };
+        // 仅旧模式顶层重复任务可能带子女, 走整树克隆; 其余(叶子)单行克隆
+        const hasKids = self.parent_id == null &&
+          !!(await db.prepare('SELECT 1 AS x FROM todos WHERE parent_id=? LIMIT 1').bind(id).first());
+        if (hasKids) {
+          const newRootId = await this._cloneSubtreeForRecur(self, nextDue, userId, todayStr);
+          return { cloned: true, next_id: newRootId, next_due: nextDue };
+        }
+        const ins = await db.prepare(
+          'INSERT INTO todos (user_id, parent_id, title, done, priority, due_date, category, sort_order, share_token, note, done_at, recurrence, recur_interval, recur_nth, recur_weekday, recur_from_id) VALUES (?, ?, ?, 0, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?)'
+        ).bind(
+          userId, self.parent_id != null ? self.parent_id : null, self.title,
+          self.priority != null ? self.priority : 1,
+          nextDue,
+          self.category || null,
+          self.sort_order != null ? self.sort_order : 0,
+          self.note || null,
+          self.recurrence,
+          self.recur_interval != null ? self.recur_interval : null,
+          self.recur_nth != null ? self.recur_nth : null,
+          self.recur_weekday != null ? self.recur_weekday : null,
+          self.id
+        ).run();
+        return { cloned: true, next_id: ins.meta.last_row_id, next_due: nextDue };
       },
       // 内部: 递归克隆 rootOld 及其全部后代, 返回新 root id
       // 新任务全部 done=0, done_at=null, share_token=null, recur_from_id 指向原 id

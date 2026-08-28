@@ -14,7 +14,7 @@ import { fmtDateTime, localParts } from './time.service.js';
 import { buildChartUrl } from './chart.service.js';
 import { round2 } from './asset.service.js';
 import { analyzePortfolio } from './fund.service.js';
-import { todoDateLabel } from './todo.service.js';
+import { todoDateLabel, rootDueOf } from './todo.service.js';
 
 // ==================== 基金持仓日报 ====================
 
@@ -480,17 +480,21 @@ const TODO_PRI_ICON = { 2: '🔴', 1: '🟡', 0: '⚪' };
 const TODO_PRI_LABEL = { 2: '高', 1: '中', 0: '低' };
 
 /**
- * 待办日报的顶层筛选：仅保留"截止=今天 或 已逾期"的顶层任务
- * 子任务日期继承顶层，故按顶层 due_date 判断整棵树
+ * 待办日报的顶层筛选：仅保留"显示日期=今天 或 已逾期"的顶层任务
+ * 主任务显示日期走 rootDueOf：旧模式即顶层 due_date；child_due 新模式为子树未完成任务最早有效日期
  * @param {Array} trees - flattenPending 后的未完成任务树
  * @param {string} today - 北京时区当天 YYYY-MM-DD
- * @returns {Array} 过滤并按截止日期倒序（晚→早，无日期排最后）的顶层树
+ * @returns {Array} 过滤并按显示日期倒序（晚→早）的顶层树
  */
 function filterTodayOverdue(trees, today) {
-  const kept = trees.filter(t => t.due_date && today && t.due_date <= today);
-  // 截止日期倒序：日期晚的在前；同日期按 id 稳定
+  const kept = trees.filter(t => {
+    const d = rootDueOf(t);
+    return d && today && d <= today;
+  });
+  // 显示日期倒序：日期晚的在前；同日期按 id 稳定
   kept.sort((a, b) => {
-    if (a.due_date !== b.due_date) return a.due_date < b.due_date ? 1 : -1;
+    const ad = rootDueOf(a), bd = rootDueOf(b);
+    if (ad !== bd) return ad < bd ? 1 : -1;
     return (a.id || 0) - (b.id || 0);
   });
   return kept;
@@ -518,6 +522,27 @@ function todoRemindText(pending, seq, total) {
 }
 
 /**
+ * 日报正文剪枝：仅保留"有效截止日期 <= today"的未完成叶子所在枝
+ * 旧模式下进入日报的树叶子日期全部继承主任务(<=today)，剪枝后无变化；
+ * 新模式(child_due)下主任务是长期容器，混有未来日期子任务与无日期备忘录，
+ * 日报只报今天到期/逾期的叶子——未来任务与备忘录不进正文、不计入"N 件待办"
+ * @param {Array} trees - filterTodayOverdue 筛选后的顶层树
+ * @param {string} today - YYYY-MM-DD
+ * @returns {Array} 新树（不改原树）
+ */
+function pruneDueLeaves(trees, today) {
+  const prune = (node, inheritedDue) => {
+    if (node.done) return null;
+    const own = node.due_date || inheritedDue;
+    const kids = node.children.map(c => prune(c, own)).filter(Boolean);
+    if (kids.length > 0) return { ...node, children: kids };
+    // 叶子（含无子女顶层）：有有效日期且今天到期/逾期才保留
+    return (own && today && own <= today) ? { ...node, children: [] } : null;
+  };
+  return trees.map(n => prune(n, null)).filter(Boolean);
+}
+
+/**
  * 生成待办日报文本/HTML/Markdown
  * 仅呈现"截止今天或已逾期"的未完成顶层任务（含其未完成子任务），顶层按截止日期倒序
  * @param {Array} trees - flattenPending 后的未完成任务树
@@ -531,35 +556,37 @@ function buildTodoReport(trees, opts = {}) {
   const { format = 'text', base = '', token = null, reportToken = null, today = '', seq = null, total = null } = opts;
   // 仅留截止今天/逾期的顶层任务，并按截止日期倒序
   const sorted = filterTodayOverdue(trees, today);
+  // 正文与统计只含今天到期/逾期的叶子：新模式容器主任务下的未来子任务/备忘录不进日报
+  // （旧模式叶子日期全继承主任务且 <=today，剪枝结果与 sorted 相同，版式不变）
+  const visible = pruneDueLeaves(sorted, today);
   // 日报口径统计：基于筛选后的树，统计未完成任务数与其中逾期数（含子任务）
-  const stats = statsOfReport(sorted, today);
+  const stats = statsOfReport(visible, today);
   // 分档提醒语：按当天第几次/共几次推送，温和→强烈
   const remind = todoRemindText(stats.pending, seq, total);
-  if (format === 'html') return buildTodoReportHTML(sorted, base, token, reportToken, today, stats, remind);
-  if (format === 'markdown') return buildTodoReportMarkdown(sorted, base, token, reportToken, today, stats, remind);
-  return buildTodoReportText(sorted, base, token, reportToken, today, stats, remind);
+  if (format === 'html') return buildTodoReportHTML(visible, base, token, reportToken, today, stats, remind);
+  if (format === 'markdown') return buildTodoReportMarkdown(visible, base, token, reportToken, today, stats, remind);
+  return buildTodoReportText(visible, base, token, reportToken, today, stats, remind);
 }
 
 /** 统计筛选后树里的未完成任务数与逾期数
  * 叶子口径：有子任务的父任务不计入，只统计末端叶子（与列表页 countStats 一致）；
- * 子任务逾期继承顶层祖先的截止日期 */
+ * 叶子有效日期自身优先、否则继承最近有日期的祖先（旧模式即顶层主任务日期） */
 function statsOfReport(trees, today) {
   let pending = 0, overdue = 0;
-  const walk = (node, rootDue) => {
+  const walk = (node, inheritedDue) => {
     // 完成节点代表该分支已结束，后代即使保留未完成状态也不再统计
     if (node.done) return;
+    const own = node.due_date || inheritedDue;
     if (node.children.length > 0) {
       // 有子任务：父不计入，仅递归统计子任务
-      for (const c of node.children) walk(c, rootDue);
+      for (const c of node.children) walk(c, own);
       return;
     }
     // 叶子任务：未完成才计入
-    if (!node.done) {
-      pending++;
-      if (rootDue && today && rootDue < today) overdue++;
-    }
+    pending++;
+    if (own && today && own < today) overdue++;
   };
-  for (const root of trees) walk(root, root.due_date);
+  for (const root of trees) walk(root, root.due_date || null);
   return { pending, overdue };
 }
 
@@ -607,11 +634,14 @@ function buildTodoReportText(trees, base, token, reportToken, today, stats, remi
   // walkChild 的 depth 从 1 起(即 L2 顶层子任务), 图标按 depth 分档, 便于文本客户端里一眼看清层级
   const CHILD_ICONS = ['▸', '·', '○', '›', '—'];
   const CHILD_ICON = (d) => CHILD_ICONS[Math.min(d - 1, CHILD_ICONS.length - 1)] || '—';
-  const walkChild = (node, depth) => {
+  // inheritedDue: 最近祖先的截止日期(自身为空时继承); rootDue: 主任务显示日期, 子任务有效日期与之不同才追加标签
+  const walkChild = (node, depth, inheritedDue, rootDue) => {
     const cat = node.category ? `〔${node.category}〕` : '';
     const indent = '  '.repeat(Math.max(0, depth - 1));
-    t += `${indent}${CHILD_ICON(depth)} ${node.title}${cat}\n`;
-    node.children.forEach((c) => walkChild(c, depth + 1));
+    const ownDue = node.due_date || inheritedDue;
+    const badge = (ownDue && ownDue !== rootDue) ? dateBadge(ownDue) : '';
+    t += `${indent}${CHILD_ICON(depth)} ${node.title}${cat}${badge}\n`;
+    node.children.forEach((c) => walkChild(c, depth + 1, ownDue, rootDue));
   };
 
   if (trees.length === 0) {
@@ -620,9 +650,10 @@ function buildTodoReportText(trees, base, token, reportToken, today, stats, remi
     t += `${bar}\n`;
     trees.forEach((root, ri) => {
       const cat = root.category ? `〔${root.category}〕` : '';
+      const rootDue = rootDueOf(root);
       // text 版不加优先级圆圈: 微信/短信客户端里各家 emoji 尺寸不一, 反而挤占标题空间
-      t += `❇️待办${ri + 1}：${root.title}${cat}${dateBadge(root.due_date)}\n`;
-      root.children.forEach((c) => walkChild(c, 1));
+      t += `❇️待办${ri + 1}：${root.title}${cat}${dateBadge(rootDue)}\n`;
+      root.children.forEach((c) => walkChild(c, 1, root.due_date || null, rootDue));
       t += `${bar}\n`;
     });
   }
@@ -654,11 +685,14 @@ function buildTodoReportMarkdown(trees, base, token, reportToken, today, stats, 
   // 注意: markdown walkChild 的 depth 从 0 起(root.children 首次调用传 0), 因此 depth=0 对应 L2
   const CHILD_ICONS = ['▸', '·', '○', '›', '—'];
   const CHILD_ICON = (d) => CHILD_ICONS[Math.min(d, CHILD_ICONS.length - 1)] || '—';
-  const walkChild = (node, depth) => {
+  // inheritedDue: 最近祖先的截止日期(自身为空时继承); rootDue: 主任务显示日期, 子任务有效日期与之不同才追加标签
+  const walkChild = (node, depth, inheritedDue, rootDue) => {
     const indent = '  '.repeat(depth);
     const cat = node.category ? ` \`${node.category}\`` : '';
-    m += `${indent}- ${CHILD_ICON(depth)} ${node.title}${cat}\n`;
-    for (const c of node.children) walkChild(c, depth + 1);
+    const ownDue = node.due_date || inheritedDue;
+    const badge = (ownDue && ownDue !== rootDue) ? dateBadge(ownDue) : '';
+    m += `${indent}- ${CHILD_ICON(depth)} ${node.title}${cat}${badge}\n`;
+    for (const c of node.children) walkChild(c, depth + 1, ownDue, rootDue);
   };
   if (trees.length === 0) {
     m += `${bar}\n🎉 今日无到期或逾期待办\n${bar}\n`;
@@ -667,8 +701,9 @@ function buildTodoReportMarkdown(trees, base, token, reportToken, today, stats, 
     trees.forEach((root, ri) => {
       const cat = root.category ? ` \`${root.category}\`` : '';
       const pri = TODO_PRI_ICON[root.priority] || '⚪';
-      m += `**❇️待办${ri + 1}：${pri}${root.title}**${cat}${dateBadge(root.due_date)}\n`;
-      for (const c of root.children) walkChild(c, 0);
+      const rootDue = rootDueOf(root);
+      m += `**❇️待办${ri + 1}：${pri}${root.title}**${cat}${dateBadge(rootDue)}\n`;
+      for (const c of root.children) walkChild(c, 0, root.due_date || null, rootDue);
       m += `${bar}\n`;
     });
   }
@@ -703,26 +738,30 @@ function buildTodoReportHTML(trees, base, token, reportToken, today, stats, remi
   };
   // 子任务: 左细竖线 + ▸ 箭头 + 按 depth 左内边距实现下钻感, 深层视觉不断层
   //   depth=1 (直接子任务) 起, 每加一级左内边距 +18px
-  const walkChild = (node, depth) => {
+  //   inheritedDue: 最近祖先截止日期(自身为空时继承); rootDue: 主任务显示日期, 两者不同才追加子任务日期标签
+  const walkChild = (node, depth, inheritedDue, rootDue) => {
     const pad = 12 + (depth - 1) * 18;
+    const ownDue = node.due_date || inheritedDue;
+    const dateTag = (ownDue && ownDue !== rootDue) ? todoDateTag(ownDue, today, 'html') : '';
     h += `<div style="margin:4px 0;padding:6px 10px 6px ${pad}px;border-left:2px solid #e3e8f0;background:#fbfcfe;">
-      <span style="color:#8a94b0;margin-right:6px;">▸</span>${dot(node.priority)}<span style="font-size:15px;color:#333;vertical-align:middle;">${node.title}</span>${catTag(node.category)}
+      <span style="color:#8a94b0;margin-right:6px;">▸</span>${dot(node.priority)}<span style="font-size:15px;color:#333;vertical-align:middle;">${node.title}</span>${catTag(node.category)}${dateTag}
     </div>`;
-    for (const c of node.children) walkChild(c, depth + 1);
+    for (const c of node.children) walkChild(c, depth + 1, ownDue, rootDue);
   };
   for (const root of trees) {
     const leafN = countLeaves(root);
     const subBadge = leafN > 0
       ? ` <span style="display:inline-block;margin-left:6px;padding:1px 8px;background:#eef1ff;color:#4a6cf7;border-radius:10px;font-size:12px;font-weight:500;">${leafN} 项子任务</span>`
       : '';
-    // 主任务卡片: 品牌蓝分组条头(层级通道) + 优先级圆点 + 加粗标题 + 日期只此一处 + 子任务数提示
+    const rootDue = rootDueOf(root);
+    // 主任务卡片: 品牌蓝分组条头(层级通道) + 优先级圆点 + 加粗标题 + 主任务显示日期 + 子任务数提示
     h += `<div style="margin:16px 0;border:1px solid #eceff5;border-radius:8px;overflow:hidden;">
       <div style="padding:11px 14px;background:#f7f8fa;border-left:4px solid #4a6cf7;">
-        ${dot(root.priority)}<span style="font-size:18px;font-weight:700;color:#1f2430;vertical-align:middle;">${root.title}</span>${catTag(root.category)}${todoDateTag(root.due_date, today, 'html')}${subBadge}
+        ${dot(root.priority)}<span style="font-size:18px;font-weight:700;color:#1f2430;vertical-align:middle;">${root.title}</span>${catTag(root.category)}${todoDateTag(rootDue, today, 'html')}${subBadge}
       </div>`;
     if (root.children.length) {
       h += `<div style="padding:8px 12px 10px;">`;
-      for (const c of root.children) walkChild(c, 1);
+      for (const c of root.children) walkChild(c, 1, root.due_date || null, rootDue);
       h += `</div>`;
     }
     h += `</div>`;

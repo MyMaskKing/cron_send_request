@@ -45,15 +45,28 @@ function normRecurWeekday(v) {
 /** 重复周期白名单(顶层任务) */
 const REC_LIST = ['daily', 'weekly', 'monthly', 'yearly', 'monthly_nth_weekday'];
 
+/** 沿 parent 链找到顶层主任务行（用于判断该任务所在清单是否 child_due 新模式） */
+async function rootRowOf(storage, row) {
+  let cur = row;
+  const guard = new Set();
+  while (cur.parent_id != null && !guard.has(cur.parent_id)) {
+    guard.add(cur.parent_id);
+    const p = await storage.todo.findById(cur.parent_id);
+    if (!p) break;
+    cur = p;
+  }
+  return cur;
+}
+
 /**
  * 从 body 抽出重复相关字段, 归一到统一形状
  * 返回 { recurrence, recur_interval, recur_nth, recur_weekday }
- * - 非顶层任务(hasParent=true)一律清空 recurrence 与三伴生列
+ * - allowRecur=false(旧模式子任务 / 新模式主任务 / 新模式非叶子子任务)一律清空
  * - 无 recurrence 时三伴生列一律 null
  * - recurrence 为 monthly_nth_weekday 且 nth/weekday 缺失时降级为 null(不写入无效行)
  */
-function readRecurFields(body, hasParent) {
-  if (hasParent) return { recurrence: null, recur_interval: null, recur_nth: null, recur_weekday: null };
+function readRecurFields(body, allowRecur) {
+  if (!allowRecur) return { recurrence: null, recur_interval: null, recur_nth: null, recur_weekday: null };
   const raw = body.recurrence;
   const rec = (raw && REC_LIST.includes(raw)) ? raw : null;
   if (!rec) return { recurrence: null, recur_interval: null, recur_nth: null, recur_weekday: null };
@@ -82,7 +95,7 @@ async function listTodos({ request, env }) {
   return json({ success: true, todos: rows, stats });
 }
 
-/** POST /api/todo  新建任务  body: { parent_id?, title, priority?, due_date?, category? } */
+/** POST /api/todo  新建任务  body: { parent_id?, title, priority?, due_date?, category?, child_due? } */
 async function createTodo({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
@@ -92,30 +105,44 @@ async function createTodo({ request, env }) {
 
   const storage = getStorage(env);
   let parentId = null;
+  let parentRow = null;
+  let rootRow = null;
   if (body.parent_id != null && body.parent_id !== '') {
     parentId = parseInt(body.parent_id, 10);
-    const parent = await storage.todo.findById(parentId);
-    if (!parent || parent.user_id !== auth.user_id) return error('父任务不存在', 404);
+    parentRow = await storage.todo.findById(parentId);
+    if (!parentRow || parentRow.user_id !== auth.user_id) return error('父任务不存在', 404);
+    rootRow = await rootRowOf(storage, parentRow);
   }
-  // 子任务日期继承主任务，不单独存日期；仅顶层任务可设 due_date
-  const dueDate = parentId != null ? null : ((body.due_date || '').trim() || null);
-  // 重复字段: 仅顶层任务允许; 走 readRecurFields 统一归一(含 nth/weekday)
-  const recFields = readRecurFields(body, parentId != null);
+  // child_due 新模式仅新建顶层主任务时可开启; 子任务沿用所在主任务的模式
+  const childDue = parentId == null ? !!body.child_due : false;
+  const childDueMode = parentId != null ? !!rootRow.child_due : childDue;
+  // 截止日期: 旧模式仅顶层可设(子任务继承); 新模式顶层不设, 子任务可各自设置
+  const dueDate = parentId == null
+    ? (childDue ? null : ((body.due_date || '').trim() || null))
+    : (childDueMode ? ((body.due_date || '').trim() || null) : null);
+  // 重复: 旧模式顶层可设; 新模式仅子任务可设(新建任务即为叶子)
+  const recFields = readRecurFields(body, parentId == null ? !childDue : childDueMode);
+  // 不变量: 新模式下重复任务必须是叶子; 若给带重复的叶子任务添加首个子任务, 先记录, 建后清其重复
+  const parentWasLeaf = parentRow ? (await storage.todo.collectDescendantIds(parentId)).length === 0 : false;
   const id = await storage.todo.create(auth.user_id, {
     parent_id: parentId, title,
     priority: normPriority(body.priority),
     due_date: dueDate,
     category: (body.category || '').trim() || null,
     note: (body.note || '').trim() || null,
+    child_due: childDue ? 1 : 0,
     recurrence: recFields.recurrence,
     recur_interval: recFields.recur_interval,
     recur_nth: recFields.recur_nth,
     recur_weekday: recFields.recur_weekday
   });
+  if (childDueMode && parentWasLeaf && parentRow && parentRow.recurrence) {
+    await storage.todo.clearRecur(parentId);
+  }
   return json({ success: true, message: '任务已添加', id });
 }
 
-/** PUT /api/todo/:id  修改任务  body: { title, priority?, due_date?, category? } */
+/** PUT /api/todo/:id  修改任务  body: { title, priority?, due_date?, category?, child_due? } */
 async function updateTodo({ request, env, params }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
@@ -127,9 +154,31 @@ async function updateTodo({ request, env, params }) {
   const id = parseInt(params.id, 10);
   const t = await storage.todo.findById(id);
   if (!t || t.user_id !== auth.user_id) return error('任务不存在', 404);
-  // 子任务日期继承主任务，不单独存日期；仅顶层任务可设 due_date
-  const dueDate = t.parent_id != null ? null : ((body.due_date || '').trim() || null);
-  // 重复周期: 仅顶层任务允许; body.recurrence 显式为空字符串或 null 时清空; 未传则不改动
+  const isRoot = t.parent_id == null;
+  const rootRow = isRoot ? t : await rootRowOf(storage, t);
+
+  // child_due 模式切换(仅顶层主任务): 开→主任务日期/重复由下方归一清空; 关→清空全部后代日期/重复
+  let childDue = !!rootRow.child_due;
+  if (isRoot && Object.prototype.hasOwnProperty.call(body, 'child_due')) {
+    const want = !!body.child_due;
+    if (want && !childDue) childDue = true;
+    else if (!want && childDue) {
+      childDue = false;
+      await storage.todo.clearSubtreeDates(id);
+    }
+  }
+  const childDueMode = isRoot ? childDue : !!rootRow.child_due;
+  // 截止日期: 旧模式仅顶层可设(子任务继承); 新模式顶层不设, 子任务可各自设置
+  const dueDate = isRoot
+    ? (childDue ? null : ((body.due_date || '').trim() || null))
+    : (childDueMode ? ((body.due_date || '').trim() || null) : null);
+  // 重复: 旧模式顶层可设; 新模式仅叶子子任务可设(有后代的任务不允许)
+  let allowRecur;
+  if (isRoot) allowRecur = !childDue;
+  else {
+    const descendants = await storage.todo.collectDescendantIds(id);
+    allowRecur = childDueMode && descendants.length === 0;
+  }
   const payload = {
     title,
     priority: normPriority(body.priority),
@@ -137,8 +186,10 @@ async function updateTodo({ request, env, params }) {
     category: (body.category || '').trim() || null,
     note: (body.note || '').trim() || null
   };
-  if (Object.prototype.hasOwnProperty.call(body, 'recurrence')) {
-    const recFields = readRecurFields(body, t.parent_id != null);
+  if (isRoot) payload.child_due = childDue ? 1 : 0;
+  // body 显式携带 recurrence, 或主任务切到 child_due 模式(需清空其旧重复)时, 归一重复字段
+  if (Object.prototype.hasOwnProperty.call(body, 'recurrence') || (isRoot && childDue)) {
+    const recFields = readRecurFields(body, allowRecur);
     payload.recurrence = recFields.recurrence;
     payload.recur_interval = recFields.recur_interval;
     payload.recur_nth = recFields.recur_nth;
@@ -255,6 +306,7 @@ async function publicTodoInfo({ env, params }) {
 /** POST /api/public/todo/:token  免密添加子任务（挂到该顶层任务或其子任务下）
  * body: { title, parent_id?, priority?, due_date?, category? }
  * parent_id 缺省则挂到顶层任务下；若指定必须属于该子树
+ * child_due 新模式下子任务可自带截止日期/重复(新建即为叶子); 旧模式日期继承主任务
  */
 async function publicAddTodo({ request, env, params }) {
   const storage = getStorage(env);
@@ -268,18 +320,32 @@ async function publicAddTodo({ request, env, params }) {
   const subtree = await storage.todo.listSubtree(root.id);
   const allowIds = new Set(subtree.map(r => r.id));
   let parentId = root.id;
+  let parentRow = root;
   if (body.parent_id != null && body.parent_id !== '') {
     parentId = parseInt(body.parent_id, 10);
     if (!allowIds.has(parentId)) return error('父任务不属于此清单', 400);
+    parentRow = await storage.todo.findById(parentId);
   }
-  // 免密添加的任务均为某任务的子任务（挂在 root 或其后代下），日期继承主任务，不单独存
+  const childDueMode = !!root.child_due;
+  // 新模式子任务可自带日期; 旧模式日期继承主任务不单独存
+  const dueDate = childDueMode ? ((body.due_date || '').trim() || null) : null;
+  // 新模式下新建叶子可重复; 若给带重复的叶子任务添加首个子任务, 建后清其重复
+  const recFields = readRecurFields(body, childDueMode);
+  const parentWasLeaf = (await storage.todo.collectDescendantIds(parentId)).length === 0;
   const id = await storage.todo.create(root.user_id, {
     parent_id: parentId, title,
     priority: normPriority(body.priority),
-    due_date: null,
+    due_date: dueDate,
     category: (body.category || '').trim() || null,
-    note: (body.note || '').trim() || null
+    note: (body.note || '').trim() || null,
+    recurrence: recFields.recurrence,
+    recur_interval: recFields.recur_interval,
+    recur_nth: recFields.recur_nth,
+    recur_weekday: recFields.recur_weekday
   });
+  if (childDueMode && parentWasLeaf && parentRow && parentRow.recurrence) {
+    await storage.todo.clearRecur(parentId);
+  }
   return json({ success: true, message: '已添加', id });
 }
 
@@ -304,7 +370,9 @@ async function publicToggleTodo({ request, env, params }) {
 
 /** PUT /api/public/todo/:token/:id  免密编辑任务，校验目标属该子树
  * body: { title, priority?, due_date?, category?, note? }
- * 仅该清单根任务(id===root.id)可改 due_date，其余为子任务日期继承主任务
+ * 旧模式: 仅清单根任务可改 due_date/重复, 子任务日期继承主任务;
+ * child_due 新模式: 根任务不设日期, 子任务(叶子)可改各自日期/重复;
+ * 协作链接不允许切换 child_due 模式(仅清单所有者可在登录态/汇总页切换)
  */
 async function publicUpdateTodo({ request, env, params }) {
   const storage = getStorage(env);
@@ -318,8 +386,19 @@ async function publicUpdateTodo({ request, env, params }) {
   const subtree = await storage.todo.listSubtree(root.id);
   const allowIds = new Set(subtree.map(r => r.id));
   if (!allowIds.has(id)) return error('任务不属于此清单', 400);
-  // 仅清单根任务是顶层，可设截止日期；其余子任务日期继承主任务
-  const dueDate = id === root.id ? ((body.due_date || '').trim() || null) : null;
+  const isRoot = id === root.id;
+  const childDueMode = !!root.child_due;
+  let dueDate, allowRecur;
+  if (isRoot) {
+    // 新模式主任务不设日期; 旧模式主任务可设日期与重复
+    dueDate = childDueMode ? null : ((body.due_date || '').trim() || null);
+    allowRecur = !childDueMode;
+  } else {
+    // 新模式子任务可各自设日期; 仅叶子子任务可重复
+    dueDate = childDueMode ? ((body.due_date || '').trim() || null) : null;
+    const hasKids = subtree.some(r => r.parent_id === id);
+    allowRecur = childDueMode && !hasKids;
+  }
   const payload = {
     title,
     priority: normPriority(body.priority),
@@ -327,8 +406,8 @@ async function publicUpdateTodo({ request, env, params }) {
     category: (body.category || '').trim() || null,
     note: (body.note || '').trim() || null
   };
-  if (id === root.id && Object.prototype.hasOwnProperty.call(body, 'recurrence')) {
-    const recFields = readRecurFields(body, false);
+  if (Object.prototype.hasOwnProperty.call(body, 'recurrence')) {
+    const recFields = readRecurFields(body, allowRecur);
     payload.recurrence = recFields.recurrence;
     payload.recur_interval = recFields.recur_interval;
     payload.recur_nth = recFields.recur_nth;
@@ -436,8 +515,9 @@ async function resolveUserByReportToken(storage, token) {
 }
 
 /** POST /api/public/todo-all/:token  免密汇总页添加任务
- * body: { title, parent_id?, priority?, due_date?, category?, note? }
- * parent_id 缺省则新建顶层清单(可设 due_date)；指定则须属该用户，作为其子任务(日期继承)
+ * body: { title, parent_id?, priority?, due_date?, category?, note?, child_due? }
+ * parent_id 缺省则新建顶层清单(旧模式可设 due_date, 或带 child_due 开新模式)；
+ * 指定则须属该用户，作为其子任务(child_due 新模式下可自带日期/重复)
  */
 async function publicAllAdd({ request, env, params }) {
   const storage = getStorage(env);
@@ -448,26 +528,37 @@ async function publicAllAdd({ request, env, params }) {
   if (!title) return error('请填写任务标题');
 
   let parentId = null;
+  let parentRow = null;
+  let rootRow = null;
   if (body.parent_id != null && body.parent_id !== '') {
     parentId = parseInt(body.parent_id, 10);
-    const parent = await storage.todo.findById(parentId);
-    if (!parent || parent.user_id !== userId) return error('父任务不属于此清单', 400);
+    parentRow = await storage.todo.findById(parentId);
+    if (!parentRow || parentRow.user_id !== userId) return error('父任务不属于此清单', 400);
+    rootRow = await rootRowOf(storage, parentRow);
   }
-  // 顶层可设截止日期；子任务日期继承主任务，不单独存
-  const dueDate = parentId != null ? null : ((body.due_date || '').trim() || null);
-  // 顶层重复字段: 走统一 readRecurFields
-  const recFields = readRecurFields(body, parentId != null);
+  const childDue = parentId == null ? !!body.child_due : false;
+  const childDueMode = parentId != null ? !!rootRow.child_due : childDue;
+  // 截止日期: 旧模式仅顶层可设; 新模式顶层不设, 子任务可各自设置
+  const dueDate = parentId == null
+    ? (childDue ? null : ((body.due_date || '').trim() || null))
+    : (childDueMode ? ((body.due_date || '').trim() || null) : null);
+  const recFields = readRecurFields(body, parentId == null ? !childDue : childDueMode);
+  const parentWasLeaf = parentRow ? (await storage.todo.collectDescendantIds(parentId)).length === 0 : false;
   const id = await storage.todo.create(userId, {
     parent_id: parentId, title,
     priority: normPriority(body.priority),
     due_date: dueDate,
     category: (body.category || '').trim() || null,
     note: (body.note || '').trim() || null,
+    child_due: childDue ? 1 : 0,
     recurrence: recFields.recurrence,
     recur_interval: recFields.recur_interval,
     recur_nth: recFields.recur_nth,
     recur_weekday: recFields.recur_weekday
   });
+  if (childDueMode && parentWasLeaf && parentRow && parentRow.recurrence) {
+    await storage.todo.clearRecur(parentId);
+  }
   return json({ success: true, message: '已添加', id });
 }
 
@@ -490,8 +581,9 @@ async function publicAllToggle({ request, env, params }) {
 }
 
 /** PUT /api/public/todo-all/:token/:id  免密汇总页编辑，校验任务属该用户
- * body: { title, priority?, due_date?, category?, note? }
- * 仅顶层任务(parent_id 为空)可改 due_date，子任务日期继承主任务
+ * body: { title, priority?, due_date?, category?, note?, child_due? }
+ * 旧模式仅顶层任务可改 due_date/重复; child_due 新模式顶层不设日期, 子任务(叶子)可各自设置;
+ * 汇总页为用户级 token(所有者本人使用), 允许顶层切换 child_due 模式
  */
 async function publicAllUpdate({ request, env, params }) {
   const storage = getStorage(env);
@@ -504,7 +596,28 @@ async function publicAllUpdate({ request, env, params }) {
   const id = parseInt(params.id, 10);
   const t = await storage.todo.findById(id);
   if (!t || t.user_id !== userId) return error('任务不存在', 404);
-  const dueDate = t.parent_id != null ? null : ((body.due_date || '').trim() || null);
+  const isRoot = t.parent_id == null;
+  const rootRow = isRoot ? t : await rootRowOf(storage, t);
+
+  let childDue = !!rootRow.child_due;
+  if (isRoot && Object.prototype.hasOwnProperty.call(body, 'child_due')) {
+    const want = !!body.child_due;
+    if (want && !childDue) childDue = true;
+    else if (!want && childDue) {
+      childDue = false;
+      await storage.todo.clearSubtreeDates(id);
+    }
+  }
+  const childDueMode = isRoot ? childDue : !!rootRow.child_due;
+  const dueDate = isRoot
+    ? (childDue ? null : ((body.due_date || '').trim() || null))
+    : (childDueMode ? ((body.due_date || '').trim() || null) : null);
+  let allowRecur;
+  if (isRoot) allowRecur = !childDue;
+  else {
+    const descendants = await storage.todo.collectDescendantIds(id);
+    allowRecur = childDueMode && descendants.length === 0;
+  }
   const payload = {
     title,
     priority: normPriority(body.priority),
@@ -512,8 +625,9 @@ async function publicAllUpdate({ request, env, params }) {
     category: (body.category || '').trim() || null,
     note: (body.note || '').trim() || null
   };
-  if (t.parent_id == null && Object.prototype.hasOwnProperty.call(body, 'recurrence')) {
-    const recFields = readRecurFields(body, false);
+  if (isRoot) payload.child_due = childDue ? 1 : 0;
+  if (Object.prototype.hasOwnProperty.call(body, 'recurrence') || (isRoot && childDue)) {
+    const recFields = readRecurFields(body, allowRecur);
     payload.recurrence = recFields.recurrence;
     payload.recur_interval = recFields.recur_interval;
     payload.recur_nth = recFields.recur_nth;
