@@ -162,6 +162,9 @@ function countStats(rows, today) {
   for (const r of rows) {
     if (hasChild.has(r.id)) continue; // 非叶子（父任务）跳过
     if (hasDoneAncestor(r)) continue;
+    // 新模式(child_due)空主任务是分组容器(日期由子任务决定), 自身无日期是结构使然,
+    // 不算备忘录/待办/总数; 待其添加子任务后由叶子子任务计入
+    if (r.parent_id == null && r.child_due) continue;
     total++;
     if (r.done) { done++; continue; }
     const due = effDueOf(r, byId);

@@ -3627,7 +3627,7 @@ function todoRootPassFilter(n, filter, t) {
   if (filter === 'today')   return d === t;
   if (filter === 'overdue') return !!(d && t && d < t);
   if (filter === 'future')  return !!(d && t && d > t);
-  if (filter === 'memo')    return !d;
+  if (filter === 'memo')    return !d && !n.child_due; // child_due 空容器是分组壳, 不算备忘录
   if (filter === 'done')    return !!n.done;
   return true; // all
 }
@@ -3720,6 +3720,7 @@ function todoDoneByFilter(rows, filter, today, range) {
     // memo 语义: 只统计无截止日期的备忘录, 时间窗对它无意义
     if (filter === 'memo') {
       if (rdue) continue;
+      if (r.child_due) continue; // child_due 空容器是分组壳, 不算备忘录
       count++;
       continue;
     }
@@ -3757,7 +3758,7 @@ function todoStatsByVisible(trees, today) {
       node.children.forEach(function(c){ walk(c, own); });
       return;
     }
-    if (!own) { memo++; return; }
+    if (!own) { if (!node.child_due) memo++; return; } // child_due 空容器(分组壳)不计备忘录
     pending++;
     if (today && own < today) overdue++;
   }
@@ -4069,7 +4070,7 @@ function todoTimeCounts(rows) {
     m.all++;
     if (r.done) { m.done++; return; }
     var due = todoRootDue(r);
-    if (!due) { m.memo++; return; }
+    if (!due) { if (!r.child_due) m.memo++; return; } // child_due 空容器(分组壳)不计备忘录
     if (due === today) { m.today++; m.cur++; }
     else if (due < today) { m.overdue++; m.cur++; }
     else m.future++;
@@ -5111,8 +5112,8 @@ function todoFormHtml(t, isNew, isChild, fopts) {
     : '';
   // child_due 勾选框: 仅主任务且未锁定时渲染(/t/ 协作页不允许切换模式)
   var childDueBox = (!isChild && !fopts.lockChildDue) ?
-    '<label style="display:flex;align-items:center;gap:8px;margin:2px 0 4px;cursor:pointer;font-weight:normal;">' +
-      '<input type="checkbox" id="tfChildDue"' + (childDueOn ? ' checked' : '') + ' style="width:auto;">' +
+    '<label style="display:flex;align-items:center;gap:8px;margin:2px 0 4px;cursor:pointer;font-weight:normal;white-space:nowrap;">' +
+      '<input type="checkbox" id="tfChildDue"' + (childDueOn ? ' checked' : '') + ' style="width:auto;margin:0;flex:none;">' +
       '<span>子任务各自设置截止日期</span>' +
     '</label>' +
     '<p id="tfChildDueTip" class="muted" style="margin:-2px 0 10px;font-size:12px;display:' + (childDueOn ? 'block' : 'none') + ';">' +
@@ -5618,6 +5619,7 @@ function renderStats(trees) {
       node.children.forEach(function(c){ walk(c, own); });
       return;
     }
+    if (node.child_due) return; // child_due 新模式空容器(此页即被分享的根任务本身)是分组壳, 不计待办
     if (!node.done) {
       pending++;
       if (own && _today && own < _today) overdue++;
