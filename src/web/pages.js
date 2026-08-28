@@ -158,6 +158,27 @@ function adminPage(user) {
       <p class="muted">优先级：此处设置 &gt; 配置文件 PUBLIC_BASE_URL &gt; 请求来源。留空即清空本项设置。</p>
     </div>
     <div class="card">
+      <h2>数据备份与恢复</h2>
+      <div id="bkMsg" class="msg"></div>
+      <p class="muted">导出全部业务数据（账号、待办、基金、体重、资产、监控、推送配置、系统设置等）为 JSON 文件，可用于换机、迁移到其他部署实例或留存备份；监控日志与推送历史不包含在内。文件内含账号密码摘要，请妥善保管。</p>
+      <div class="row">
+        <div style="display:flex;align-items:flex-end;margin-bottom:12px;">
+          <button class="btn" id="bkExport">导出全量数据</button>
+        </div>
+      </div>
+      <hr style="margin:14px 0;border:none;border-top:1px solid #E4E1D8;">
+      <p style="color:#CF1322;font-size:13px;margin-bottom:10px;">⚠ 导入将<strong>清空当前全部数据</strong>并替换为备份内容，操作不可撤销；完成后需重新登录。</p>
+      <div class="row">
+        <div style="flex:1;">
+          <label>选择备份文件（.json）</label>
+          <input id="bkFile" type="file" accept="application/json,.json">
+        </div>
+        <div style="display:flex;align-items:flex-end;margin-bottom:12px;">
+          <button class="btn" id="bkImport" style="background:#CF1322;color:#fff;border-color:#CF1322;">导入并覆盖</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
       <h2>全部用户
         <button class="btn sm" id="newUserBtn" style="float:right;">+ 新建用户</button>
       </h2>

@@ -10,6 +10,7 @@
  *   monitor: { listByUser, listEnabledAll, findById, create, update, remove, addLog, listLogs }
  *   fund:    { listByUser, findById, create, update, remove, upsertNav, getNav, getReportConfig, setReportConfig, listReportEnabled }
  *   weight:  { listMembers, findMember, createMember, removeMember, listRecords, addRecord, removeRecord }
+ *   backup:  { dumpTables, restoreTables }  // 全量导入导出（仅 d1 驱动实现；mysql 桩暂无，api 层判空）
  */
 
 import { createD1Adapter } from './d1-adapter.js';

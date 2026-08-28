@@ -46,6 +46,7 @@ import {
 import { buildAssetReportData } from './services/asset.service.js';
 import { getPushConfig, setPushConfig, getMyShareTokens, resetMyModuleShare, adminResetModuleShare } from './api/push.api.js';
 import { listPushLogs, countPushLogs, deletePushLogsRange } from './api/pushLog.api.js';
+import { exportBackup, importBackup } from './api/backup.api.js';
 import { shouldRun, nowCN } from './services/schedule.service.js';
 import { buildFundReport, buildAssetReport, buildWeightReport, buildTodoReport, filterTodayOverdue } from './services/report.service.js';
 import { buildTree, flattenPending } from './services/todo.service.js';
@@ -97,6 +98,10 @@ router.get('/api/admin/settings/timezone', getTimezone);
 router.put('/api/admin/settings/timezone', setTimezone);
 router.get('/api/admin/settings/base-url', getBaseUrl);
 router.put('/api/admin/settings/base-url', setBaseUrl);
+
+// 数据全量备份与恢复（仅超管）
+router.get('/api/admin/backup/export', exportBackup);
+router.post('/api/admin/backup/import', importBackup);
 
 // --- 超管推送日志 API ---
 router.get('/api/admin/push-log', listPushLogs);

@@ -5,6 +5,17 @@
 
 import { shiftDate } from '../services/todo.service.js';
 
+// 全量备份覆盖的业务表（顺序 = 父表 → 子表）：导入时正序插入、反序清空，保外键关系。
+// 不含 monitor_logs / push_log（运行日志，可自动重建）；KV 登录会话不在 D1，不导出。
+const BACKUP_TABLES = [
+  'users', 'app_settings', 'notify_channels', 'monitor_tasks',
+  'funds', 'fund_nav_cache', 'fund_report_config', 'fund_profit_daily',
+  'weight_members', 'weight_member_shares', 'weight_records',
+  'wallets', 'wallet_records', 'asset_goals', 'push_config', 'todos'
+];
+// D1 单次 batch 语句数稳妥上限：分块提交（块内事务），DELETE 全排在最前不破坏先后
+const BACKUP_CHUNK = 200;
+
 /**
  * @param {Object} env - Worker 环境，需含 env.DB (D1 binding)
  * @returns {Object} 适配器实例
@@ -868,6 +879,69 @@ function createD1Adapter(env) {
           `DELETE FROM push_log WHERE ${where.join(' AND ')}`
         ).bind(...args).run();
         return res.meta ? (res.meta.changes || 0) : 0;
+      }
+    },
+
+    // ==================== 数据备份与恢复（全量导入导出，仅超管）====================
+    // 表名走 BACKUP_TABLES 白名单，值全部参数绑定，无 SQL 注入；D1 与 docker shim 通用。
+    backup: {
+      /**
+       * 全量导出：逐表 SELECT *，返回 { 表名: [行...] }
+       * @returns {Promise<Object>}
+       */
+      async dumpTables() {
+        const out = {};
+        for (const t of BACKUP_TABLES) {
+          const { results } = await db.prepare(`SELECT * FROM ${t}`).all();
+          out[t] = results || [];
+        }
+        return out;
+      },
+      /**
+       * 全量覆盖导入：反序清空所有表 → 正序插入（显式带原始 id，保外键关系）。
+       * 按目标库 PRAGMA table_info 实际列与备份行取交集，新旧版本列差异自动兼容
+       * （备份多出的列丢弃；目标有而备份缺的列走默认值/NULL）。
+       * DELETE 全部排在语句序列最前，随后按 BACKUP_TABLES 正序插入；todos 按 id 升序
+       * 保证自引用父行先于子行。分块 batch 提交（块内事务），操作幂等、失败可重新导入。
+       * @param {Object} tables - { 表名: [行...] }
+       * @returns {Promise<Object>} 各表备份行数
+       */
+      async restoreTables(tables) {
+        if (!tables || typeof tables !== 'object') throw new Error('备份数据格式不正确');
+        // 目标库各表实际列
+        const colsOf = {};
+        for (const t of BACKUP_TABLES) {
+          const { results } = await db.prepare(`PRAGMA table_info(${t})`).all();
+          colsOf[t] = (results || []).map(c => c.name);
+        }
+        const stmts = [];
+        const counts = {};
+        // 1) 反序清表（子表先、父表后，避免外键违约）
+        for (let i = BACKUP_TABLES.length - 1; i >= 0; i--) {
+          stmts.push(db.prepare(`DELETE FROM ${BACKUP_TABLES[i]}`));
+        }
+        // 2) 正序插入
+        for (const t of BACKUP_TABLES) {
+          const cols = colsOf[t];
+          const rows = Array.isArray(tables[t]) ? tables[t] : [];
+          counts[t] = rows.length;
+          if (!cols.length || !rows.length) continue; // 目标库无此表或无数据
+          const ph = cols.map(() => '?').join(', ');
+          const sql = `INSERT INTO ${t} (${cols.join(', ')}) VALUES (${ph})`;
+          // todos 自引用 parent_id：按 id 升序，父行先插
+          const sorted = (t === 'todos')
+            ? [...rows].sort((a, b) => ((a.id || 0) - (b.id || 0)))
+            : rows;
+          for (const row of sorted) {
+            const vals = cols.map(c => (row[c] === undefined ? null : row[c]));
+            stmts.push(db.prepare(sql).bind(...vals));
+          }
+        }
+        // 3) 分块提交（顺序切分，DELETE 在前）
+        for (let i = 0; i < stmts.length; i += BACKUP_CHUNK) {
+          await db.batch(stmts.slice(i, i + BACKUP_CHUNK));
+        }
+        return counts;
       }
     }
   };

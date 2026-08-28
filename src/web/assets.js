@@ -1335,6 +1335,40 @@ if (baseUrlSave) baseUrlSave.addEventListener('click', async function(){
   } catch (err) { showMsg(stMsg, err.message, false); }
 });
 loadBaseUrl();
+
+// ============ 数据备份与恢复（仅超管页）============
+var bkExport = document.getElementById('bkExport');
+if (bkExport) bkExport.addEventListener('click', function(){
+  // 同源 GET 自动带 cookie，响应 Content-Disposition: attachment 触发下载，不跳转页面
+  var a = document.createElement('a');
+  a.href = '/api/admin/backup/export';
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+});
+var bkImport = document.getElementById('bkImport');
+if (bkImport) bkImport.addEventListener('click', async function(){
+  var bkMsg = document.getElementById('bkMsg');
+  var fileEl = document.getElementById('bkFile');
+  var file = fileEl && fileEl.files && fileEl.files[0];
+  if (!file) { showMsg(bkMsg, '请先选择备份文件（.json）', false); return; }
+  var data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch (e) { showMsg(bkMsg, '文件解析失败：不是合法 JSON', false); return; }
+  if (!data || data.format !== 'cron-day-report-backup' || !data.tables) {
+    showMsg(bkMsg, '文件格式不正确：不是本系统的备份文件', false); return;
+  }
+  if (!confirm('导入将【清空当前全部数据】并替换为备份内容，操作不可撤销！\\n完成后需重新登录。\\n\\n确定继续吗？')) return;
+  try {
+    var r = await api('/api/admin/backup/import', { method: 'POST', body: data });
+    showMsg(bkMsg, (r.message || '导入完成') + '，即将跳转登录页…', true);
+    // users 表已被备份覆盖，当前会话可能失效，2 秒后跳登录页重新登录
+    setTimeout(function(){ window.location.href = '/login'; }, 2000);
+  } catch (err) { showMsg(bkMsg, err.message || '导入失败', false); }
+});
+
 loadUsers();
 
 // ============ 推送日志管理 ============
