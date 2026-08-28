@@ -215,6 +215,8 @@ class ConfigActivity : ComponentActivity() {
             // updateAll 必须在主线程（Glance 组合需要主线程推进）
             withContext(Dispatchers.Main) {
                 TodoAppWidget().updateAll(this@ConfigActivity)
+                // 配置已落库并触发刷新，给用户明确反馈（Toast 为系统级，finish 关闭面板后仍会显示）
+                Toast.makeText(this@ConfigActivity, "✅ 设置已保存", Toast.LENGTH_SHORT).show()
                 val result = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
                 setResult(RESULT_OK, result)
                 finish()

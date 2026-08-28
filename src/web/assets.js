@@ -1338,14 +1338,36 @@ loadBaseUrl();
 
 // ============ 数据备份与恢复（仅超管页）============
 var bkExport = document.getElementById('bkExport');
-if (bkExport) bkExport.addEventListener('click', function(){
-  // 同源 GET 自动带 cookie，响应 Content-Disposition: attachment 触发下载，不跳转页面
-  var a = document.createElement('a');
-  a.href = '/api/admin/backup/export';
-  a.download = '';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+if (bkExport) bkExport.addEventListener('click', async function(){
+  if (bkExport.disabled) return;
+  bkExport.disabled = true;
+  showLoading('正在导出全量数据…');
+  try {
+    // 用 fetch 拿 Blob：等待期间显示全局遮罩（大数据量时有兜底进度条），完成后再触发下载
+    var resp = await fetch('/api/admin/backup/export', { credentials: 'same-origin' });
+    if (!resp.ok) {
+      var em = '导出失败';
+      try { var ej = await resp.json(); if (ej && ej.message) em = ej.message; } catch (_) {}
+      throw new Error(em);
+    }
+    var blob = await resp.blob();
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    var cd = resp.headers.get('Content-Disposition') || '';
+    var fm = /filename="?([^"]+)"?/.exec(cd);
+    a.download = fm ? fm[1] : ('backup-' + new Date().toISOString().slice(0, 10) + '.json');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+    showMsg(document.getElementById('bkMsg'), '导出完成，已开始下载', true);
+  } catch (err) {
+    showMsg(document.getElementById('bkMsg'), err.message || '导出失败', false);
+  } finally {
+    hideLoading();
+    bkExport.disabled = false;
+  }
 });
 var bkImport = document.getElementById('bkImport');
 if (bkImport) bkImport.addEventListener('click', async function(){
@@ -1361,12 +1383,19 @@ if (bkImport) bkImport.addEventListener('click', async function(){
     showMsg(bkMsg, '文件格式不正确：不是本系统的备份文件', false); return;
   }
   if (!confirm('导入将【清空当前全部数据】并替换为备份内容，操作不可撤销！\\n完成后需重新登录。\\n\\n确定继续吗？')) return;
+  bkImport.disabled = true;
+  showLoading('正在导入并覆盖数据，数据量较大时请耐心等待，请勿关闭页面…');
   try {
     var r = await api('/api/admin/backup/import', { method: 'POST', body: data });
+    hideLoading();
     showMsg(bkMsg, (r.message || '导入完成') + '，即将跳转登录页…', true);
     // users 表已被备份覆盖，当前会话可能失效，2 秒后跳登录页重新登录
     setTimeout(function(){ window.location.href = '/login'; }, 2000);
-  } catch (err) { showMsg(bkMsg, err.message || '导入失败', false); }
+  } catch (err) {
+    hideLoading();
+    showMsg(bkMsg, err.message || '导入失败', false);
+    bkImport.disabled = false;  // 失败恢复按钮，允许重试
+  }
 });
 
 loadUsers();
