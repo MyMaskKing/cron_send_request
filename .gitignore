@@ -6,3 +6,4 @@
 !.claude/settings.json
 docs/
 test/
+node_modules/
