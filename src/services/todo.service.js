@@ -243,6 +243,11 @@ function buildWidgetGroups(rows, today, scope, limit) {
 
     const { items, hasRecur } = itemsOf(root);
     if (items.length === 0) continue; // 理论上 flattenPending 已排除，防御一下
+    // child_due 空容器(分组壳, 尚未添加子任务): 回退出来的唯一一行是容器自身,
+    // 小组件上没有可勾选的子任务, 且该行易被误勾成"完成整个容器"; 全部范围也隐藏,
+    // 待其添加子任务后 items 变为子任务叶子(首项 id ≠ root.id)自然出现。
+    // 普通无日期主任务(备忘录) child_due 为假, 不受影响, 仍照常显示。
+    if (root.child_due && items.length === 1 && items[0].id === root.id) continue;
     groups.push({
       id: root.id,
       title: root.title,
