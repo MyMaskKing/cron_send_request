@@ -1048,16 +1048,8 @@ var regForm = document.getElementById('regForm');
 var msg = document.getElementById('msg');
 var tabLogin = document.getElementById('tabLogin');
 var tabReg = document.getElementById('tabReg');
-tabLogin.addEventListener('click', function() {
-  tabLogin.className = 'btn'; tabReg.className = 'btn gray';
-  loginForm.style.display = 'block'; regForm.style.display = 'none';
-});
-tabReg.addEventListener('click', function() {
-  tabReg.className = 'btn'; tabLogin.className = 'btn gray';
-  regForm.style.display = 'block'; loginForm.style.display = 'none';
-});
-loginForm.addEventListener('submit', async function(e) {
-  e.preventDefault();
+// 登录提交：表单底部"登录"按钮与顶部"登录"标签（已在登录页时）共用
+async function doLogin() {
   try {
     await api('/api/auth/login', { method: 'POST', body: {
       username: document.getElementById('lu').value,
@@ -1065,6 +1057,17 @@ loginForm.addEventListener('submit', async function(e) {
     }});
     navTo('/dashboard');
   } catch (err) { showMsg(msg, err.message, false); }
+}
+loginForm.addEventListener('submit', function(e) { e.preventDefault(); doLogin(); });
+// 顶部"登录"标签：已在登录页时点击直接提交登录；在注册页时点击仅切回登录表单
+tabLogin.addEventListener('click', function() {
+  if (loginForm.style.display !== 'none') { doLogin(); return; }
+  tabLogin.className = 'btn'; tabReg.className = 'btn gray';
+  loginForm.style.display = 'block'; regForm.style.display = 'none';
+});
+tabReg.addEventListener('click', function() {
+  tabReg.className = 'btn'; tabLogin.className = 'btn gray';
+  regForm.style.display = 'block'; loginForm.style.display = 'none';
 });
 regForm.addEventListener('submit', async function(e) {
   e.preventDefault();
