@@ -1856,12 +1856,29 @@ window.toggleCh = async function(id){
     await loadChannels();
   } catch(e){ alertModal(e.message, {ok:false}); }
 };
+// 一键全部启用/停用：仅对状态不符的渠道发请求，复用单个 /status 接口；停用影响推送，二次确认
+window.toggleAllCh = function(enable){
+  var targets = (window._channels||[]).filter(function(c){ return enable ? !c.enabled : c.enabled; });
+  if (!targets.length) { alertModal(enable ? '没有需要启用的渠道' : '没有需要停用的渠道', {ok:false}); return; }
+  var run = async function(){
+    try {
+      for (var i = 0; i < targets.length; i++) {
+        await api('/api/notify/channels/' + targets[i].id + '/status', { method:'PUT', body: { enabled: !!enable } });
+      }
+      await loadChannels();
+    } catch(e){ alertModal(e.message, {ok:false}); await loadChannels(); }
+  };
+  if (enable) run();
+  else confirmModal('全部停用', '确认停用全部 ' + targets.length + ' 个渠道？停用后相关推送将暂停。', run);
+};
 window.delCh = async function(id){
   confirmModal('删除渠道', '确认删除该渠道?', async function(){
     try { await api('/api/notify/channels/' + id, { method:'DELETE' }); await loadChannels(); } catch(e){ alertModal(e.message, {ok:false}); }
   });
 };
 document.getElementById('chNew').addEventListener('click', function(){ chModal({}); });
+document.getElementById('chEnableAll').addEventListener('click', function(){ window.toggleAllCh(true); });
+document.getElementById('chDisableAll').addEventListener('click', function(){ window.toggleAllCh(false); });
 (async function(){
   try { await loadChannels(); }
   catch(e){ if (String(e.message).indexOf('登录')>=0) navTo('/login'); else alertModal(e.message, {ok:false}); }

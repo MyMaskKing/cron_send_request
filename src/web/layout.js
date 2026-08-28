@@ -269,6 +269,33 @@ th { color: #6C6C7E; font-weight: 600; background: rgba(20, 20, 40, .025); }
 }
 .lg-tabs { display: flex; gap: 8px; margin-bottom: 18px; }
 .lg-tabs .btn { flex: 1; }
+/* 登录/注册切换标签：分段控制器样式（激活=白底主色字，非激活=浅灰底灰字），
+   与表单底部紫色实心提交按钮区分，避免两个"登录"按钮撞样式导致误点 */
+.lg-panel .lg-tabs .btn,
+.lg-panel .lg-tabs .btn.gray,
+.lg-panel .lg-tabs .btn:not(.gray):not(.danger) {
+  background: rgba(136,144,184,.14);
+  color: #8a90a6;
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+.lg-panel .lg-tabs .btn:not(.gray) {
+  background: #ffffff;
+  color: #4F63E8;
+  border-color: rgba(79,99,232,.45);
+  box-shadow: 0 2px 10px rgba(79,99,232,.20);
+  font-weight: 700;
+}
+.lg-panel .lg-tabs .btn:hover,
+.lg-panel .lg-tabs .btn.gray:hover {
+  background-position: 0% 50%;
+  background-color: rgba(136,144,184,.24);
+  box-shadow: none;
+}
+.lg-panel .lg-tabs .btn:not(.gray):hover {
+  background-color: #ffffff;
+  box-shadow: 0 2px 10px rgba(79,99,232,.20);
+}
 @media (max-width: 860px) { .lg-fs { justify-content: center; padding: 0 16px; } .lg-brand { display: none; } .lg-field { opacity: .4; } }
 @media (prefers-reduced-motion: reduce) { .lg-row { animation: none; } }
 .msg { padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 14px; display: none; }

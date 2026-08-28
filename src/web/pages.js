@@ -301,7 +301,11 @@ function monitorPage(user) {
 function channelsPage(user) {
   const body = renderTopbar(user, 'channels') + `<div class="container">
     <div class="card">
-      <h2>通知渠道 <button class="btn sm" id="chNew" style="float:right;">+ 新建渠道</button></h2>
+      <h2>通知渠道
+        <button class="btn sm" id="chNew" style="float:right;">+ 新建渠道</button>
+        <button class="btn sm gray" id="chDisableAll" style="float:right;margin-right:8px;">全部停用</button>
+        <button class="btn sm gray" id="chEnableAll" style="float:right;margin-right:8px;">全部启用</button>
+      </h2>
       <table>
         <thead><tr><th>名称</th><th>类型</th><th>URL</th><th>状态</th><th>操作</th></tr></thead>
         <tbody id="chTbody"></tbody>
