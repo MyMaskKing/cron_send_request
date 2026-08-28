@@ -4309,10 +4309,12 @@ function todoBuildTree(rows) {
     if (pid != null && byId[pid]) byId[pid].children.push(n); else roots.push(n);
   });
   // 给每个节点挂顶层主任务指针 _root, 供渲染徽章/内联添加表单读取 child_due 模式
-  (function tag(n, root){
+  // 注意: 必须用函数声明(或具名函数表达式后立即赋值给变量), 不能写 (function tag(){...});
+  // 命名函数表达式的名字只在函数自身作用域可见, 外部 forEach 里调 tag 会 ReferenceError
+  function tag(n, root) {
     n._root = root;
     n.children.forEach(function(c){ tag(c, root); });
-  });
+  }
   roots.forEach(function(r){ tag(r, r); });
   // 顶层按显示截止日期倒序（有日期的越晚越靠前，无日期排最后）；同日期或子任务按 sort_order+id
   // 显示日期取 todoRootDue: 旧模式=自身 due_date; 新模式=最早到期的未完成子任务
