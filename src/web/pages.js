@@ -82,6 +82,7 @@ function loginPage() {
       <button id="tabLogin" class="btn">登录</button>
       <button id="tabReg" class="btn gray">注册</button>
     </div>
+    <div id="regLimitMsg" style="display:none;margin:12px 0;padding:10px 12px;border:1px solid #ffe58f;background:#fffbe6;border-radius:8px;"></div>
     <form id="loginForm">
       <label>用户名</label>
       <input id="lu" autocomplete="username" required>
@@ -156,6 +157,16 @@ function adminPage(user) {
         <div style="display:flex;align-items:flex-end;margin-bottom:12px;"><button class="btn" id="baseUrlSave">保存地址</button></div>
       </div>
       <p class="muted">优先级：此处设置 &gt; 配置文件 PUBLIC_BASE_URL &gt; 请求来源。留空即清空本项设置。</p>
+      <div class="row">
+        <div><label>注册人数上限（0 表示不限制）</label>
+          <input id="regLimitInput" type="number" min="0" step="1" placeholder="0 = 不限制">
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:8px;margin-bottom:12px;">
+          <button class="btn" id="regLimitSave">保存上限</button>
+          <button class="btn gray" id="regLimitMsgBtn">编辑满员提示词…</button>
+        </div>
+      </div>
+      <p class="muted">达到上限后，登录页隐藏注册入口并向访客展示满员提示词（支持 markdown）。提示词留空则使用默认文案。</p>
     </div>
     <div class="card">
       <h2>数据备份与恢复</h2>

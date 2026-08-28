@@ -59,6 +59,27 @@ async function updateChannel({ request, env, params }) {
   return json({ success: true, message: '渠道已更新' });
 }
 
+/** PUT /api/notify/channels/:id/status  一键启用/停用渠道
+ * body: { enabled: boolean }；只改状态，其余字段沿用现值（复用 notify.update 全字段写入）
+ */
+async function setChannelStatus({ request, env, params }) {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+  const body = await request.json().catch(() => ({}));
+  const enabled = body.enabled === true || body.enabled === 1;
+
+  const storage = getStorage(env);
+  const id = parseInt(params.id, 10);
+  const existing = await storage.notify.findById(id);
+  if (!existing || existing.user_id !== auth.user_id) return error('渠道不存在', 404);
+
+  await storage.notify.update(id, auth.user_id, {
+    name: existing.name, type: existing.type, url: existing.url, method: existing.method,
+    headers_json: existing.headers_json, body_template: existing.body_template, enabled
+  });
+  return json({ success: true, message: enabled ? '渠道已启用' : '渠道已停用', enabled });
+}
+
 /** DELETE /api/notify/channels/:id  删除渠道 */
 async function removeChannel({ request, env, params }) {
   const auth = await requireAuth(request, env);
@@ -72,4 +93,4 @@ async function removeChannel({ request, env, params }) {
   return json({ success: true, message: '渠道已删除' });
 }
 
-export { listChannels, createChannel, updateChannel, removeChannel };
+export { listChannels, createChannel, updateChannel, setChannelStatus, removeChannel };

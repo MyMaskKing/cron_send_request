@@ -353,6 +353,70 @@ function esc(s) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
   });
 }
+// 极简安全 markdown 渲染：先转义再替换标记，输出可直接 innerHTML
+// 支持：# 标题、粗体、斜体、行内代码(反引号)、[文字](链接)、-/* 与 1. 列表、段落与换行
+function renderMd(md) {
+  var lines = String(md == null ? '' : md).replace(/\\r\\n?/g, '\\n').split('\\n');
+  function inline(text) {
+    // 行内代码先提取并转义，用 \\u0001 占位（模板求值后为浏览器侧 SOH 控制字符，正文不会出现），避免内容被后续标记处理
+    var codes = [];
+    text = text.replace(/\`([^\`]+)\`/g, function(_, c) {
+      codes.push(esc(c));
+      return '\\u0001' + (codes.length - 1) + '\\u0001';
+    });
+    text = esc(text);
+    text = text.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+    text = text.replace(/\\*([^*]+)\\*/g, '<em>$1</em>');
+    text = text.replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)\\)/g, function(_, t, u) {
+      // 仅允许 http(s)/mailto/相对路径，拦截 javascript: 等协议
+      if (/^(https?:\\/\\/|mailto:|\\/|#)/i.test(u)) {
+        return '<a href="' + u + '" target="_blank" rel="noopener noreferrer">' + t + '</a>';
+      }
+      return t;
+    });
+    text = text.replace(/\\u0001(\\d+)\\u0001/g, function(_, n) { return '<code>' + (codes[+n] || '') + '</code>'; });
+    return text;
+  }
+  var out = [];
+  var para = [];
+  function flushPara() {
+    if (!para.length) return;
+    out.push('<p>' + para.map(inline).join('<br>') + '</p>');
+    para = [];
+  }
+  for (var i = 0; i < lines.length; i++) {
+    var t = lines[i].trim();
+    var m;
+    if (!t) { flushPara(); continue; }
+    if ((m = t.match(/^(#{1,4})\\s+(.*)$/))) {
+      flushPara();
+      var lv = m[1].length <= 2 ? 3 : 4;
+      out.push('<h' + lv + '>' + inline(m[2]) + '</h' + lv + '>');
+    } else if ((m = t.match(/^[-*]\\s+(.*)$/))) {
+      flushPara();
+      var items = [];
+      while (i < lines.length && (m = lines[i].trim().match(/^[-*]\\s+(.*)$/))) {
+        items.push('<li>' + inline(m[1]) + '</li>');
+        i++;
+      }
+      i--;
+      out.push('<ul>' + items.join('') + '</ul>');
+    } else if ((m = t.match(/^\\d+\\.\\s+(.*)$/))) {
+      flushPara();
+      var ol = [];
+      while (i < lines.length && (m = lines[i].trim().match(/^\\d+\\.\\s+(.*)$/))) {
+        ol.push('<li>' + inline(m[1]) + '</li>');
+        i++;
+      }
+      i--;
+      out.push('<ol>' + ol.join('') + '</ol>');
+    } else {
+      para.push(t);
+    }
+  }
+  flushPara();
+  return '<div class="md-body">' + out.join('') + '</div>';
+}
 // 通用弹窗
 function openModal(title, bodyHtml) {
   var mask = document.getElementById('modalMask');
@@ -1012,8 +1076,25 @@ regForm.addEventListener('submit', async function(e) {
     }});
     showMsg(msg, '注册成功，请登录', true);
     tabLogin.click();
-  } catch (err) { showMsg(msg, err.message, false); }
+  } catch (err) {
+    showMsg(msg, err.message, false);
+    // 竞态兜底：加载页时未满员、提交时已满员 → 重新拉取状态并关闭注册入口
+    if (err.message && err.message.indexOf('注册人数已满') !== -1) applyRegLimit();
+  }
 });
+// 注册人数上限：查询公开状态，满员则隐藏注册 tab 并展示超管配置的 markdown 提示词
+async function applyRegLimit() {
+  try {
+    var st = await api('/api/auth/register-status');
+    if (st && st.limited) {
+      tabReg.style.display = 'none';
+      if (regForm.style.display !== 'none') tabLogin.click();
+      var box = document.getElementById('regLimitMsg');
+      if (box) { box.innerHTML = renderMd(st.msg || '注册人数已满'); box.style.display = 'block'; }
+    }
+  } catch (e) {}
+}
+applyRegLimit();
 `;
 
 // 仪表盘 JS
@@ -1335,6 +1416,62 @@ if (baseUrlSave) baseUrlSave.addEventListener('click', async function(){
   } catch (err) { showMsg(stMsg, err.message, false); }
 });
 loadBaseUrl();
+
+// 注册人数上限与满员提示词（提示词在弹窗内编辑，不铺在系统设置页）
+var regLimitMsg = '';
+async function loadRegisterLimit() {
+  try {
+    var d = await api('/api/admin/settings/register-limit');
+    document.getElementById('regLimitInput').value = d.limit || 0;
+    regLimitMsg = d.msg || '';
+  } catch (err) { /* 忽略 */ }
+}
+var regLimitSave = document.getElementById('regLimitSave');
+if (regLimitSave) regLimitSave.addEventListener('click', async function(){
+  var stMsg = document.getElementById('stMsg');
+  try {
+    var r = await api('/api/admin/settings/register-limit', { method: 'PUT', body: {
+      limit: document.getElementById('regLimitInput').value,
+      msg: regLimitMsg
+    }});
+    document.getElementById('regLimitInput').value = r.limit;
+    regLimitMsg = r.msg || '';
+    showMsg(stMsg, r.message || '已保存', true);
+  } catch (err) { showMsg(stMsg, err.message, false); }
+});
+var regLimitMsgBtn = document.getElementById('regLimitMsgBtn');
+if (regLimitMsgBtn) regLimitMsgBtn.addEventListener('click', function(){
+  openModal('满员提示词（支持 markdown）',
+    '<div style="margin-bottom:10px;"><label>提示词内容（留空则使用默认文案）</label>' +
+    '<textarea id="rlmText" data-autogrow style="width:100%;min-height:160px;padding:8px;" placeholder="支持 **粗体**、*斜体*、[文字](链接)、- 列表、# 标题"></textarea></div>' +
+    '<div style="margin-bottom:10px;"><label>预览</label>' +
+    '<div id="rlmPreview" style="border:1px solid #E4E1D8;border-radius:8px;padding:10px 12px;min-height:60px;background:#fafafa;"></div></div>' +
+    '<div style="text-align:right;"><button class="btn gray" id="rlmCancel">取消</button> ' +
+    '<button class="btn" id="rlmSave">保存提示词</button></div>');
+  var ta = document.getElementById('rlmText');
+  var pv = document.getElementById('rlmPreview');
+  ta.value = regLimitMsg;
+  function refreshPreview() {
+    pv.innerHTML = ta.value.trim() ? renderMd(ta.value) : '<span class="muted">（留空时访客将看到默认提示文案）</span>';
+  }
+  refreshPreview();
+  ta.addEventListener('input', refreshPreview);
+  document.getElementById('rlmCancel').addEventListener('click', closeModal);
+  document.getElementById('rlmSave').addEventListener('click', async function(){
+    var stMsg = document.getElementById('stMsg');
+    try {
+      var r = await api('/api/admin/settings/register-limit', { method: 'PUT', body: {
+        limit: document.getElementById('regLimitInput').value,
+        msg: ta.value
+      }});
+      document.getElementById('regLimitInput').value = r.limit;
+      regLimitMsg = r.msg || '';
+      closeModal();
+      showMsg(stMsg, r.message || '已保存', true);
+    } catch (err) { showMsg(stMsg, err.message, false); }
+  });
+});
+loadRegisterLimit();
 
 // ============ 数据备份与恢复（仅超管页）============
 var bkExport = document.getElementById('bkExport');
@@ -1666,7 +1803,11 @@ async function loadChannels() {
     return '<tr><td data-label="名称">' + esc(c.name) + '</td><td data-label="类型">' + c.type + '</td>' +
       '<td data-label="URL" class="muted" style="word-break:break-all;">' + esc(c.url) + '</td>' +
       '<td data-label="状态">' + (c.enabled ? '<span class="tag ok">启用</span>' : '<span class="tag disabled">停用</span>') + '</td>' +
-      '<td data-label="操作"><button class="btn sm gray" onclick="editCh(' + c.id + ')">编辑</button> ' +
+      '<td data-label="操作">' +
+        (c.enabled
+          ? '<button class="btn sm gray" onclick="toggleCh(' + c.id + ')">停用</button> '
+          : '<button class="btn sm" onclick="toggleCh(' + c.id + ')">启用</button> ') +
+      '<button class="btn sm gray" onclick="editCh(' + c.id + ')">编辑</button> ' +
       '<button class="btn sm danger" onclick="delCh(' + c.id + ')">删除</button></td></tr>';
   }).join('') || '<tr><td colspan="5" class="muted">暂无渠道</td></tr>';
   window._channels = data.channels;
@@ -1707,6 +1848,14 @@ function chModal(c) {
   });
 }
 window.editCh = function(id){ chModal((window._channels||[]).filter(function(x){return x.id===id;})[0]); };
+window.toggleCh = async function(id){
+  var cur = (window._channels||[]).filter(function(x){return x.id===id;})[0];
+  if (!cur) return;
+  try {
+    await api('/api/notify/channels/' + id + '/status', { method:'PUT', body: { enabled: !cur.enabled } });
+    await loadChannels();
+  } catch(e){ alertModal(e.message, {ok:false}); }
+};
 window.delCh = async function(id){
   confirmModal('删除渠道', '确认删除该渠道?', async function(){
     try { await api('/api/notify/channels/' + id, { method:'DELETE' }); await loadChannels(); } catch(e){ alertModal(e.message, {ok:false}); }

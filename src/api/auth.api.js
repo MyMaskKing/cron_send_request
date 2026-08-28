@@ -21,6 +21,25 @@ function validateCredentials(username, password) {
   return null;
 }
 
+// 注册人数上限相关 app_settings 键
+const SETTING_REG_LIMIT = 'register_limit';
+const SETTING_REG_LIMIT_MSG = 'register_limit_msg';
+// 达到上限时的默认提示（markdown），超管未自定义时使用
+const DEFAULT_REG_LIMIT_MSG = '**注册人数已满**\n\n本站已达到注册人数上限，暂时无法注册新账号。\n如需开通，请联系管理员。';
+
+/**
+ * 读取注册人数上限配置
+ * @param {Object} storage - 存储适配器
+ * @returns {Promise<{limit:number, msg:string}>} limit 为 0 表示不限制；msg 为 markdown 提示词
+ */
+async function readRegisterLimit(storage) {
+  const raw = await storage.settings.get(SETTING_REG_LIMIT);
+  const n = parseInt(raw, 10);
+  const limit = (!isNaN(n) && n > 0) ? Math.floor(n) : 0;
+  const custom = (await storage.settings.get(SETTING_REG_LIMIT_MSG)) || '';
+  return { limit, msg: custom.trim() ? custom : DEFAULT_REG_LIMIT_MSG };
+}
+
 /**
  * POST /api/auth/register  注册普通用户
  * body: { username, password }
@@ -33,6 +52,16 @@ async function register({ request, env }) {
   if (invalid) return error(invalid);
 
   const storage = getStorage(env);
+
+  // 注册人数上限：limit>0 且现存用户数已达上限则拒绝（msg 为 markdown 提示词）
+  const { limit, msg } = await readRegisterLimit(storage);
+  if (limit > 0) {
+    const count = await storage.users.count();
+    if (count >= limit) {
+      return json({ success: false, limited: true, message: '注册人数已满', msg }, 403);
+    }
+  }
+
   const existing = await storage.users.findByName(username);
   if (existing) return error('用户名已存在');
 
@@ -159,6 +188,21 @@ async function setupStatus({ env }) {
 }
 
 /**
+ * GET /api/auth/register-status  公开接口：注册是否已达人数上限
+ * 供登录/注册页在未登录状态下查询，limited 时展示满员提示词（markdown）并禁用注册
+ */
+async function registerStatus({ env }) {
+  const storage = getStorage(env);
+  const { limit, msg } = await readRegisterLimit(storage);
+  let limited = false;
+  if (limit > 0) {
+    const count = await storage.users.count();
+    limited = count >= limit;
+  }
+  return json({ success: true, limited, limit, msg });
+}
+
+/**
  * POST /api/auth/bootstrap  初始化超管（仅当系统尚无超管时可用）
  * body: { username, password, token }
  * 若配置了 env.ADMIN_BOOTSTRAP_TOKEN 则校验 token；未配置则仅凭"系统无超管"即可创建。
@@ -261,6 +305,6 @@ async function updateQuickloginRestrict({ request, env }) {
 }
 
 export {
-  register, login, logout, me, bootstrap, setupStatus,
+  register, login, logout, me, bootstrap, setupStatus, registerStatus,
   getProfile, updateProfile, changePassword, quickLoginByToken, updateQuickloginRestrict
 };

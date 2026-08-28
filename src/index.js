@@ -15,13 +15,14 @@ import { batchAccessUrls, formatResults } from './services/monitor.service.js';
 import { sendNotification } from './services/notify.service.js';
 
 // API handlers
-import { register, login, logout, me, bootstrap, setupStatus, getProfile, updateProfile, changePassword, quickLoginByToken, updateQuickloginRestrict } from './api/auth.api.js';
+import { register, registerStatus, login, logout, me, bootstrap, setupStatus, getProfile, updateProfile, changePassword, quickLoginByToken, updateQuickloginRestrict } from './api/auth.api.js';
 import {
   listUsers, getUserDetail, updateUserRole, updateUserStatus,
   createUser, resetPassword, impersonateUser, stopImpersonateUser, updateUserNickname,
-  getTimezone, setTimezone, getBaseUrl, setBaseUrl
+  getTimezone, setTimezone, getBaseUrl, setBaseUrl,
+  getRegisterLimit, setRegisterLimit
 } from './api/users.api.js';
-import { listChannels, createChannel, updateChannel, removeChannel } from './api/notify.api.js';
+import { listChannels, createChannel, updateChannel, setChannelStatus, removeChannel } from './api/notify.api.js';
 import { listTasks, createTask, updateTask, removeTask, listTaskLogs } from './api/monitor.api.js';
 import {
   listFunds, createFund, updateFund, removeFund,
@@ -71,6 +72,7 @@ const router = new Router();
 
 // --- 认证 API ---
 router.post('/api/auth/register', register);
+router.get('/api/auth/register-status', registerStatus);
 router.post('/api/auth/login', login);
 router.post('/api/auth/logout', logout);
 router.get('/api/auth/me', me);
@@ -98,6 +100,8 @@ router.get('/api/admin/settings/timezone', getTimezone);
 router.put('/api/admin/settings/timezone', setTimezone);
 router.get('/api/admin/settings/base-url', getBaseUrl);
 router.put('/api/admin/settings/base-url', setBaseUrl);
+router.get('/api/admin/settings/register-limit', getRegisterLimit);
+router.put('/api/admin/settings/register-limit', setRegisterLimit);
 
 // 数据全量备份与恢复（仅超管）
 router.get('/api/admin/backup/export', exportBackup);
@@ -116,6 +120,7 @@ router.post('/api/monitor/run', runMyMonitors);
 router.get('/api/notify/channels', listChannels);
 router.post('/api/notify/channels', createChannel);
 router.put('/api/notify/channels/:id', updateChannel);
+router.put('/api/notify/channels/:id/status', setChannelStatus);
 router.delete('/api/notify/channels/:id', removeChannel);
 
 // --- 监控任务 API ---

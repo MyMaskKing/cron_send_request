@@ -253,8 +253,43 @@ async function setBaseUrl({ request, env }) {
   return json({ success: true, message: '站点地址已保存', base_url: v });
 }
 
+/**
+ * GET /api/admin/settings/register-limit  读取注册人数上限与满员提示词
+ * 返回 { limit: 0 表示不限制, msg: markdown 提示词（空串=用默认提示） }
+ */
+async function getRegisterLimit({ request, env }) {
+  const auth = await requireAdmin(request, env);
+  if (auth instanceof Response) return auth;
+  const storage = getStorage(env);
+  const raw = await storage.settings.get('register_limit');
+  const n = parseInt(raw, 10);
+  const limit = (!isNaN(n) && n > 0) ? Math.floor(n) : 0;
+  const msg = (await storage.settings.get('register_limit_msg')) || '';
+  return json({ success: true, limit, msg });
+}
+
+/**
+ * PUT /api/admin/settings/register-limit  设置注册人数上限与满员提示词
+ * body: { limit: 非负整数（0=不限制）, msg: markdown 提示词，空串=用默认提示 }
+ */
+async function setRegisterLimit({ request, env }) {
+  const auth = await requireAdmin(request, env);
+  if (auth instanceof Response) return auth;
+  const body = await request.json().catch(() => ({}));
+  const n = parseInt(body.limit, 10);
+  if (isNaN(n) || n < 0) return error('注册上限需为非负整数（0 表示不限制）');
+  const limit = Math.floor(n);
+  const msg = typeof body.msg === 'string' ? body.msg : '';
+  if (msg.length > 5000) return error('满员提示词最长 5000 字符');
+  const storage = getStorage(env);
+  await storage.settings.set('register_limit', String(limit));
+  await storage.settings.set('register_limit_msg', msg);
+  return json({ success: true, message: '注册限制已保存', limit, msg });
+}
+
 export {
   listUsers, getUserDetail, updateUserRole, updateUserStatus,
   createUser, resetPassword, impersonateUser, stopImpersonateUser, updateUserNickname,
-  getTimezone, setTimezone, getBaseUrl, setBaseUrl
+  getTimezone, setTimezone, getBaseUrl, setBaseUrl,
+  getRegisterLimit, setRegisterLimit
 };

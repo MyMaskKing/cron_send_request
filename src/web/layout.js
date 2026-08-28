@@ -274,6 +274,14 @@ th { color: #6C6C7E; font-weight: 600; background: rgba(20, 20, 40, .025); }
 .msg { padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 14px; display: none; }
 .msg.err { background: #fff1f0; color: #cf1322; display: block; }
 .msg.ok { background: #f6ffed; color: #389e0d; display: block; }
+.md-body { font-size: 14px; line-height: 1.6; word-break: break-word; }
+.md-body > p { margin: 8px 0; }
+.md-body > h3 { margin: 12px 0 6px; font-size: 16px; }
+.md-body > h4 { margin: 10px 0 4px; font-size: 14px; }
+.md-body > ul, .md-body > ol { margin: 6px 0; padding-left: 22px; }
+.md-body li { margin: 3px 0; }
+.md-body code { background: rgba(127,127,127,.15); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
+.md-body a { color: #A855F7; text-decoration: underline; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; }
 .row > * { flex: 1; min-width: 140px; }
 .muted { color: #999; font-size: 13px; }
