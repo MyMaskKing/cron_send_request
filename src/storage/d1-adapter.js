@@ -5,9 +5,10 @@
 
 import { shiftDate } from '../services/todo.service.js';
 
-// 备份范围 = 库中全部用户业务表，仅排除两类：
+// 备份范围 = 库中全部用户业务表，仅排除：
 //  1) SQLite 内部表（sqlite_ 前缀，如 AUTOINCREMENT 产生的 sqlite_sequence）；
-//  2) 运行日志表（表名以 log/logs 结尾，如 monitor_logs / push_log，数据可自动重建）。
+//  2) Cloudflare D1 内部虚拟表（_cf_ 前缀，如 _cf_KV，SELECT 访问被 D1 授权层禁止）；
+//  3) 运行日志表（表名以 log/logs 结尾，如 monitor_logs / push_log，数据可自动重建）。
 // KV 登录会话不在 D1，不导出。导入时按外键依赖拓扑排序：正序插入、反序清空，保外键关系。
 // D1 单次 batch 语句数稳妥上限：分块提交（块内事务），DELETE 全排在最前不破坏先后
 const BACKUP_CHUNK = 200;
@@ -27,11 +28,15 @@ function isLogTable(name) {
  */
 async function listUserTables(db, excludeLogs = true) {
   const { results } = await db.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    "SELECT name FROM sqlite_master WHERE type='table'"
   ).all();
+  // 前缀过滤放 JS 层用 startsWith 精确匹配：SQL LIKE 的下划线是通配符，易误伤。
   return (results || [])
     .map(r => r.name)
-    .filter(n => IDENT_RE.test(n) && (!excludeLogs || !isLogTable(n)));
+    .filter(n => IDENT_RE.test(n)
+      && !n.startsWith('sqlite_')   // SQLite 内部表（sqlite_sequence 等）
+      && !n.startsWith('_cf_')     // Cloudflare D1 内部虚拟表（_cf_KV，访问被禁止）
+      && (!excludeLogs || !isLogTable(n)));
 }
 
 /**
