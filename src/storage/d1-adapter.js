@@ -5,16 +5,34 @@
 
 import { shiftDate } from '../services/todo.service.js';
 
-// 全量备份覆盖的业务表（顺序 = 父表 → 子表）：导入时正序插入、反序清空，保外键关系。
-// 不含 monitor_logs / push_log（运行日志，可自动重建）；KV 登录会话不在 D1，不导出。
-const BACKUP_TABLES = [
-  'users', 'app_settings', 'notify_channels', 'monitor_tasks',
-  'funds', 'fund_nav_cache', 'fund_report_config', 'fund_profit_daily',
-  'weight_members', 'weight_member_shares', 'weight_records',
-  'wallets', 'wallet_records', 'asset_goals', 'push_config', 'todos'
-];
+// 备份范围 = 库中全部用户业务表，仅排除两类：
+//  1) SQLite 内部表（sqlite_ 前缀，如 AUTOINCREMENT 产生的 sqlite_sequence）；
+//  2) 运行日志表（表名以 log/logs 结尾，如 monitor_logs / push_log，数据可自动重建）。
+// KV 登录会话不在 D1，不导出。导入时按外键依赖拓扑排序：正序插入、反序清空，保外键关系。
 // D1 单次 batch 语句数稳妥上限：分块提交（块内事务），DELETE 全排在最前不破坏先后
 const BACKUP_CHUNK = 200;
+// 合法 SQL 标识符：字母/下划线开头，仅含字母数字下划线（备份文件表名校验，防注入）
+const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+// 表名以 log 或 logs 结尾即视为运行日志表（push_log / monitor_logs）
+function isLogTable(name) {
+  return /logs?$/i.test(name);
+}
+
+/**
+ * 列出库中所有用户表（sqlite_master 建表顺序），排除 SQLite 内部表
+ * @param {Object} db - D1 / docker shim 数据库绑定
+ * @param {boolean} [excludeLogs=true] - 是否同时排除日志表
+ * @returns {Promise<string[]>}
+ */
+async function listUserTables(db, excludeLogs = true) {
+  const { results } = await db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+  ).all();
+  return (results || [])
+    .map(r => r.name)
+    .filter(n => IDENT_RE.test(n) && (!excludeLogs || !isLogTable(n)));
+}
 
 /**
  * @param {Object} env - Worker 环境，需含 env.DB (D1 binding)
@@ -883,49 +901,78 @@ function createD1Adapter(env) {
     },
 
     // ==================== 数据备份与恢复（全量导入导出，仅超管）====================
-    // 表名走 BACKUP_TABLES 白名单，值全部参数绑定，无 SQL 注入；D1 与 docker shim 通用。
+    // 表名动态取自 sqlite_master 并经标识符白名单校验，值全部参数绑定，无 SQL 注入；
+    // D1 与 docker shim 通用。
     backup: {
       /**
        * 全量导出：逐表 SELECT *，返回 { 表名: [行...] }
+       * 范围为全部用户表，仅排除 SQLite 内部表与 log/logs 结尾的运行日志表。
        * @returns {Promise<Object>}
        */
       async dumpTables() {
+        const tables = await listUserTables(db);
         const out = {};
-        for (const t of BACKUP_TABLES) {
+        for (const t of tables) {
           const { results } = await db.prepare(`SELECT * FROM ${t}`).all();
           out[t] = results || [];
         }
         return out;
       },
       /**
-       * 全量覆盖导入：反序清空所有表 → 正序插入（显式带原始 id，保外键关系）。
+       * 全量覆盖导入：反序清空备份涉及的表 → 正序插入（显式带原始 id，保外键关系）。
+       * 待恢复表 = 备份中有 ∩ 目标库实际存在 ∩ 非日志表 ∩ 合法标识符；
+       * 备份中没有的表（运行日志、目标库独有表）保留不动。表顺序按外键依赖拓扑排序
+       * （父表先于子表），不再依赖硬编码表清单，新增表自动支持。
        * 按目标库 PRAGMA table_info 实际列与备份行取交集，新旧版本列差异自动兼容
        * （备份多出的列丢弃；目标有而备份缺的列走默认值/NULL）。
-       * DELETE 全部排在语句序列最前，随后按 BACKUP_TABLES 正序插入；todos 按 id 升序
+       * DELETE 全部排在语句序列最前，随后按拓扑正序插入；todos 按 id 升序
        * 保证自引用父行先于子行。分块 batch 提交（块内事务），操作幂等、失败可重新导入。
        * @param {Object} tables - { 表名: [行...] }
-       * @returns {Promise<Object>} 各表备份行数
+       * @returns {Promise<Object>} 各表导入行数
        */
       async restoreTables(tables) {
         if (!tables || typeof tables !== 'object') throw new Error('备份数据格式不正确');
+        // 目标库实际存在的用户表（含日志表，仅用于存在性交集）
+        const dbSet = new Set(await listUserTables(db, false));
+        // 待恢复表：备份中有数组数据、目标库存在、非日志表、标识符合法（防表名注入）
+        const want = Object.keys(tables).filter(
+          t => IDENT_RE.test(t) && !isLogTable(t) && dbSet.has(t) && Array.isArray(tables[t])
+        );
+        // 外键拓扑排序：查 PRAGMA foreign_key_list 得父表，DFS 保证父表排在子表前
+        const parents = {};
+        for (const t of want) {
+          const { results } = await db.prepare(`PRAGMA foreign_key_list(${t})`).all();
+          parents[t] = (results || [])
+            .map(r => r.table)
+            .filter(p => want.includes(p));
+        }
+        const ordered = [];
+        const visited = new Set();
+        const visit = (t) => {
+          if (visited.has(t)) return; // 已访问（含环防御，正常库无环）
+          visited.add(t);
+          for (const p of parents[t]) visit(p);
+          ordered.push(t);
+        };
+        for (const t of want) visit(t);
         // 目标库各表实际列
         const colsOf = {};
-        for (const t of BACKUP_TABLES) {
+        for (const t of ordered) {
           const { results } = await db.prepare(`PRAGMA table_info(${t})`).all();
           colsOf[t] = (results || []).map(c => c.name);
         }
         const stmts = [];
         const counts = {};
-        // 1) 反序清表（子表先、父表后，避免外键违约）
-        for (let i = BACKUP_TABLES.length - 1; i >= 0; i--) {
-          stmts.push(db.prepare(`DELETE FROM ${BACKUP_TABLES[i]}`));
+        // 1) 反序清表（子表先、父表后，避免外键违约）；备份未涉及的表不动
+        for (let i = ordered.length - 1; i >= 0; i--) {
+          stmts.push(db.prepare(`DELETE FROM ${ordered[i]}`));
         }
         // 2) 正序插入
-        for (const t of BACKUP_TABLES) {
+        for (const t of ordered) {
           const cols = colsOf[t];
-          const rows = Array.isArray(tables[t]) ? tables[t] : [];
+          const rows = tables[t];
           counts[t] = rows.length;
-          if (!cols.length || !rows.length) continue; // 目标库无此表或无数据
+          if (!cols.length || !rows.length) continue; // 目标库无此列或无数据
           const ph = cols.map(() => '?').join(', ');
           const sql = `INSERT INTO ${t} (${cols.join(', ')}) VALUES (${ph})`;
           // todos 自引用 parent_id：按 id 升序，父行先插
