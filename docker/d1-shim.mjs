@@ -115,7 +115,14 @@ export class D1DatabaseShim {
         // 简单探测：SELECT 类走 all，其他走 run
         const isSelect = /^\s*(select|with|pragma)/i.test(s._sql);
         if (isSelect) {
-          const rows = stmt.all(...params);
+          // PRAGMA 分两类：函数式(table_info/foreign_key_list)返回结果集走 all；
+          // 设置式(defer_foreign_keys=on 等)无结果集，better-sqlite3 要求 run，兜底回退。
+          let rows = [];
+          try {
+            rows = stmt.all(...params);
+          } catch {
+            stmt.run(...params);
+          }
           results.push({ success: true, meta: { last_row_id: 0, changes: 0, duration: 0 }, results: rows });
         } else {
           const info = stmt.run(...params);

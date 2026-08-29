@@ -7,9 +7,11 @@ import { shiftDate } from '../services/todo.service.js';
 
 // 备份范围 = 库中全部用户业务表，仅排除：
 //  1) SQLite 内部表（sqlite_ 前缀，如 AUTOINCREMENT 产生的 sqlite_sequence）；
-//  2) Cloudflare D1 内部虚拟表（_cf_ 前缀，如 _cf_KV，SELECT 访问被 D1 授权层禁止）；
+//  2) Cloudflare D1 内部表（_cf_ 前缀虚拟表如 _cf_KV，SELECT 被 D1 授权层禁止；d1_ 前缀内部表）；
 //  3) 运行日志表（表名以 log/logs 结尾，如 monitor_logs / push_log，数据可自动重建）。
-// KV 登录会话不在 D1，不导出。导入时按外键依赖拓扑排序：正序插入、反序清空，保外键关系。
+// KV 登录会话不在 D1，不导出。导入时按外键依赖拓扑排序：正序插入、反序清空，保外键关系；
+// 并在每个导入事务开头 PRAGMA defer_foreign_keys=on（D1 官方导入建议），把外键检查推迟到
+// 事务提交——D1 逐语句强制外键，"全删再逐行插"的中间态会违约，提交时数据已一致即通过。
 // D1 单次 batch 语句数稳妥上限：分块提交（块内事务），DELETE 全排在最前不破坏先后
 const BACKUP_CHUNK = 200;
 // 合法 SQL 标识符：字母/下划线开头，仅含字母数字下划线（备份文件表名校验，防注入）
@@ -21,7 +23,7 @@ function isLogTable(name) {
 }
 
 /**
- * 列出库中所有用户表（sqlite_master 建表顺序），排除 SQLite 内部表
+ * 列出库中所有用户表（sqlite_master 建表顺序），排除 SQLite/D1 内部表，可选排除日志表
  * @param {Object} db - D1 / docker shim 数据库绑定
  * @param {boolean} [excludeLogs=true] - 是否同时排除日志表
  * @returns {Promise<string[]>}
@@ -31,11 +33,13 @@ async function listUserTables(db, excludeLogs = true) {
     "SELECT name FROM sqlite_master WHERE type='table'"
   ).all();
   // 前缀过滤放 JS 层用 startsWith 精确匹配：SQL LIKE 的下划线是通配符，易误伤。
+  // sqlite_/d1_/_cf_ 三类内部表前缀与 D1 官方列举用户表的过滤口径保持一致。
   return (results || [])
     .map(r => r.name)
     .filter(n => IDENT_RE.test(n)
       && !n.startsWith('sqlite_')   // SQLite 内部表（sqlite_sequence 等）
-      && !n.startsWith('_cf_')     // Cloudflare D1 内部虚拟表（_cf_KV，访问被禁止）
+      && !n.startsWith('d1_')       // Cloudflare D1 内部表
+      && !n.startsWith('_cf_')      // Cloudflare D1 内部虚拟表（_cf_KV，访问被禁止）
       && (!excludeLogs || !isLogTable(n)));
 }
 
@@ -989,9 +993,17 @@ function createD1Adapter(env) {
             stmts.push(db.prepare(sql).bind(...vals));
           }
         }
-        // 3) 分块提交（顺序切分，DELETE 在前）
+        // 3) 分块提交（顺序切分，DELETE 在前）。
+        // 每块作为独立事务，开头先 defer 外键检查到事务提交：D1 在隐式事务内逐语句强制外键，
+        // "全删→逐行插"的中间态（父行缺位/子行仍在）会立即报 FOREIGN KEY constraint failed；
+        // defer 后仅在提交时校验，此时整块数据已一致。docker(better-sqlite3) 同为标准 SQLite
+        // 事务级 pragma，行为一致。
         for (let i = 0; i < stmts.length; i += BACKUP_CHUNK) {
-          await db.batch(stmts.slice(i, i + BACKUP_CHUNK));
+          const chunk = [
+            db.prepare('PRAGMA defer_foreign_keys = on'),
+            ...stmts.slice(i, i + BACKUP_CHUNK)
+          ];
+          await db.batch(chunk);
         }
         return counts;
       }
