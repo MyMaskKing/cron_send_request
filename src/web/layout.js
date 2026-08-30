@@ -393,14 +393,18 @@ th { color: #6C6C7E; font-weight: 600; background: rgba(20, 20, 40, .025); }
 
 /* 弹窗 modal */
 /* 短内容居中、长内容顶部对齐可滚：靠 .modal-box 的 margin:auto 自适应 */
-.modal-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 10000; padding: 40px 16px; overflow-y: auto; }
+/* touch-action: pan-y —— body.no-scroll 锁背景滚动时祖先 touch-action:none 会连带禁掉后代滚动容器
+   的触摸平移(手机上长弹窗表单会卡死), 在遮罩自身显式放行纵向手势; overscroll-behavior:contain 防止滚到边连锁背景 */
+.modal-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 10000; padding: 40px 16px; overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain; }
 .modal-mask.show { display: flex; }
 /* 全局滚动锁: body.no-scroll 由 JS 在打开弹窗(modal / mp-menu)时加, 关闭时移除.
    position:fixed + width:100% 兼容 iOS Safari, 单纯 overflow:hidden 在 iOS 上仍能滑动.
    同时锁 <html> 的 overflow, 阻止 Android Chrome / 微信 X5 在 body:fixed 时仍能滚动根滚动容器的行为.
-   :has() + JS 加 .no-scroll 双重覆盖, 兼容不支持 :has() 的老内核 (如部分微信 X5) */
+   :has() + JS 加 .no-scroll 双重覆盖, 兼容不支持 :has() 的老内核 (如部分微信 X5).
+   注意: 此处【不能】加 touch-action:none —— 祖先的 touch-action 会连带禁掉后代滚动容器(弹窗/全屏区)
+   的触摸平移, 手机上长表单弹窗反而卡死无法滚动; 需要放行的滚动容器自行声明 pan-y(.modal-mask/.todo-fs-main) */
 html:has(body.no-scroll), html.no-scroll { overflow: hidden; height: 100%; }
-body.no-scroll { overflow: hidden; position: fixed; width: 100%; touch-action: none; overscroll-behavior: none; }
+body.no-scroll { overflow: hidden; position: fixed; width: 100%; overscroll-behavior: none; }
 /* 启动阶段: body.booting 提供纯 CSS 滚动锁, 早于任何 JS. JS 就绪后由 lockBodyScroll 接管, 会移除此类 */
 html:has(body.booting) { overflow: hidden; height: 100%; }
 body.booting { overflow: hidden; position: fixed; width: 100%; touch-action: none; overscroll-behavior: none; }
@@ -752,11 +756,15 @@ body.todo-fs-on .container > .card { display: none !important; }
 body.todo-fs-on .todo-fullscreen { display: flex; }
 
 /* 主区域：右侧填满 */
+/* touch-action: pan-y 显式放行纵向触摸滚动: 弹窗打开期间 body.no-scroll 生效,
+   祖先 touch-action 会连带禁用后代滚动容器的手势, 这里显式声明保证卡片/树列表始终可上下滑动 */
 .todo-fs-main {
   flex: 1; min-width: 0;
   display: flex; flex-direction: column;
   padding: 12px 16px 16px;
   overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 /* 主区域顶部一行：抽屉按钮 + 标题 + 视图切换按钮 */
 /* transition + 背景色: 为手机端 sticky 时的过渡隐藏做铺垫; PC 无影响 */
@@ -806,8 +814,8 @@ body.todo-fs-on .todo-fullscreen { display: flex; }
 .todo-drawer__foot { padding: 8px 14px; font-size: 12px; color: #8890b8; border-top: 1px solid #f0f2f8; text-align: center; }
 /* 抽屉收起：主区域独占 */
 .todo-drawer.closed { display: none; }
-/* 抽屉遮罩（仅手机使用） */
-.todo-drawer-mask { display: none; }
+/* 抽屉遮罩（仅手机使用）; touch-action:none 阻止遮罩上的触摸手势穿透/连锁滚动 */
+.todo-drawer-mask { display: none; touch-action: none; }
 
 /* ============ 分类下拉：新建输入框 ============ */
 /* 弹窗内 #tfCatNew 的 margin-top，与 select 拉开距离；样式复用现有 input */
@@ -826,7 +834,7 @@ body.todo-fs-on .todo-fullscreen { display: flex; }
 .card:hover .chart-fs-btn { opacity: 1; }
 .chart-fs-btn:hover { background: #eef1ff; color: #A855F7; }
 /* 全屏遮罩层：半透明底 + 居中舞台。横屏(PC/平板)直接放大；竖屏(手机)旋转 90° 铺满 */
-.chart-fs-mask { position: fixed; inset: 0; z-index: 9998; background: rgba(0,0,0,.55); overflow: hidden; }
+.chart-fs-mask { position: fixed; inset: 0; z-index: 9998; background: rgba(0,0,0,.55); overflow: hidden; touch-action: none; }
 .chart-fs-stage {
   position: absolute; top: 50%; left: 50%;
   transform: translate(-50%, -50%);

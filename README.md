@@ -169,7 +169,6 @@ base64 -w 0 release.keystore
 # Windows PowerShell
 [Convert]::ToBase64String([IO.File]::ReadAllBytes("$PWD\release.keystore"))
 ```
-
 把输出整段粘贴进 `RELEASE_KEYSTORE_BASE64`（不要换行或加引号）。
 
 #### 3. 本地用 release 签名构建（可选）

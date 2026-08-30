@@ -1005,6 +1005,48 @@ if (document.readyState === 'loading') {
   _initGlobalUX();
 }
 
+// ============ App 原生壳联动: 下拉刷新(SwipeRefreshLayout)开关 ============
+// 待办全屏/弹窗等页面在"内部容器"里滚动(网页 body 不滚), 原生侧只读 WebView.scrollY,
+// 会永远以为在顶部而拦截向下拖拽 → 卡片列表/弹窗卡死无法下滑.
+// 网页实时上报"是否在顶部": 内部容器滚动、弹窗/菜单打开、键盘弹起时一律关闭原生下拉刷新.
+// 仅在原生壳注入了 window.AppShell 时生效, 普通浏览器/微信内为 no-op.
+(function initAppShellBridge(){
+  var api = null;
+  try {
+    if (window.AppShell && typeof window.AppShell.setPullRefresh === 'function') api = window.AppShell;
+  } catch (e) { return; }
+  if (!api) return;
+  var _last = '';
+  function report() {
+    var atTop = (window.scrollY || window.pageYOffset || 0) <= 4;
+    if (atTop) {
+      // 弹窗/图表全屏/多选面板打开期间禁用(遮罩盖住页面, 下拉只应作用于弹窗内部)
+      if (document.querySelector('.modal-mask.show, .chart-fs-mask, .mp-menu.show')) atTop = false;
+    }
+    if (atTop) {
+      // 内部滚动容器不在顶部时禁用(待办全屏主区/弹窗遮罩/长表格/抽屉目录)
+      var boxes = document.querySelectorAll('.todo-fs-main, .modal-mask.show, .table-scroll-mobile, .todo-drawer__list');
+      for (var i = 0; i < boxes.length; i++) { if (boxes[i].scrollTop > 4) { atTop = false; break; } }
+    }
+    if (atTop && window.visualViewport && window.innerHeight) {
+      // 软键盘弹起(可视高度明显小于布局高度)时禁用, 避免键盘上方区域误触下拉刷新
+      if (window.visualViewport.height < window.innerHeight * 0.75) atTop = false;
+    }
+    var key = atTop ? '1' : '0';
+    if (key === _last) return;
+    _last = key;
+    try { api.setPullRefresh(atTop); } catch (e) {}
+  }
+  document.addEventListener('scroll', report, true);
+  window.addEventListener('resize', report);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', report);
+    window.visualViewport.addEventListener('scroll', report);
+  }
+  setInterval(report, 500); // 兜底: DOM 变动(弹窗开合/重绘)无 scroll 事件时 500ms 内纠正
+  report();
+})();
+
 // ========= 数字/金额格式化 =========
 // fmtMoney(v)         => 千分位, 保留原有小数位, 如 100000.12 => "100,000.12"; 100000 => "100,000"
 // fmtMoney(v, {frac:2})=> 强制 2 位小数, 100000 => "100,000.00"
@@ -5036,8 +5078,93 @@ function todoRenderView(container, trees, opts) {
   if (crumb) crumb.style.display = 'none';
   renderTodoCards(container, trees, opts);
 }
-// 内联子任务添加输入行(卡片视图 / 完整树视图): 仅收 标题(必填) + 备注(可选),
-// 其它字段继承主任务(后端已按 parent 处理日期, 前端不传 priority/category/due_date/recurrence).
+// 手机键盘弹起时把输入框"上移"到可视视区内(修复添加框被键盘盖住):
+// 先 scrollIntoView, 再按 visualViewport 底边补差, 优先滚动最近的可滚动祖先(全屏区/弹窗遮罩), 兜底 window.scrollBy
+function todoLiftIntoView(el) {
+  if (!el) return;
+  try { el.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+  var vv = window.visualViewport;
+  if (!vv) return;
+  var r = el.getBoundingClientRect();
+  var delta = r.bottom - (vv.offsetTop + vv.height) + 16; // 可视视口底边(布局坐标) + 16px 余量
+  if (delta <= 0) return;
+  for (var p = el.parentElement; p; p = p.parentElement) {
+    var s = getComputedStyle(p);
+    if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && p.scrollHeight > p.clientHeight) {
+      p.scrollTop += delta;
+      return;
+    }
+  }
+  window.scrollBy(0, delta);
+}
+// 添加框单例: 同一时刻画面上只允许一个"添加子任务"输入框(内联框 openInlineAddChild 与
+// 详情页底部常驻框 mountDetailAdder 互斥); 打开新框时注册, 注册动作先关掉旧框
+var _todoAddFormCloser = null;
+function todoRegisterAddForm(closeFn) {
+  if (_todoAddFormCloser && _todoAddFormCloser !== closeFn) {
+    try { _todoAddFormCloser(); } catch (e) {}
+  }
+  _todoAddFormCloser = closeFn;
+}
+function todoUnregisterAddForm(closeFn) {
+  if (_todoAddFormCloser === closeFn) _todoAddFormCloser = null;
+}
+// 内联添加框用的自包含"重复规则"控件(与编辑弹窗 todoFormHtml 同口径, 无 id 避免多实例冲突):
+// 不重复 / 每日 / 每周 / 每月(按日期) / 每月第 N 个星期 X / 每年, 含"每 N 单位"数字框与 nth/星期双下拉
+// 返回 { el, get() }; get() → { recurrence, recur_interval, recur_nth, recur_weekday }(不重复时全 null)
+function todoBuildRecurControl() {
+  var root = document.createElement('div');
+  root.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0;flex:1 1 100%;';
+  var sel = document.createElement('select');
+  sel.style.cssText = 'padding:4px 8px;flex:1;min-width:150px;';
+  [['', '不重复'], ['daily', '每日'], ['weekly', '每周'], ['monthly', '每月 (按日期, 如每月 5 号)'],
+   ['monthly_nth_weekday', '每月第 N 个星期 X'], ['yearly', '每年']].forEach(function(o){
+    var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; sel.appendChild(op);
+  });
+  var nBox = document.createElement('span');
+  nBox.style.cssText = 'display:none;align-items:center;gap:4px;color:#5a6b9a;font-size:13px;';
+  var nInput = document.createElement('input');
+  nInput.type = 'number'; nInput.min = '1'; nInput.max = '99'; nInput.value = '1';
+  nInput.style.cssText = 'width:58px;padding:4px 6px;text-align:center;';
+  var unit = document.createElement('span');
+  nBox.appendChild(document.createTextNode('每')); nBox.appendChild(nInput); nBox.appendChild(unit);
+  var nthWrap = document.createElement('div');
+  nthWrap.style.cssText = 'display:none;gap:8px;align-items:center;flex-basis:100%;flex-wrap:wrap;';
+  var nthSel = document.createElement('select'); nthSel.style.cssText = 'padding:4px 8px;flex:1;min-width:110px;';
+  [['1', '第一个'], ['2', '第二个'], ['3', '第三个'], ['4', '第四个'], ['5', '最后一个']].forEach(function(o){
+    var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; nthSel.appendChild(op);
+  });
+  var wdSel = document.createElement('select'); wdSel.style.cssText = 'padding:4px 8px;flex:1;min-width:110px;';
+  [['1', '周一'], ['2', '周二'], ['3', '周三'], ['4', '周四'], ['5', '周五'], ['6', '周六'], ['0', '周日']].forEach(function(o){
+    var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; wdSel.appendChild(op);
+  });
+  nthWrap.appendChild(document.createTextNode('的')); nthWrap.appendChild(nthSel); nthWrap.appendChild(wdSel);
+  root.appendChild(sel); root.appendChild(nBox); root.appendChild(nthWrap);
+  var UNITS = { daily: '天', weekly: '周', monthly: '月', monthly_nth_weekday: '月', yearly: '年' };
+  function sync() {
+    var v = sel.value;
+    nBox.style.display = v ? 'inline-flex' : 'none';
+    if (v) unit.textContent = UNITS[v] || '天';
+    nthWrap.style.display = (v === 'monthly_nth_weekday') ? 'flex' : 'none';
+  }
+  sel.addEventListener('change', sync); sync();
+  function get() {
+    var v = sel.value;
+    if (!v) return { recurrence: null, recur_interval: null, recur_nth: null, recur_weekday: null };
+    var iv = parseInt(nInput.value, 10);
+    if (!isFinite(iv) || iv < 1) iv = 1;
+    if (iv > 99) iv = 99;
+    var out = { recurrence: v, recur_interval: iv, recur_nth: null, recur_weekday: null };
+    if (v === 'monthly_nth_weekday') {
+      out.recur_nth = parseInt(nthSel.value, 10);
+      out.recur_weekday = parseInt(wdSel.value, 10);
+    }
+    return out;
+  }
+  return { el: root, get: get };
+}
+// 内联子任务添加输入行(卡片视图 / 完整树视图): 收 标题(必填) + 截止日期(child_due 模式必填, 默认今天)
+// + 重复规则(child_due 模式, 与编辑弹窗同口径) + 备注(可选).
 // btnEl: 触发按钮 DOM, 用来定位"就近宿主"(优先卡片, 其次树节点行, 输入行插到宿主下方一行)
 // parentNode: 数据节点; submitFn(payload)-> Promise (业务侧决定 API endpoint 和 reload)
 // 详情页不用此函数, 详情页用 mountDetailAdder 在子任务列表末尾常驻一个输入行(MS To Do 风格)
@@ -5046,13 +5173,14 @@ function openInlineAddChild(btnEl, parentNode, submitFn) {
   // 就近宿主: 卡片视图 → .todo-card; 完整树视图 → .todo-node
   var host = btnEl.closest ? (btnEl.closest('.todo-card') || btnEl.closest('.todo-node')) : null;
   if (!host || !host.parentNode) return;
-  // 幂等: 同宿主下已有活跃输入行则直接聚焦
+  // 幂等: 同宿主下已有活跃输入行则直接聚焦并抬升到键盘上方
   var exist = host.nextElementSibling;
   if (exist && exist.classList && exist.classList.contains('todo-inline-add')) {
-    var f0 = exist.querySelector('input, textarea'); if (f0) f0.focus();
+    var f0 = exist.querySelector('input, textarea');
+    if (f0) { f0.focus(); todoLiftIntoView(exist); }
     return;
   }
-  // child_due 新模式主任务下, 子任务可快速设置截止日期与简单重复(复杂规则可在编辑弹窗设置)
+  // child_due 新模式主任务下, 子任务可快速设置截止日期与重复(与编辑弹窗同口径, 含高级重复规则)
   var childDueMode = !!(parentNode._root && parentNode._root.child_due);
   var box = document.createElement('div');
   box.className = 'todo-inline-add';
@@ -5060,7 +5188,7 @@ function openInlineAddChild(btnEl, parentNode, submitFn) {
   titleEl.rows = 1; titleEl.placeholder = '子任务标题(支持换行)'; titleEl.className = 'todo-inline-add__title';
   var noteEl = document.createElement('textarea');
   noteEl.rows = 1; noteEl.placeholder = '备注(可选)'; noteEl.className = 'todo-inline-add__note';
-  var dueEl = null, recEl = null;
+  var dueEl = null, recurCtl = null;
   if (childDueMode) {
     var optRow = document.createElement('div');
     optRow.className = 'todo-inline-add__opts';
@@ -5068,13 +5196,9 @@ function openInlineAddChild(btnEl, parentNode, submitFn) {
     dueEl = document.createElement('input');
     dueEl.type = 'date'; dueEl.className = 'todo-inline-add__due';
     dueEl.style.cssText = 'padding:4px 8px;';
-    recEl = document.createElement('select');
-    recEl.className = 'todo-inline-add__recur';
-    recEl.style.cssText = 'padding:4px 8px;';
-    [['', '不重复'], ['daily', '每日'], ['weekly', '每周'], ['monthly', '每月'], ['yearly', '每年']].forEach(function(o){
-      var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; recEl.appendChild(op);
-    });
-    optRow.appendChild(dueEl); optRow.appendChild(recEl);
+    dueEl.value = todoTodayStr(); // 与编辑弹窗一致: 截止日期默认今天
+    recurCtl = todoBuildRecurControl();
+    optRow.appendChild(dueEl); optRow.appendChild(recurCtl.el);
     box.appendChild(optRow);
   }
   var actions = document.createElement('div'); actions.className = 'todo-inline-add__actions';
@@ -5086,20 +5210,36 @@ function openInlineAddChild(btnEl, parentNode, submitFn) {
   box.insertBefore(titleEl, box.firstChild); box.appendChild(noteEl); box.appendChild(actions);
   host.parentNode.insertBefore(box, host.nextSibling);
   autoGrowTextarea(titleEl); autoGrowTextarea(noteEl);
-  setTimeout(function(){ titleEl.focus(); }, 0);
+  // 单例: 注册关闭动作(打开本框会自动关掉画面上其它添加框); 键盘弹起时把输入框抬到可视区
+  function onVV() { if (box.isConnected) todoLiftIntoView(box); }
+  function close() {
+    if (box.parentNode) box.parentNode.removeChild(box);
+    if (window.visualViewport) window.visualViewport.removeEventListener('resize', onVV);
+    todoUnregisterAddForm(close);
+  }
+  todoRegisterAddForm(close);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', onVV);
+  setTimeout(function(){ titleEl.focus(); todoLiftIntoView(box); }, 50);
 
-  function close() { if (box.parentNode) box.parentNode.removeChild(box); }
   async function submit() {
     var title = (titleEl.value || '').trim();
-    if (!title) { titleEl.focus(); return; }
+    if (!title) { alertModal('请填写子任务标题', { ok: false }); titleEl.focus(); return; }
+    // child_due 模式: 截止日期必填(默认今天, 被清空则拦截)
+    if (childDueMode && dueEl && !dueEl.value) { alertModal('请选择截止日期（默认今天）', { ok: false }); dueEl.focus(); return; }
     if (saveBtn.disabled) return;
     saveBtn.disabled = true; cancelBtn.disabled = true;
     var payload = { title: title, parent_id: parentNode.id };
     var note = (noteEl.value || '').trim();
     if (note) payload.note = note;
     if (childDueMode) {
-      payload.due_date = (dueEl && dueEl.value) ? dueEl.value : null;
-      if (recEl && recEl.value) { payload.recurrence = recEl.value; payload.recur_interval = 1; }
+      payload.due_date = dueEl.value ? dueEl.value : null;
+      var r = recurCtl.get();
+      if (r.recurrence) {
+        payload.recurrence = r.recurrence;
+        payload.recur_interval = r.recur_interval;
+        payload.recur_nth = r.recur_nth;
+        payload.recur_weekday = r.recur_weekday;
+      }
     }
     try {
       await submitFn(payload);
@@ -5128,14 +5268,14 @@ function mountDetailAdder(container, parentNode, submitFn) {
   placeholder.type = 'button'; placeholder.className = 'todo-detail-adder__placeholder';
   placeholder.innerHTML = '<span class="todo-detail-adder__plus">＋</span><span>添加子任务</span>';
 
-  // child_due 新模式主任务下, 子任务可快速设置截止日期与简单重复(复杂规则可在编辑弹窗设置)
+  // child_due 新模式主任务下, 子任务可快速设置截止日期与重复(与编辑弹窗同口径, 含高级重复规则)
   var childDueMode = !!(parentNode._root && parentNode._root.child_due);
   var editor = document.createElement('div'); editor.className = 'todo-detail-adder__editor';
   var titleEl = document.createElement('textarea');
   titleEl.rows = 1; titleEl.placeholder = '子任务标题(支持换行)'; titleEl.className = 'todo-detail-adder__title';
   var noteEl = document.createElement('textarea');
   noteEl.rows = 1; noteEl.placeholder = '备注(可选)'; noteEl.className = 'todo-detail-adder__note';
-  var dueEl = null, recEl = null;
+  var dueEl = null, recurCtl = null;
   if (childDueMode) {
     var optRow = document.createElement('div');
     optRow.className = 'todo-detail-adder__opts';
@@ -5143,12 +5283,9 @@ function mountDetailAdder(container, parentNode, submitFn) {
     dueEl = document.createElement('input');
     dueEl.type = 'date';
     dueEl.style.cssText = 'padding:4px 8px;';
-    recEl = document.createElement('select');
-    recEl.style.cssText = 'padding:4px 8px;';
-    [['', '不重复'], ['daily', '每日'], ['weekly', '每周'], ['monthly', '每月'], ['yearly', '每年']].forEach(function(o){
-      var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; recEl.appendChild(op);
-    });
-    optRow.appendChild(dueEl); optRow.appendChild(recEl);
+    dueEl.value = todoTodayStr(); // 与编辑弹窗一致: 截止日期默认今天
+    recurCtl = todoBuildRecurControl();
+    optRow.appendChild(dueEl); optRow.appendChild(recurCtl.el);
     editor.appendChild(optRow);
   }
   var row = document.createElement('div'); row.className = 'todo-detail-adder__row';
@@ -5162,37 +5299,55 @@ function mountDetailAdder(container, parentNode, submitFn) {
   wrap.appendChild(placeholder); wrap.appendChild(editor);
   container.appendChild(wrap);
   autoGrowTextarea(titleEl); autoGrowTextarea(noteEl);
-  // 若上次保存后处于连续录入态, 重绘后自动展开
+  // 键盘弹起时把输入框抬到可视区(修复手机上被键盘盖住)
+  function onVV() { if (wrap.classList.contains('editing')) todoLiftIntoView(wrap); }
+  // 若上次保存后处于连续录入态, 重绘后自动展开(与 expand 同口径: 注册单例 + 抬升)
   if (window._todoAdderActive) {
     wrap.classList.remove('collapsed'); wrap.classList.add('editing');
-    setTimeout(function(){ titleEl.focus(); }, 0);
+    todoRegisterAddForm(collapse);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', onVV);
+    setTimeout(function(){ titleEl.focus(); todoLiftIntoView(wrap); }, 50);
   }
 
   function expand() {
     wrap.classList.remove('collapsed');
     wrap.classList.add('editing');
     window._todoAdderActive = 1;
-    setTimeout(function(){ titleEl.focus(); }, 0);
+    // 单例: 展开本框会自动关掉画面上其它添加框
+    todoRegisterAddForm(collapse);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', onVV);
+    setTimeout(function(){ titleEl.focus(); todoLiftIntoView(wrap); }, 50);
   }
   function collapse() {
     titleEl.value = ''; noteEl.value = '';
+    if (dueEl) dueEl.value = todoTodayStr(); // 复位后截止日期仍默认今天
     // 触发一次 input 让 autoGrow 复位
     titleEl.dispatchEvent(new Event('input')); noteEl.dispatchEvent(new Event('input'));
     wrap.classList.remove('editing');
     wrap.classList.add('collapsed');
     window._todoAdderActive = 0;
+    if (window.visualViewport) window.visualViewport.removeEventListener('resize', onVV);
+    todoUnregisterAddForm(collapse);
   }
   async function submit() {
     var title = (titleEl.value || '').trim();
-    if (!title) { titleEl.focus(); return; }
+    if (!title) { alertModal('请填写子任务标题', { ok: false }); titleEl.focus(); return; }
+    // child_due 模式: 截止日期必填(默认今天, 被清空则拦截)
+    if (childDueMode && dueEl && !dueEl.value) { alertModal('请选择截止日期（默认今天）', { ok: false }); dueEl.focus(); return; }
     if (saveBtn.disabled) return;
     saveBtn.disabled = true; cancelBtn.disabled = true;
     var payload = { title: title, parent_id: parentNode.id };
     var note = (noteEl.value || '').trim();
     if (note) payload.note = note;
     if (childDueMode) {
-      payload.due_date = (dueEl && dueEl.value) ? dueEl.value : null;
-      if (recEl && recEl.value) { payload.recurrence = recEl.value; payload.recur_interval = 1; }
+      payload.due_date = dueEl.value ? dueEl.value : null;
+      var r = recurCtl.get();
+      if (r.recurrence) {
+        payload.recurrence = r.recurrence;
+        payload.recur_interval = r.recur_interval;
+        payload.recur_nth = r.recur_nth;
+        payload.recur_weekday = r.recur_weekday;
+      }
     }
     try {
       // 保存前预置连续录入标记, submitFn 通常会触发整详情页重绘 → 新 wrap 挂载时会读到此标记并自动展开
@@ -5354,7 +5509,7 @@ function todoFormHtml(t, isNew, isChild, fopts) {
   // 日期提示行
   var dueTip = isChild
     ? (childMode
-      ? '<p class="muted" style="margin:-4px 0 10px;font-size:12px;">' + ICONS.calendar + '子任务可各自设置截止日期与重复；留空日期则为备忘录，不计入日报</p>'
+      ? '<p class="muted" style="margin:-4px 0 10px;font-size:12px;">' + ICONS.calendar + '子任务需设置截止日期（默认今天），可设置重复规则；未选日期无法保存</p>'
       : '<p class="muted" style="margin:-4px 0 10px;font-size:12px;">' + ICONS.calendar + '子任务的截止日期跟随主任务</p>')
     : '<p id="tfMemoTip" class="muted" style="margin:-4px 0 10px;font-size:12px;display:' + (childDueOn ? 'none' : 'block') + ';">📌 留空截止日期即作备忘录，不计入日报</p>';
   return '<label>标题</label>' +
@@ -5551,6 +5706,12 @@ async function loadTodos() {
   drawTree();
 }
 var _filter = 'cur'; // all | cur | today | overdue | future | memo | done ; 默认今日+逾期
+// 程序化切换时间筛选 tab: 触发对应按钮 click, 复用现有 handler(active 态/统计/图表联动/drawTree 全套)
+function switchTodoFilter(f) {
+  if (_filter === f) return;
+  var btn = document.querySelector('#todoFilter button[data-filter="' + f + '"]');
+  if (btn) btn.click();
+}
 // 按筛选归类顶层任务（日期取顶层显示日期 todoRootDue: 旧模式=自身 due_date; 新模式=最早到期子任务）
 function todoFilterTrees(trees) {
   var t = todayStr();
@@ -5580,8 +5741,12 @@ function openTodoEdit(node) {
   bindClickBusy(document.getElementById('tfSave'), async function(){
     var body = todoFormRead();
     if (!body.title) { alertModal('请填写标题', {ok:false}); return; }
+    // child_due 模式下子任务截止日期必填(与快捷添加框同口径)
+    if (isChild && fopts.childDueMode && !body.due_date) { alertModal('请选择截止日期（默认今天）', {ok:false}); return; }
     await api('/api/todo/' + node.id, { method:'PUT', body: body });
     closeModal(); await loadTodos();
+    // 主任务切到"子任务各自设日期"后自身无日期, 空容器在"今日+逾期"等筛选下会消失 → 自动跳到"全部"
+    if (!isChild && body.child_due === 1) switchTodoFilter('all');
   });
 }
 function drawTree() {
@@ -5690,6 +5855,8 @@ function openAddForm(parentId, title, isChild) {
     if (parentId != null) body.parent_id = parentId;
     await api('/api/todo', { method:'POST', body: body });
     closeModal(); await loadTodos(); await loadChart();
+    // 新建"子任务各自设日期"的主任务后, 空容器在"今日+逾期"等筛选下不显示 → 自动跳到"全部"
+    if (body.child_due === 1) switchTodoFilter('all');
   });
 }
 bindClickBusy(document.getElementById('tAdd'), function(){ openAddForm(null, '新建任务', false); return Promise.resolve(); });

@@ -5,8 +5,11 @@ import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -100,7 +103,7 @@ private fun tabIndexFor(url: String?): Int {
     return if (idx >= 0) idx else 0
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 private fun AppShell(initialUrl: String?) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -235,6 +238,15 @@ private fun AppShell(initialUrl: String?) {
                             }
                         }
                         webChromeClient = WebChromeClient()
+                        // 待办全屏/弹窗等页面在网页"内部容器"里滚动，WebView 原生 scrollY 恒为 0，
+                        // SwipeRefreshLayout 会误判在顶部而拦截向下拖拽（卡片/弹窗卡死无法下滑）。
+                        // 网页经 AppShell 桥实时上报"是否在顶部"，据此开关下拉刷新。
+                        addJavascriptInterface(object {
+                            @JavascriptInterface
+                            fun setPullRefresh(enable: Boolean) {
+                                Handler(Looper.getMainLooper()).post { swipe.isEnabled = enable }
+                            }
+                        }, "AppShell")
                         loadUrl(targetUrl, APP_HEADERS)
                     }
                     // 下拉刷新：网页滚到顶部时下拉触发 reload，onPageFinished 收起指示器
