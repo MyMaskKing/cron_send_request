@@ -1047,8 +1047,16 @@ if (document.readyState === 'loading') {
     window.visualViewport.addEventListener('scroll', report);
   }
   setInterval(report, 500); // 兜底: DOM 变动(弹窗开合/重绘)无 scroll 事件时 500ms 内纠正
-  // 供长按拖拽等场景在手势结束后立即按当前滚动/弹窗状态重算(不等 500ms 兜底)
+  // 供长按拖拽等场景:
+  //   _appShellReport()      —— 手势结束后立即按当前滚动/弹窗状态重算(不等 500ms 兜底)
+  //   _appShellPullDisable() —— 手势期间强制禁用; 必须同步去重状态 _last='0',
+  //                             否则手势结束 report 判定"仍在顶部"(key='1' 与旧 _last 相同)会跳过恢复,
+  //                             下拉刷新会一直卡在禁用
   window._appShellReport = report;
+  window._appShellPullDisable = function() {
+    _last = '0';
+    try { api.setPullRefresh(false); } catch (e) {}
+  };
   report();
 })();
 
@@ -5386,11 +5394,18 @@ function todoBindDrag(handle, wrap, node, opts) {
   var lpTimer = null, lpArmed = false, startX = 0, startY = 0, pulled = false;
   // App 原生壳下拉刷新(SwipeRefreshLayout)在原生层拦截触摸: 长按后拖动会被它抢走(WebView 收 touchcancel),
   // 导致"拖不动 + 触发下拉刷新". JS preventDefault 挡不住原生父容器, 必须经 AppShell 桥在长按手势期间禁用.
-  function appShellPull(enable) {
-    try { if (window.AppShell && typeof window.AppShell.setPullRefresh === 'function') window.AppShell.setPullRefresh(enable); } catch (e) {}
+  // 禁用走桥的 _appShellPullDisable(同步去重状态), 否则手势结束后的恢复会被 report 的"状态未变"去重跳过.
+  function appShellPullDisable() {
+    try {
+      if (typeof window._appShellPullDisable === 'function') window._appShellPullDisable();
+      else if (window.AppShell && typeof window.AppShell.setPullRefresh === 'function') window.AppShell.setPullRefresh(false);
+    } catch (e) {}
   }
   function appShellRefresh() {
-    try { if (typeof window._appShellReport === 'function') window._appShellReport(); else appShellPull(true); } catch (e) {}
+    try {
+      if (typeof window._appShellReport === 'function') window._appShellReport();
+      else if (window.AppShell && typeof window.AppShell.setPullRefresh === 'function') window.AppShell.setPullRefresh(true);
+    } catch (e) {}
   }
 
   function siblings() {
@@ -5502,7 +5517,7 @@ function todoBindDrag(handle, wrap, node, opts) {
     document.addEventListener('touchcancel', onTouchEnd, true);
     // 长按手势一开始(按住等待期)就禁用原生下拉刷新: 350ms 后进入拖拽, 手指移动时 SwipeRefresh 已关闭,
     // 不会抢走 touch 序列; 抬手/取消时由 cleanup → appShellRefresh 按当前状态恢复
-    appShellPull(false); pulled = true;
+    appShellPullDisable(); pulled = true;
   }
   function onTouchMove(e) {
     if (dragging) {
