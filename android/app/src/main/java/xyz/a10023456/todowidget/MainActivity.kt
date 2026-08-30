@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -247,6 +249,40 @@ private fun AppShell(initialUrl: String?) {
                                 Handler(Looper.getMainLooper()).post { swipe.isEnabled = enable }
                             }
                         }, "AppShell")
+                        // 长按任务行拖拽排序的下拉刷新冲突, 在原生主线程同步处理:
+                        // 网页 JS 长按检测经 bridge 关闭下拉刷新有跨线程延迟, 拖拽首帧可能已被
+                        // SwipeRefreshLayout 抢走手势. 这里 OnTouchListener 只观察不消费(返回 false),
+                        // 按住 350ms 且移动 < touchSlop 即判定长按, 当场在主线程 isEnabled=false;
+                        // 抬手/取消恢复(之后由网页 AppShell 桥按滚动位置纠正). 零 JS 延迟.
+                        val touchSlop = ViewConfiguration.get(ctx).scaledTouchSlop
+                        val lpHandler = Handler(Looper.getMainLooper())
+                        var lpX = 0f
+                        var lpY = 0f
+                        var lpFired = false
+                        val lpRunnable = Runnable { lpFired = true; swipe.isEnabled = false }
+                        setOnTouchListener { _, ev ->
+                            when (ev.actionMasked) {
+                                MotionEvent.ACTION_DOWN -> {
+                                    lpX = ev.rawX; lpY = ev.rawY; lpFired = false
+                                    lpHandler.removeCallbacks(lpRunnable)
+                                    lpHandler.postDelayed(lpRunnable, 350)
+                                }
+                                MotionEvent.ACTION_MOVE -> {
+                                    if (!lpFired && kotlin.math.hypot(
+                                            (ev.rawX - lpX).toDouble(),
+                                            (ev.rawY - lpY).toDouble()
+                                        ) > touchSlop
+                                    ) {
+                                        lpHandler.removeCallbacks(lpRunnable) // 已滑动, 非长按
+                                    }
+                                }
+                                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                    lpHandler.removeCallbacks(lpRunnable)
+                                    if (lpFired) { swipe.isEnabled = true; lpFired = false }
+                                }
+                            }
+                            false // 不消费, WebView 正常处理并继续派发给网页
+                        }
                         loadUrl(targetUrl, APP_HEADERS)
                     }
                     // 下拉刷新：网页滚到顶部时下拉触发 reload，onPageFinished 收起指示器
