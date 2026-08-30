@@ -606,8 +606,15 @@ body.booting { overflow: hidden; position: fixed; width: 100%; touch-action: non
 .todo-filter { margin: 4px 0 12px; }
 @media (prefers-reduced-motion: reduce) { .todo-row, .todo-check, .todo-check::after, .todo-caret { transition: none; } }
 /* 子任务长按拖拽：拖动中的节点浮起，拖动期间全局禁选中并显示抓取光标 */
-.todo-node.dragging { opacity: .92; }
-.todo-node.dragging > .todo-row { box-shadow: 0 8px 24px rgba(168,85,247,.28); border-color: #A855F7; background: #fff; cursor: grabbing; transform: scale(1.01); position: relative; z-index: 6; }
+/* 长按拖起: 整行"浮离"列表 —— 多层阴影(环境投影 + 品牌色晕 + 2px 光环描边, 光环用 shadow 不占布局避免位移),
+   轻微放大+倾斜模拟抓在手里; .todo-row 自带 transform .18s 过渡, 加 class 瞬间有"抬起"动画 */
+.todo-node.dragging { opacity: .96; }
+.todo-node.dragging > .todo-row {
+  background: #fff; cursor: grabbing; position: relative; z-index: 8;
+  border-color: #c9b8f5;
+  transform: scale(1.02) rotate(-.5deg);
+  box-shadow: 0 14px 30px rgba(31,35,41,.18), 0 4px 12px rgba(168,85,247,.20), 0 0 0 2px rgba(168,85,247,.22);
+}
 body.todo-dragging { user-select: none; -webkit-user-select: none; touch-action: none; cursor: grabbing; }
 @media (prefers-reduced-motion: reduce) { .todo-node.dragging > .todo-row { transform: none; } }
 
@@ -1018,8 +1025,11 @@ html { scrollbar-gutter: stable; }
   .todo-ops { opacity: 1; }
   /* 手机端拖拽手柄隐藏: 改为长按整行拖拽(见 todoBindDrag), 操作区少一个小按钮防误触 */
   .todo-drag { display: none !important; }
-  /* 长按拖起时的"抬起"反馈在手机上更明显: 放大 + 更深阴影 */
-  .todo-node.dragging > .todo-row { transform: scale(1.02); box-shadow: 0 14px 32px rgba(168,85,247,.32); }
+  /* 长按拖起时手机上"浮起"更强: 放大更多 + 倾斜 + 大投影, 明确区别于普通按压 */
+  .todo-node.dragging > .todo-row {
+    transform: scale(1.045) rotate(-.8deg);
+    box-shadow: 0 22px 44px rgba(31,35,41,.26), 0 8px 18px rgba(168,85,247,.26), 0 0 0 2px rgba(168,85,247,.28);
+  }
   .todo-stat { min-width: 70px; padding: 10px; }
   /* 卡片视图窄屏收小内边距 */
   .todo-card__body { padding: 12px 14px 8px; }
