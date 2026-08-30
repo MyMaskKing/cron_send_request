@@ -5372,30 +5372,25 @@ function mountDetailAdder(container, parentNode, submitFn) {
   titleEl.addEventListener('keydown', function(e){ if (e.key === 'Escape') { e.preventDefault(); collapse(); } });
   noteEl.addEventListener('keydown', function(e){ if (e.key === 'Escape') { e.preventDefault(); collapse(); } });
 }
-// 子任务拖拽排序（仅同级重排）：按住行尾手柄即可拖动，同父兄弟间按位置插入，松手回调 onReorder
+// 子任务拖拽排序（仅同级重排），两个入口共用一套 beginDrag/moveTo/finishDrag:
+//   手机(触摸): 长按整行 ~350ms 进入拖拽 —— 长按期间移动 >10px 判定为滚动/左滑手势, 取消, 绝不抢滚动;
+//               进入瞬间振动 + 行"抬起"(放大/阴影), 拖动时同父兄弟按位置实时让位, 松手提交, 未移动则回弹;
+//               长按只在行主体生效(避开勾选框/操作按钮/输入区), 长按松手不会误触发行展开/折叠.
+//   PC(鼠标/笔): 行尾拖拽手柄按住即拖(手柄在窄屏 CSS 隐藏, 手机只走长按).
 // handle: 拖拽手柄按钮；wrap: 该节点 .todo-node 容器；node: 数据节点；opts.onReorder(parentId, ids)
 function todoBindDrag(handle, wrap, node, opts) {
+  var LONG_PRESS_MS = 350, MOVE_CANCEL = 10;
   var dragging = false, parentBox = null;
+  var lpTimer = null, lpArmed = false, startX = 0, startY = 0;
+
   function siblings() {
     return Array.prototype.filter.call(parentBox.children, function(el){
       return el.classList && el.classList.contains('todo-node');
     });
   }
-  function cleanup() {
-    if (dragging) {
-      dragging = false;
-      wrap.classList.remove('dragging');
-      document.body.classList.remove('todo-dragging');
-    }
-    document.removeEventListener('pointermove', onMove, true);
-    document.removeEventListener('pointerup', onUp, true);
-    document.removeEventListener('pointercancel', onUp, true);
-  }
-  function onMove(e) {
+  // 拖动中按 clientY 在同父兄弟中点定位插入(实时让位)
+  function moveTo(y) {
     if (!dragging) return;
-    e.preventDefault();
-    var y = e.clientY;
-    // 在同父兄弟中按各兄弟中点定位插入位置
     var sibs = siblings();
     for (var i = 0; i < sibs.length; i++) {
       var el = sibs[i];
@@ -5406,30 +5401,118 @@ function todoBindDrag(handle, wrap, node, opts) {
     }
     if (wrap !== parentBox.lastChild) parentBox.appendChild(wrap);
   }
-  function onUp() {
-    var wasDragging = dragging;
-    var box = parentBox;
-    cleanup();
-    if (!wasDragging || !box) return;
-    var ids = Array.prototype.filter.call(box.children, function(el){
-      return el.classList && el.classList.contains('todo-node');
-    }).map(function(el){ return parseInt(el.getAttribute('data-id'), 10); });
-    var pid = node.parent_id != null ? node.parent_id : null;
-    opts.onReorder(pid, ids);
+  // 长按后松手浏览器会补一次合成 click(会展开/折叠子任务), 捕获阶段吞掉这一拍
+  function suppressClickOnce() {
+    function h(e){ e.stopPropagation(); e.preventDefault(); wrap.removeEventListener('click', h, true); }
+    wrap.addEventListener('click', h, true);
+    setTimeout(function(){ wrap.removeEventListener('click', h, true); }, 400);
   }
-  handle.addEventListener('pointerdown', function(e){
-    e.preventDefault(); e.stopPropagation();
-    dragging = true;
+  function beginDrag() {
+    if (dragging || !lpArmed) return;
+    dragging = true; lpArmed = false;
     parentBox = wrap.parentNode; // .todo-children
     wrap.classList.add('dragging');
     document.body.classList.add('todo-dragging');
     if (navigator.vibrate) { try { navigator.vibrate(15); } catch(err){} }
-    document.addEventListener('pointermove', onMove, true);
-    document.addEventListener('pointerup', onUp, true);
-    document.addEventListener('pointercancel', onUp, true);
+    suppressClickOnce();
+  }
+  // 收集同父容器里 .todo-node 的 data-id 顺序(cleanup 不重置 parentBox, 松手后仍可读)
+  function collectIds(box) {
+    return Array.prototype.filter.call(box.children, function(el){
+      return el.classList && el.classList.contains('todo-node');
+    }).map(function(el){ return parseInt(el.getAttribute('data-id'), 10); });
+  }
+  function removePtrListeners() {
+    document.removeEventListener('pointermove', onPtrMove, true);
+    document.removeEventListener('pointerup', onPtrUp, true);
+    document.removeEventListener('pointercancel', onPtrUp, true);
+  }
+  function removeTouchListeners() {
+    document.removeEventListener('touchmove', onTouchMove, { passive: false, capture: true });
+    document.removeEventListener('touchend', onTouchEnd, true);
+    document.removeEventListener('touchcancel', onTouchEnd, true);
+  }
+  function cleanup() {
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+    lpArmed = false;
+    if (dragging) {
+      dragging = false;
+      wrap.classList.remove('dragging');
+      document.body.classList.remove('todo-dragging');
+    }
+    removePtrListeners();
+    removeTouchListeners();
+  }
+  // 松手: 位置有变才提交(finishDrag 内按 DOM 顺序收集 ids, onReorder 端会重绘对齐)
+  function finishDrag() {
+    var wasDragging = dragging;
+    var box = parentBox;
+    cleanup();
+    if (!wasDragging || !box) return;
+    var pid = node.parent_id != null ? node.parent_id : null;
+    opts.onReorder(pid, collectIds(box));
+  }
+
+  // ---- 手柄入口(PC 鼠标/笔; 触摸不走手柄, 窄屏手柄已隐藏) ----
+  function onPtrMove(e) { if (!dragging) return; e.preventDefault(); moveTo(e.clientY); }
+  function onPtrUp() { finishDrag(); }
+  handle.addEventListener('pointerdown', function(e){
+    if (e.pointerType === 'touch') return; // 触摸一律走整行长按
+    e.preventDefault(); e.stopPropagation();
+    parentBox = wrap.parentNode;
+    lpArmed = true; beginDrag();
+    document.addEventListener('pointermove', onPtrMove, true);
+    document.addEventListener('pointerup', onPtrUp, true);
+    document.addEventListener('pointercancel', onPtrUp, true);
   });
   // 手柄上点击不触发行展开
   handle.addEventListener('click', function(e){ e.stopPropagation(); });
+
+  // ---- 整行长按入口(手机触摸) ----
+  function onTouchStart(e) {
+    if (dragging) return;
+    if (!e.touches || e.touches.length !== 1) { lpArmed = false; return; }
+    var tgt = e.target;
+    // 嵌套 .todo-node(父行包含子行): 只处理"最近的任务节点是自己"的触摸, 子行触摸冒泡到父 wrap 不重复 arm.
+    // 不调 stopPropagation, 以免挡住 document 上的全局左滑返回手势.
+    var nearest = tgt.closest ? tgt.closest('.todo-node') : null;
+    if (nearest !== wrap) return;
+    // 只在行主体起手: 避开勾选框/操作按钮区/内联添加框/各类交互控件
+    if (tgt.closest && (tgt.closest('.todo-check') || tgt.closest('.todo-ops') ||
+        tgt.closest('.todo-inline-add') || tgt.closest('.todo-detail-adder') ||
+        tgt.closest('input,textarea,select,button,a'))) { lpArmed = false; return; }
+    cleanup(); // 清上一组残留监听/计时器
+    var t = e.touches[0];
+    startX = t.clientX; startY = t.clientY; lpArmed = true;
+    lpTimer = setTimeout(function(){ if (lpArmed) beginDrag(); }, LONG_PRESS_MS);
+    // touchmove 用 passive:false: 仅在已进入拖拽后 preventDefault 锁滚动; 未成立时不拦截, 滚动/手势正常
+    document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
+    document.addEventListener('touchend', onTouchEnd, true);
+    document.addEventListener('touchcancel', onTouchEnd, true);
+  }
+  function onTouchMove(e) {
+    if (dragging) {
+      e.preventDefault(); // 进入拖拽后锁住页面滚动
+      if (e.touches && e.touches.length === 1) moveTo(e.touches[0].clientY);
+      return;
+    }
+    if (!lpArmed) return;
+    var t = e.touches && e.touches[0];
+    if (!t) return;
+    // 长按未成立手指就移动超过阈值 → 让位给页面滚动/左滑返回, 取消本次长按
+    if (Math.abs(t.clientX - startX) > MOVE_CANCEL || Math.abs(t.clientY - startY) > MOVE_CANCEL) {
+      lpArmed = false;
+      if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+    }
+  }
+  function onTouchEnd() {
+    if (dragging) { finishDrag(); return; } // cleanup 已在其中
+    // 未进入拖拽的抬手(短按/滚动后抬手): 清长按计时器与监听, 保留原生 click(展开/折叠正常)
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+    lpArmed = false;
+    removeTouchListeners();
+  }
+  wrap.addEventListener('touchstart', onTouchStart, { passive: true });
 }
 // 任务编辑表单 HTML：标题(多行长文本)/优先级/截止/重复/分类/备注
 // isNew=true 新建；isChild=true 为子任务

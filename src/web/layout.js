@@ -524,6 +524,8 @@ body.booting { overflow: hidden; position: fixed; width: 100%; touch-action: non
   background: #fff; border: 1px solid #eef0f5; border-radius: 10px;
   margin-left: calc(var(--depth, 0) * 26px);
   transition: box-shadow .18s, border-color .18s, transform .18s;
+  /* 长按整行拖拽: 禁止长按弹出系统菜单/文字选择放大镜(行内无输入控件, 不影响使用) */
+  -webkit-touch-callout: none; user-select: none; -webkit-user-select: none;
 }
 .todo-row:hover { box-shadow: 0 3px 14px rgba(168,85,247,.10); border-color: #dfe4fb; transform: translateX(1px); }
 /* 优先级：标题前一枚小圆点（克制点缀，不占左色带）。红=高 琥珀=中 灰=低 */
@@ -605,7 +607,7 @@ body.booting { overflow: hidden; position: fixed; width: 100%; touch-action: non
 @media (prefers-reduced-motion: reduce) { .todo-row, .todo-check, .todo-check::after, .todo-caret { transition: none; } }
 /* 子任务长按拖拽：拖动中的节点浮起，拖动期间全局禁选中并显示抓取光标 */
 .todo-node.dragging { opacity: .92; }
-.todo-node.dragging > .todo-row { box-shadow: 0 8px 24px rgba(168,85,247,.28); border-color: #A855F7; background: #fff; cursor: grabbing; transform: scale(1.01); }
+.todo-node.dragging > .todo-row { box-shadow: 0 8px 24px rgba(168,85,247,.28); border-color: #A855F7; background: #fff; cursor: grabbing; transform: scale(1.01); position: relative; z-index: 6; }
 body.todo-dragging { user-select: none; -webkit-user-select: none; touch-action: none; cursor: grabbing; }
 @media (prefers-reduced-motion: reduce) { .todo-node.dragging > .todo-row { transform: none; } }
 
@@ -1014,6 +1016,10 @@ html { scrollbar-gutter: stable; }
   .todo-row { margin-left: calc(var(--depth, 0) * 16px); gap: 8px; padding: 8px 10px; }
   .todo-node[data-depth]:not([data-depth="0"]) > .todo-row::before { left: calc(var(--depth, 0) * 16px - 9px); width: 8px; }
   .todo-ops { opacity: 1; }
+  /* 手机端拖拽手柄隐藏: 改为长按整行拖拽(见 todoBindDrag), 操作区少一个小按钮防误触 */
+  .todo-drag { display: none !important; }
+  /* 长按拖起时的"抬起"反馈在手机上更明显: 放大 + 更深阴影 */
+  .todo-node.dragging > .todo-row { transform: scale(1.02); box-shadow: 0 14px 32px rgba(168,85,247,.32); }
   .todo-stat { min-width: 70px; padding: 10px; }
   /* 卡片视图窄屏收小内边距 */
   .todo-card__body { padding: 12px 14px 8px; }
