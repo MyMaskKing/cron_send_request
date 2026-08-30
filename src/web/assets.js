@@ -1047,6 +1047,8 @@ if (document.readyState === 'loading') {
     window.visualViewport.addEventListener('scroll', report);
   }
   setInterval(report, 500); // 兜底: DOM 变动(弹窗开合/重绘)无 scroll 事件时 500ms 内纠正
+  // 供长按拖拽等场景在手势结束后立即按当前滚动/弹窗状态重算(不等 500ms 兜底)
+  window._appShellReport = report;
   report();
 })();
 
@@ -5381,7 +5383,15 @@ function mountDetailAdder(container, parentNode, submitFn) {
 function todoBindDrag(handle, wrap, node, opts) {
   var LONG_PRESS_MS = 350, MOVE_CANCEL = 10;
   var dragging = false, parentBox = null;
-  var lpTimer = null, lpArmed = false, startX = 0, startY = 0;
+  var lpTimer = null, lpArmed = false, startX = 0, startY = 0, pulled = false;
+  // App 原生壳下拉刷新(SwipeRefreshLayout)在原生层拦截触摸: 长按后拖动会被它抢走(WebView 收 touchcancel),
+  // 导致"拖不动 + 触发下拉刷新". JS preventDefault 挡不住原生父容器, 必须经 AppShell 桥在长按手势期间禁用.
+  function appShellPull(enable) {
+    try { if (window.AppShell && typeof window.AppShell.setPullRefresh === 'function') window.AppShell.setPullRefresh(enable); } catch (e) {}
+  }
+  function appShellRefresh() {
+    try { if (typeof window._appShellReport === 'function') window._appShellReport(); else appShellPull(true); } catch (e) {}
+  }
 
   function siblings() {
     return Array.prototype.filter.call(parentBox.children, function(el){
@@ -5440,6 +5450,7 @@ function todoBindDrag(handle, wrap, node, opts) {
       wrap.classList.remove('dragging');
       document.body.classList.remove('todo-dragging');
     }
+    if (pulled) { pulled = false; appShellRefresh(); } // 手势结束, 按当前滚动/弹窗状态恢复下拉刷新
     removePtrListeners();
     removeTouchListeners();
   }
@@ -5489,6 +5500,9 @@ function todoBindDrag(handle, wrap, node, opts) {
     document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
     document.addEventListener('touchend', onTouchEnd, true);
     document.addEventListener('touchcancel', onTouchEnd, true);
+    // 长按手势一开始(按住等待期)就禁用原生下拉刷新: 350ms 后进入拖拽, 手指移动时 SwipeRefresh 已关闭,
+    // 不会抢走 touch 序列; 抬手/取消时由 cleanup → appShellRefresh 按当前状态恢复
+    appShellPull(false); pulled = true;
   }
   function onTouchMove(e) {
     if (dragging) {
@@ -5506,11 +5520,9 @@ function todoBindDrag(handle, wrap, node, opts) {
     }
   }
   function onTouchEnd() {
-    if (dragging) { finishDrag(); return; } // cleanup 已在其中
-    // 未进入拖拽的抬手(短按/滚动后抬手): 清长按计时器与监听, 保留原生 click(展开/折叠正常)
-    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
-    lpArmed = false;
-    removeTouchListeners();
+    if (dragging) { finishDrag(); return; } // finishDrag 内 cleanup
+    // 未进入拖拽的抬手(短按/滚动后抬手): cleanup 清计时器/监听并恢复下拉刷新, 保留原生 click(展开/折叠正常)
+    cleanup();
   }
   wrap.addEventListener('touchstart', onTouchStart, { passive: true });
 }
