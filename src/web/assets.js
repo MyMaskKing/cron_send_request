@@ -5326,6 +5326,7 @@ function mountDetailAdder(container, parentNode, submitFn) {
     if (dueEl) dueEl.value = todoTodayStr(); // 复位后截止日期仍默认今天
     // 触发一次 input 让 autoGrow 复位
     titleEl.dispatchEvent(new Event('input')); noteEl.dispatchEvent(new Event('input'));
+    saveBtn.disabled = false; cancelBtn.disabled = false; // 收起时恢复按钮, 下次展开可再点
     wrap.classList.remove('editing');
     wrap.classList.add('collapsed');
     window._todoAdderActive = 0;
@@ -5353,19 +5354,14 @@ function mountDetailAdder(container, parentNode, submitFn) {
       }
     }
     try {
-      // 保存前预置连续录入标记, submitFn 通常会触发整详情页重绘 → 新 wrap 挂载时会读到此标记并自动展开
-      window._todoAdderActive = 1;
+      // 先置 0: submitFn 内部会 loadTodos → 重绘详情, 新挂载的添加框读到 0 即保持折叠(不自动展开).
+      // 必须在 await 之前 —— 重绘发生在 submitFn 内部, 晚了新框已按 1 展开.
+      window._todoAdderActive = 0;
       await submitFn(payload);
-      // 若未重绘(极端情况), 本 wrap 仍在, 清空输入保持编辑态供继续录入
-      if (wrap.isConnected) {
-        titleEl.value = ''; noteEl.value = '';
-        titleEl.dispatchEvent(new Event('input')); noteEl.dispatchEvent(new Event('input'));
-        saveBtn.disabled = false; cancelBtn.disabled = false;
-        titleEl.focus();
-      }
+      // 未重绘的极端情况下就地收起(重绘时本闭包持有的是已移除的旧 wrap, 操作无视觉影响)
+      collapse();
     } catch (err) {
       saveBtn.disabled = false; cancelBtn.disabled = false;
-      window._todoAdderActive = 0;
       if (typeof alertModal === 'function') alertModal((err && err.message) || '保存失败', {ok:false});
     }
   }
