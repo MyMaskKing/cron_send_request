@@ -6,13 +6,15 @@
  */
 
 // ============ 日期 label（网页 UI 与日报共用的显示语义） ============
-// 语义: 今天/昨天/明天 → 中文; 本周内(ISO 周, 周一为首) → 本周一~本周日; 否则 MM/DD
+// 语义: 今天/昨天/明天 → 中文; 本周内(ISO 周, 周一为首) → 本周一~本周日;
+//       范围外: 本年 MM/DD, 跨年 yy/MM/DD(2 位年, 如 26/08/01)
 // 输入均为 YYYY-MM-DD 北京日历串; 空/非法返回 ''
 // 与前端 COMMON_JS 里的同名函数逻辑必须保持一致(唯一事实源)
 const CN_WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 function todoDateLabel(dueDate, today) {
   if (!dueDate || dueDate.length < 10) return '';
-  if (!today || today.length < 10) return `${dueDate.slice(5, 7)}/${dueDate.slice(8, 10)}`;
+  const md = `${dueDate.slice(5, 7)}/${dueDate.slice(8, 10)}`;
+  if (!today || today.length < 10) return md;
   const dMs = Date.UTC(+dueDate.slice(0, 4), +dueDate.slice(5, 7) - 1, +dueDate.slice(8, 10));
   const tMs = Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10));
   const diff = Math.round((dMs - tMs) / 86400000);
@@ -27,7 +29,9 @@ function todoDateLabel(dueDate, today) {
   if (dMs >= monMs && dMs <= sunMs) {
     return '本' + CN_WEEKDAY[new Date(dMs).getUTCDay()];
   }
-  return `${dueDate.slice(5, 7)}/${dueDate.slice(8, 10)}`;
+  // 范围外: 本年 MM/DD; 跨年 yy/MM/DD(2 位年)
+  if (dueDate.slice(0, 4) !== today.slice(0, 4)) return `${dueDate.slice(2, 4)}/${md}`;
+  return md;
 }
 
 /**

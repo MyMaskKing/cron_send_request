@@ -734,7 +734,8 @@ function bindQuickLogin(kind) {
 var _CN_WEEKDAY = ['周日','周一','周二','周三','周四','周五','周六'];
 function todoDateLabel(dueDate, today) {
   if (!dueDate || dueDate.length < 10) return '';
-  if (!today || today.length < 10) return dueDate.slice(5,7) + '/' + dueDate.slice(8,10);
+  var md = dueDate.slice(5,7) + '/' + dueDate.slice(8,10);
+  if (!today || today.length < 10) return md;
   var dMs = Date.UTC(+dueDate.slice(0,4), +dueDate.slice(5,7)-1, +dueDate.slice(8,10));
   var tMs = Date.UTC(+today.slice(0,4), +today.slice(5,7)-1, +today.slice(8,10));
   var diff = Math.round((dMs - tMs) / 86400000);
@@ -746,7 +747,9 @@ function todoDateLabel(dueDate, today) {
   var monMs = tMs - monOff * 86400000;
   var sunMs = monMs + 6 * 86400000;
   if (dMs >= monMs && dMs <= sunMs) return '本' + _CN_WEEKDAY[new Date(dMs).getUTCDay()];
-  return dueDate.slice(5,7) + '/' + dueDate.slice(8,10);
+  // 范围外: 本年 MM/DD; 跨年 yy/MM/DD(2 位年, 如 26/08/01)
+  if (dueDate.slice(0,4) !== today.slice(0,4)) return dueDate.slice(2,4) + '/' + md;
+  return md;
 }
 
 // ============ 全局左滑返回手势 ============

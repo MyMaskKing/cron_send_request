@@ -587,12 +587,19 @@ function createD1Adapter(env) {
         const wd = (rec === 'monthly_nth_weekday' && t.recur_weekday != null) ? parseInt(t.recur_weekday, 10) : null;
         // child_due 仅顶层任务有意义; 子任务恒为 0
         const childDue = (t.parent_id == null && t.child_due) ? 1 : 0;
+        // sort_order 未显式传入时取同父(同 user_id + 同 parent_id)最大值 +1, 保证新建任务永远
+        // 追加到同层末尾(= 创建时间顺序); 否则默认 0 会在拖拽排序(reorder 写 0..n)后把新任务插到序列中间.
+        // parent_id IS ? 绑 NULL 即 IS NULL, 绑 id 即等价 = id(SQLite IS 语义).
+        const parentId = t.parent_id != null ? t.parent_id : null;
         const res = await db.prepare(
-          'INSERT INTO todos (user_id, parent_id, title, priority, due_date, category, note, sort_order, child_due, recurrence, recur_interval, recur_nth, recur_weekday) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO todos (user_id, parent_id, title, priority, due_date, category, note, sort_order, child_due, recurrence, recur_interval, recur_nth, recur_weekday) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM todos WHERE user_id = ? AND parent_id IS ?)), ?, ?, ?, ?, ?)'
         ).bind(
-          userId, t.parent_id != null ? t.parent_id : null, t.title,
+          userId, parentId, t.title,
           t.priority != null ? t.priority : 1,
-          t.due_date || null, t.category || null, t.note || null, t.sort_order != null ? t.sort_order : 0,
+          t.due_date || null, t.category || null, t.note || null,
+          t.sort_order != null ? t.sort_order : null,
+          userId, parentId,
           childDue, rec, iv, nth, wd
         ).run();
         return res.meta.last_row_id;
