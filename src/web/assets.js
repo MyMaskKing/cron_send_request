@@ -3907,9 +3907,12 @@ function todoRootRowOf(rows, node) {
   return cur;
 }
 // 顶层时间过滤(四套页面共享): 按顶层显示日期 todoRootDue 归类
-// filter ∈ all | cur(今日+逾期) | today | overdue | future | memo | done
+// filter ∈ all | planned(计划中) | cur(今日+逾期) | today | overdue | future | memo | done
 function todoRootPassFilter(n, filter, t) {
   var d = todoRootDue(n);
+  // 计划中 = 有截止日期的任务(全部 - 备忘录): 用原始字段判断, done 不清空 due_date,
+  // 故已完成的有日期任务仍属计划中(受"隐藏已完成"复选框控制显隐); child_due 容器子任务带日期也算
+  if (filter === 'planned') return !!(n.due_date || n.child_due);
   if (filter === 'cur')     return !!(d && t && d <= t);
   if (filter === 'today')   return d === t;
   if (filter === 'overdue') return !!(d && t && d < t);
@@ -3940,7 +3943,7 @@ function todoRangeLabel(range) {
 }
 // filter → 顶层筛选口径中文
 function todoFilterLabel(filter) {
-  return ({ all:'全部', today:'今日', overdue:'逾期', future:'未来', memo:'备忘录', done:'已完成', cur:'今日+逾期' })[filter] || filter;
+  return ({ all:'全部', planned:'计划中', today:'今日', overdue:'逾期', future:'未来', memo:'备忘录', done:'已完成', cur:'今日+逾期' })[filter] || filter;
 }
 // 更新 stats 上方的"当前视图"灰字提示:
 //   filter = 顶层筛选口径; range = 已完成计数所依赖的时间窗(与 chartRange 下拉框联动)
@@ -3989,7 +3992,7 @@ function todoRangeWindow(range, today) {
 //     future         = 有效 due_date > today
 //     memo           = 无有效 due_date (备忘录; 时间窗对它不适用, 直接豁免)
 //     cur            = 有效 due_date <= today (今日+逾期)
-//     all / done     = 全部有 due_date 的空间
+//     all / done / planned = 全部有 due_date 的空间 (planned 计划中=有截止日期; 备忘录无有效日期, 被上面 !rdue 排除)
 //   range 决定 due_date 时间窗: due_date 必须落在 todoRangeWindow(range, today) 闭区间内
 //   memo 分支豁免时间窗(无截止日期不受"当月"约束)
 // rows 为扁平数据; 只算叶子(hasChild 排除父任务)
@@ -4346,15 +4349,17 @@ function renderTodoDrawer(rows, onSelect) {
   var foot = document.getElementById('drawerFoot');
   if (foot) foot.textContent = '共 ' + cats.length + ' 个分类';
 }
-// 时间维度顶层任务计数(顶层口径, 与 todoFilterTrees 同): 全部/今日+逾期/今日/逾期/未来/备忘录/已完成
+// 时间维度顶层任务计数(顶层口径, 与 todoFilterTrees 同): 全部/计划中/今日+逾期/今日/逾期/未来/备忘录/已完成
 // 只统计顶层任务, 日期取顶层显示日期 todoRootDue(旧模式=自身 due_date; 新模式=最早到期子任务), 不重复计数
 // 桶互斥: 已完成任务归入 done, 不再计入 overdue/today/future/memo
 // cur = today + overdue (与 filter=cur 的口径一致, 已完成不计入)
+// planned = 有截止日期(全部-备忘录), 与 todoRootPassFilter 的 planned 同口径(含已完成有日期任务)
 function todoTimeCounts(rows) {
   var today = new Date(Date.now() + 8*3600*1000).toISOString().slice(0,10);
-  var m = { all: 0, cur: 0, today: 0, overdue: 0, future: 0, memo: 0, done: 0 };
+  var m = { all: 0, planned: 0, cur: 0, today: 0, overdue: 0, future: 0, memo: 0, done: 0 };
   todoBuildTree(rows).forEach(function(r){
     m.all++;
+    if (r.due_date || r.child_due) m.planned++; // 计划中: 顶层自身有日期 或 child_due 容器(子任务带日期)
     if (r.done) { m.done++; return; }
     var due = todoRootDue(r);
     if (!due) { if (!r.child_due) m.memo++; return; } // child_due 空容器(分组壳)不计备忘录
@@ -5814,7 +5819,7 @@ async function loadTodos() {
   updateStatsHint(_filter, _curRange);
   drawTree();
 }
-var _filter = 'cur'; // all | cur | today | overdue | future | memo | done ; 默认今日+逾期
+var _filter = 'planned'; // all | planned | cur | today | overdue | future | memo | done ; 默认计划中(有截止日期)
 // 程序化切换时间筛选 tab: 触发对应按钮 click, 复用现有 handler(active 态/统计/图表联动/drawTree 全套)
 function switchTodoFilter(f) {
   if (_filter === f) return;
