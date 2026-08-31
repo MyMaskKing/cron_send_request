@@ -5,10 +5,11 @@
 // 通用 API 请求与工具函数（所有页面共用）
 const COMMON_JS = `
 // ============ 全局软键盘遮挡兜底 ============
-// App WebView(Android 15 edge-to-edge, WebView 不随键盘自动收缩)或手机浏览器里, 输入框聚焦时
-// 软键盘可能盖住输入框。任意 input/textarea/contenteditable 聚焦、或 visualViewport 变化(键盘
-// 弹起)时, 把聚焦元素抬到可视视口内: 先 scrollIntoView, 再按可视视口底边补差滚动最近可滚动祖先
-// (全屏主区/弹窗遮罩/长表格), 兜底 window 滚动。与 todo 页 todoLiftIntoView 同口径, 此处全局生效。
+// 手机浏览器/App WebView 里, 输入框聚焦时软键盘可能盖住输入框(弹窗/全屏容器内)。
+// 任意 input/textarea/contenteditable 聚焦后, 等键盘弹起、视口收缩完成(300ms), 再把聚焦元素
+// 抬到可视视口内: 先 scrollIntoView, 再按 visualViewport 底边补差滚动最近可滚动祖先(全屏主区/
+// 弹窗遮罩/长表格), 兜底 window 滚动。只在聚焦时抬一次, 不监听 visualViewport resize——
+// 键盘动画期间逐帧反复 scrollIntoView 会干扰输入焦点, 反而导致键盘被收起。
 (function(){
   function liftFocused(){
     var el = document.activeElement;
@@ -29,12 +30,7 @@ const COMMON_JS = `
     }
     window.scrollBy(0, delta);
   }
-  document.addEventListener('focusin', function(){
-    requestAnimationFrame(function(){ requestAnimationFrame(liftFocused); }); // 两帧等键盘动画/视口收缩
-  });
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', function(){ requestAnimationFrame(liftFocused); });
-  }
+  document.addEventListener('focusin', function(){ setTimeout(liftFocused, 300); });
 })();
 // ============ 统一 SVG 图标(24x24, stroke: currentColor, 与 topbar 风格一致) ============
 // 移动端 emoji 在浅底色行上易被吞噬(尤其 ✏️/🔗/🗑️), 全部换成矢量描边图标; 颜色由 .todo-op 决定
