@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.core.view.WindowCompat
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -57,11 +56,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 退出 edge-to-edge（targetSdk 35 下系统默认强制），恢复传统 adjustResize：
-        // 软键盘弹出时系统直接收缩 WebView 高度，网页输入框不被遮挡。
-        // 不用 Compose imePadding——它与 Scaffold 底部导航栏叠加、随 IME 动画逐帧改 WebView
-        // 高度，会导致输入框失焦、键盘"一打开就被强制关闭"。
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+        // 保持 targetSdk 35 默认 edge-to-edge：WebView 不随软键盘收缩，visualViewport 如实反映
+        // 键盘高度（innerHeight 不变、vv.height 缩小），由网页 COMMON_JS 据 vv 把弹窗几何对齐到
+        // 键盘上方。不能用 setDecorFitsSystemWindows(true)/adjustResize——那会让 WebView 整体收缩、
+        // innerHeight 同步变小，visualViewport 算不出键盘高度(kb=0)，网页避让反而失效。
         val deepUrl = intent?.getStringExtra(Keys.Url.name)
         setContent {
             MaterialTheme(

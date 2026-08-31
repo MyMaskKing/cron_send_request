@@ -15,7 +15,9 @@ const COMMON_JS = `
   var _dbg = null, _dbgTimer = null;
   // 【临时诊断】键盘弹起时屏幕顶部红条显示 visualViewport 实测值, 用于定位避让失效发生在哪一层
   // (新代码是否加载 / vv 是否反映键盘 / 聚焦框位置); 定位后整段 dbg 可删。
-  function dbg(vv, kb){
+  function dbg(){
+    var vv = window.visualViewport;
+    var kb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
     if (!_dbg) {
       _dbg = document.createElement('div');
       _dbg.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483647;background:rgba(200,0,0,.88);color:#fff;font:11px/1.5 monospace;padding:3px 6px;pointer-events:none;display:none;white-space:pre-wrap;word-break:break-all;';
@@ -64,10 +66,11 @@ const COMMON_JS = `
         mask.style.height = '';
       }
     });
-    if (kb > 80) dbg(vv, kb);
+    if (kb > 80) dbg();
     else if (_dbg) _dbg.style.display = 'none';
   }
-  document.addEventListener('focusin', function(){ setTimeout(function(){ syncKb(); liftFocused(); }, 300); });
+  // 聚焦后无条件显示一次诊断条(不只 kb>80), 确保 adjustResize/edge-to-edge 两种模式都能读到实测值
+  document.addEventListener('focusin', function(){ setTimeout(function(){ syncKb(); liftFocused(); dbg(); }, 300); });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', syncKb);
     window.visualViewport.addEventListener('scroll', syncKb);
