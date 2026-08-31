@@ -4,28 +4,42 @@
 
 // 通用 API 请求与工具函数（所有页面共用）
 const COMMON_JS = `
-// ============ 全局软键盘遮挡兜底 ============
-// 手机浏览器/App WebView 里, 输入框聚焦时软键盘可能盖住输入框(弹窗/全屏容器内)。两道保险:
-//  1) 键盘高度写入 CSS 变量 --kb-inset(见 layout.js 的 .modal-mask/.todo-fs-main padding-bottom):
-//     edge-to-edge(WebView 不随键盘缩)时 = 键盘高, adjustResize(WebView 已缩)时 ≈ 0, 自动适配。
-//     只设变量改布局留白, 不滚动/不动焦点, 绝不会干扰输入。
-//  2) 聚焦后等键盘弹起、视口收缩完成(300ms), 再把聚焦元素抬到可视视口内(此时留白已足够)。
+// ============ 全局软键盘避让 ============
+// 目标: App WebView / 手机浏览器里, 任意输入框聚焦时, 弹窗与输入框都在键盘上方(不被遮挡)。
+// 用 visualViewport 的实测可视区做两件确定性的事, 不靠 flex padding/margin auto 的布局巧合:
+//  1) 键盘弹起时, 把打开的弹窗遮罩 .modal-mask 几何直接对齐可视视口(top=vv.offsetTop,
+//     height=vv.height), 弹窗可滚动区域即键盘上方; 键盘收起恢复 inset:0。
+//  2) 键盘高度写 CSS 变量 --kb-inset, 供 .todo-fs-main(全屏内联添加框) padding-bottom 避让。
+// 聚焦后等键盘动画完成(300ms)再把聚焦框滚进可视区。不逐帧 scrollIntoView, 不抢焦点。
 (function(){
-  function syncKb(){
-    var vv = window.visualViewport;
-    var kb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
-    document.documentElement.style.setProperty('--kb-inset', kb + 'px');
+  var _dbg = null, _dbgTimer = null;
+  // 【临时诊断】键盘弹起时屏幕顶部红条显示 visualViewport 实测值, 用于定位避让失效发生在哪一层
+  // (新代码是否加载 / vv 是否反映键盘 / 聚焦框位置); 定位后整段 dbg 可删。
+  function dbg(vv, kb){
+    if (!_dbg) {
+      _dbg = document.createElement('div');
+      _dbg.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483647;background:rgba(200,0,0,.88);color:#fff;font:11px/1.5 monospace;padding:3px 6px;pointer-events:none;display:none;white-space:pre-wrap;word-break:break-all;';
+      document.documentElement.appendChild(_dbg);
+    }
+    var el = document.activeElement, r = el ? el.getBoundingClientRect() : null;
+    var tag = el ? ((el.tagName || '').toLowerCase() + (el.id ? '#' + el.id : '')) : '-';
+    _dbg.textContent = 'kb=' + Math.round(kb) + ' vv.h=' + Math.round(vv ? vv.height : 0) +
+      ' off=' + Math.round(vv ? vv.offsetTop : 0) + ' win.h=' + window.innerHeight +
+      ' | act=' + tag + (r ? (' elBottom=' + Math.round(r.bottom)) : '') +
+      ' | mask=' + (document.querySelector('.modal-mask.show') ? 'Y' : 'n');
+    _dbg.style.display = 'block';
+    if (_dbgTimer) clearTimeout(_dbgTimer);
+    _dbgTimer = setTimeout(function(){ if (_dbg) _dbg.style.display = 'none'; }, 3000);
   }
   function liftFocused(){
     var el = document.activeElement;
     if (!el) return;
     var tag = (el.tagName || '').toLowerCase();
     if (tag !== 'input' && tag !== 'textarea' && !el.isContentEditable) return;
-    try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch(e) {}
     var vv = window.visualViewport;
-    if (!vv) return;
     var r = el.getBoundingClientRect();
-    var delta = r.bottom - (vv.offsetTop + vv.height) + 16; // 可视视口底边(布局坐标) + 16px 余量
+    var bottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
+    var delta = r.bottom - bottom + 16; // 可视视口底边(布局坐标) + 16px 余量
     if (delta <= 0) return;
     for (var p = el.parentElement; p; p = p.parentElement) {
       var s = getComputedStyle(p);
@@ -35,7 +49,25 @@ const COMMON_JS = `
     }
     window.scrollBy(0, delta);
   }
-  document.addEventListener('focusin', function(){ setTimeout(liftFocused, 300); });
+  function syncKb(){
+    var vv = window.visualViewport;
+    var kb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+    document.documentElement.style.setProperty('--kb-inset', kb + 'px');
+    // 弹窗遮罩几何对齐可视视口; 无键盘时清除 inline 覆盖回到 CSS inset:0
+    var masks = document.querySelectorAll('.modal-mask');
+    Array.prototype.forEach.call(masks, function(mask){
+      if (kb > 80 && vv && mask.classList.contains('show')) {
+        mask.style.top = vv.offsetTop + 'px';
+        mask.style.height = vv.height + 'px';
+      } else {
+        mask.style.top = '';
+        mask.style.height = '';
+      }
+    });
+    if (kb > 80) dbg(vv, kb);
+    else if (_dbg) _dbg.style.display = 'none';
+  }
+  document.addEventListener('focusin', function(){ setTimeout(function(){ syncKb(); liftFocused(); }, 300); });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', syncKb);
     window.visualViewport.addEventListener('scroll', syncKb);

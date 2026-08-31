@@ -523,8 +523,10 @@ private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int, wrapChild
                 Text(
                     child.title,
                     style = TextStyle(fontSize = fs(fontScale, 13), color = W.text),
-                    // 子任务显示模式：默认单行省略（maxLines=1）；设置里选"完整换行"则不限行数
-                    maxLines = if (wrapChild) Int.MAX_VALUE else 1,
+                    // 子任务显示模式：默认单行省略（maxLines=1）；选"完整换行"给具体大值 50。
+                    // 不能用 Int.MAX_VALUE——Glance 对默认值(MAX_VALUE)不发射 setMaxLines，
+                    // 而 LazyColumn→ListView 的 item TextView 被复用会保留旧 maxLines=1，导致切不换行。
+                    maxLines = if (wrapChild) 50 else 1,
                     modifier = GlanceModifier.defaultWeight()
                 )
                 // 日期徽章: 新模式(child_due)子任务自带截止日期; 旧后端不下发时为空串不显示, 逾期标红
