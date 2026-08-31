@@ -400,8 +400,10 @@ th { color: #6C6C7E; font-weight: 600; background: rgba(20, 20, 40, .025); }
    不做整体几何压缩, 弹窗不会被"顶起"重排。 */
 .modal-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 10000; padding: 40px 16px calc(40px + var(--kb-inset, 0px)); overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain; }
 .modal-mask.show { display: flex; }
-/* 键盘弹出: modal-box 靠顶部对齐(取代 margin:auto 垂直居中), 弹窗从顶部排列、键盘盖住底部,
-   由 JS 把当前聚焦框滚入键盘上方; margin-bottom:0 让底部留白交给遮罩 padding */
+/* 键盘弹出: 遮罩交叉轴改 flex-start(默认 stretch 会在 margin 非 auto 时把弹框拉伸异常、露底),
+   modal-box 靠顶部对齐(取代 margin:auto 垂直居中)、保持内容高度白底, 弹窗从顶部排列、键盘盖住
+   底部, 由 JS 把当前聚焦框滚入键盘上方; margin-bottom:0 让底部留白交给遮罩 padding */
+.modal-mask.kb-on { align-items: flex-start; }
 .modal-mask.kb-on .modal-box { margin-top: 40px; margin-bottom: 0; }
 /* 全局滚动锁: body.no-scroll 由 JS 在打开弹窗(modal / mp-menu)时加, 关闭时移除.
    position:fixed + width:100% 兼容 iOS Safari, 单纯 overflow:hidden 在 iOS 上仍能滑动.

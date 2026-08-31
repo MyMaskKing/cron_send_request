@@ -72,8 +72,13 @@ const COMMON_JS = `
     if (k.kb > 80) dbg(k);
     else if (_dbg) _dbg.style.display = 'none';
   }
-  // 键盘变化/聚焦统一入口: 更新变量与 .kb-on, 再把当前聚焦框滚到键盘上方
-  function onKbChange(){ syncKb(); liftFocused(); }
+  // 键盘变化/聚焦统一入口: 更新变量与 .kb-on, 再把当前聚焦框滚到键盘上方。
+  // lift 必须等两帧: --kb-inset 驱动的遮罩/body 底部 padding 要先完成重新布局, 可滚动高度才会
+  // 增加, 否则同步读 scrollHeight/scrollTop 时留白还没生效, 输入框滚不动(仍被键盘盖住)。
+  function onKbChange(){
+    syncKb();
+    requestAnimationFrame(function(){ requestAnimationFrame(liftFocused); });
+  }
   window.__onKb = onKbChange; // 原生 App 注入 --kb-native 后调用(见 MainActivity), vv 不反映键盘时靠它驱动
   document.addEventListener('focusin', function(){ setTimeout(function(){ onKbChange(); dbg(); }, 300); });
   if (window.visualViewport) {
