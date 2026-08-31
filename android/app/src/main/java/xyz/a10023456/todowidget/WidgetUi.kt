@@ -64,6 +64,9 @@ class TodoAppWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val appWidgetId = id.resolveAppWidgetId(context)
         android.util.Log.d("TodoWidget", "provideGlance: widget=$appWidgetId（新 session 组合开始）")
+        // 先从 SP 重读一帧：Prefs.getUiState 的 6s 惰性过期借此立即生效——session 超时重建时
+        // 进程级 StateFlow 可能还留着 loading/done 旧帧，不重读就会沿用过期遮罩。
+        WidgetStateStore.publish(context, appWidgetId)
         // 初始化自动刷新：新 session 组合（新组件、开机/进程重启后重建）时，若已配置且
         // 无缓存或缓存超过刷新周期（RefreshWorker 15 分钟）未更新，静默拉取一次（不弹遮罩）。
         maybeAutoRefresh(context, appWidgetId)

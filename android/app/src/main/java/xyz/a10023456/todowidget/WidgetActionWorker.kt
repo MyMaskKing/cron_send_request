@@ -7,6 +7,7 @@ import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -14,6 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.util.concurrent.TimeUnit
 
 /**
  * 小组件点击动作（刷新/勾选完成）的实际执行 Worker。
@@ -33,6 +35,16 @@ import kotlinx.coroutines.withContext
  * 重跑极小概率让周期任务多滚动一次（窗口仅网络请求的 1~2s），后端对已完成任务本就有滚动
  * 语义，可接受。
  */
+
+/** 手动动作任务 unique work 名前缀；[MaskResetWorker] 据此查询动作任务是否仍在执行。 */
+private const val WORK_PREFIX = "todo_widget_action_"
+
+/**
+ * silent 初始化刷新专用任务名前缀：必须与手动动作隔离——silent 任务不写遮罩终态，
+ * 若 REPLACE 掉手动动作任务（被取消时不写终态），loading 遮罩将无人清除而常驻。
+ */
+private const val WORK_PREFIX_SILENT = "todo_widget_action_silent_"
+
 class WidgetActionWorker(
     appContext: Context,
     params: WorkerParameters
@@ -47,13 +59,16 @@ class WidgetActionWorker(
                 "attempt=$runAttemptCount, silent=$silent"
         )
         if (widgetId < 0) return Result.success()
-        val glanceId = GlanceAppWidgetManager(applicationContext)
-            .getGlanceIds(TodoAppWidget::class.java)
-            .firstOrNull { it.resolveAppWidgetId(applicationContext) == widgetId }
-            ?: run {
-                Log.w(TAG, "doWork: glanceId not found for widget=$widgetId（小组件已被移除？）")
-                return Result.success()
-            }
+        // runCatching 兜底：查询异常（系统服务瞬时不可用）不得逃出 doWork——未捕获异常会被
+        // WorkManager 按 retry + 指数退避（30s 起）重排，遮罩终态迟迟不写，表现为"刷新中"常驻。
+        val glanceId = runCatching {
+            GlanceAppWidgetManager(applicationContext)
+                .getGlanceIds(TodoAppWidget::class.java)
+                .firstOrNull { it.resolveAppWidgetId(applicationContext) == widgetId }
+        }.getOrNull() ?: run {
+            Log.w(TAG, "doWork: glanceId not found for widget=$widgetId（小组件已被移除或查询失败？）")
+            return Result.success()
+        }
 
         try {
             when (inputData.getString(KEY_ACTION)) {
@@ -130,7 +145,6 @@ class WidgetActionWorker(
         const val ACTION_REFRESH = "refresh"
         const val ACTION_COMPLETE = "complete"
 
-        private const val WORK_PREFIX = "todo_widget_action_"
         private const val KEY_WIDGET_ID = "widget_id"
         private const val KEY_ACTION = "action"
         private const val KEY_ITEM_ID = "item_id"
@@ -140,8 +154,10 @@ class WidgetActionWorker(
         private const val RESULT_HOLD_MS = 1400L
 
         /**
-         * 入队一个动作任务；同 widget 上一个未完成任务会被 REPLACE 取消。
-         * silent=true：初始化自动刷新用，不弹 loading/done/error 遮罩。
+         * 入队一个动作任务；同类任务上一个未完成的会被 REPLACE 取消。
+         * silent=true：初始化自动刷新用，不弹 loading/done/error 遮罩，走独立任务名
+         * （[WORK_PREFIX_SILENT]），不得取消用户触发的手动动作任务。
+         * 手动动作入队时连带 [MaskResetWorker] 遮罩兜底，防止终态丢失导致遮罩常驻。
          */
         fun enqueue(
             context: Context,
@@ -161,7 +177,74 @@ class WidgetActionWorker(
                 )
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork(
-                WORK_PREFIX + widgetId,
+                (if (silent) WORK_PREFIX_SILENT else WORK_PREFIX) + widgetId,
+                ExistingWorkPolicy.REPLACE,
+                request
+            )
+            if (!silent) MaskResetWorker.enqueue(context, widgetId)
+        }
+    }
+}
+
+/**
+ * 遮罩兜底 Worker：手动动作（刷新/勾选）入队时连带延迟入队，独立任务名，不被动作任务
+ * REPLACE，任务持久化（进程被杀后下次拉起仍会补跑）。
+ *
+ * 遮罩消失本应由 [WidgetActionWorker] 写终态（done/error → idle）驱动，但终态可能丢失：
+ * 进程在广播结束后被杀且动作任务未被系统及时调度（国产 ROM 省电策略）、动作任务异常进入
+ * 重试退避、（旧版本）silent 刷新 REPLACE 掉动作任务等。SP 的 6s 过期是惰性的——只在读
+ * SP 时生效，不会自行触发重绘。本 Worker 延时后主动检查：动作任务仍在 RUNNING（弱网多跳
+ * 重定向，OkHttp 10s 超时保底会结束）则交给它自己写终态；其余情况（loading 但任务已结束/
+ * 被取消/排队未调度、done/error 过期残留、屏幕帧残留）一律强制回落 idle 并重绘一次。
+ */
+class MaskResetWorker(
+    appContext: Context,
+    params: WorkerParameters
+) : CoroutineWorker(appContext, params) {
+
+    override suspend fun doWork(): Result {
+        val widgetId = inputData.getInt(KEY_WIDGET_ID, -1)
+        if (widgetId < 0) return Result.success()
+        val (state, _) = Prefs.getUiState(applicationContext, widgetId)
+        val actionRunning = runCatching {
+            WorkManager.getInstance(applicationContext)
+                .getWorkInfosForUniqueWork(WORK_PREFIX + widgetId).get()
+                .any { it.state == WorkInfo.State.RUNNING }
+        }.getOrDefault(false)
+        if (state == "loading" && actionRunning) {
+            Log.d(TAG, "mask reset: action still running, skip. widget=$widgetId")
+            return Result.success()
+        }
+        Log.d(
+            TAG,
+            "mask reset: force idle. state=$state, actionRunning=$actionRunning, widget=$widgetId"
+        )
+        // 幂等回落：idle 时 remove 键并发布一帧，顺带清掉"SP 已过期但屏幕仍是旧遮罩帧"的残留
+        WidgetStateStore.setUiState(applicationContext, widgetId, "idle", "")
+        runCatching {
+            val glanceId = GlanceAppWidgetManager(applicationContext)
+                .getGlanceIds(TodoAppWidget::class.java)
+                .firstOrNull { it.resolveAppWidgetId(applicationContext) == widgetId }
+            if (glanceId != null) TodoAppWidget().update(applicationContext, glanceId)
+        }
+        return Result.success()
+    }
+
+    companion object {
+        private const val TAG = "TodoWidget"
+        private const val MASK_WORK_PREFIX = "todo_widget_mask_"
+        private const val KEY_WIDGET_ID = "widget_id"
+
+        /** 延时：略大于正常失败路径（OkHttp 10s 超时 + 结果遮罩停留 1.4s）；更慢的多跳重定向弱网由 RUNNING 检查放过。 */
+        private const val MASK_DELAY_MS = 13000L
+
+        fun enqueue(context: Context, widgetId: Int) {
+            val request = OneTimeWorkRequestBuilder<MaskResetWorker>()
+                .setInputData(workDataOf(KEY_WIDGET_ID to widgetId))
+                .setInitialDelay(MASK_DELAY_MS, TimeUnit.MILLISECONDS)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                MASK_WORK_PREFIX + widgetId,
                 ExistingWorkPolicy.REPLACE,
                 request
             )
