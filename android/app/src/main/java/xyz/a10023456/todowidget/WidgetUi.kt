@@ -96,7 +96,8 @@ class TodoAppWidget : GlanceAppWidget() {
                 overlayState = frame.uiState,
                 overlayMsg = frame.uiMsg,
                 opacity = frame.opacity,
-                fontScale = frame.fontScale
+                fontScale = frame.fontScale,
+                wrapChild = frame.wrapChild
             )
         }
     }
@@ -187,7 +188,8 @@ private fun WidgetRoot(
     overlayState: String,
     overlayMsg: String,
     opacity: Int,
-    fontScale: Int
+    fontScale: Int,
+    wrapChild: Boolean
 ) {
     Box(
         modifier = GlanceModifier
@@ -201,7 +203,7 @@ private fun WidgetRoot(
         if (!ready) {
             NotReady(fontScale)
         } else {
-            WidgetBody(data, failed, widgetId, collapsed, opacity, fontScale)
+            WidgetBody(data, failed, widgetId, collapsed, opacity, fontScale, wrapChild)
         }
         if (overlayState != "idle") WidgetOverlay(overlayState, overlayMsg, fontScale)
     }
@@ -263,7 +265,8 @@ private fun WidgetBody(
     widgetId: Int,
     collapsed: Set<Long>,
     opacity: Int,
-    fontScale: Int
+    fontScale: Int,
+    wrapChild: Boolean
 ) {
     Column(modifier = GlanceModifier.fillMaxSize()) {
         // 标题行：自带深灰白条背景，贴面板顶部满宽（S+ 被面板圆角裁剪顶边两角）
@@ -297,7 +300,7 @@ private fun WidgetBody(
                         item(itemId = g.id) {
                             // 卡片外的透明 Spacer 才是真缝隙（padding 会被卡片背景铺满）
                             Column {
-                                GroupCard(g, widgetId, collapsed.contains(g.id), opacity, fontScale)
+                                GroupCard(g, widgetId, collapsed.contains(g.id), opacity, fontScale, wrapChild)
                                 Spacer(GlanceModifier.height(8.dp))
                             }
                         }
@@ -320,13 +323,14 @@ private fun GroupCard(
     widgetId: Int,
     isCollapsed: Boolean,
     opacity: Int,
-    fontScale: Int
+    fontScale: Int,
+    wrapChild: Boolean
 ) {
     CardScaffold(opacity) {
         GroupTitleRow(g, widgetId, isCollapsed, fontScale)
         // 仅多任务分组可折叠；折叠时隐藏子行。单主任务组恒显示其唯一子行（主任务自身）。
         if (g.collapsible && isCollapsed) return@CardScaffold
-        g.children.forEach { child -> ChildRow(child, widgetId, fontScale) }
+        g.children.forEach { child -> ChildRow(child, widgetId, fontScale, wrapChild) }
     }
 }
 
@@ -494,7 +498,7 @@ private fun StatChip(value: Int, color: ColorProvider, fontScale: Int) {
 }
 
 @Composable
-private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int) {
+private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int, wrapChild: Boolean) {
     val ctx = androidx.glance.LocalContext.current
     val token = Prefs.getToken(ctx, widgetId)
     val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
@@ -519,7 +523,8 @@ private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int) {
                 Text(
                     child.title,
                     style = TextStyle(fontSize = fs(fontScale, 13), color = W.text),
-                    maxLines = 1,
+                    // 子任务显示模式：默认单行省略（maxLines=1）；设置里选"完整换行"则不限行数
+                    maxLines = if (wrapChild) Int.MAX_VALUE else 1,
                     modifier = GlanceModifier.defaultWeight()
                 )
                 // 日期徽章: 新模式(child_due)子任务自带截止日期; 旧后端不下发时为空串不显示, 逾期标红

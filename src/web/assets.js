@@ -5,12 +5,17 @@
 // 通用 API 请求与工具函数（所有页面共用）
 const COMMON_JS = `
 // ============ 全局软键盘遮挡兜底 ============
-// 手机浏览器/App WebView 里, 输入框聚焦时软键盘可能盖住输入框(弹窗/全屏容器内)。
-// 任意 input/textarea/contenteditable 聚焦后, 等键盘弹起、视口收缩完成(300ms), 再把聚焦元素
-// 抬到可视视口内: 先 scrollIntoView, 再按 visualViewport 底边补差滚动最近可滚动祖先(全屏主区/
-// 弹窗遮罩/长表格), 兜底 window 滚动。只在聚焦时抬一次, 不监听 visualViewport resize——
-// 键盘动画期间逐帧反复 scrollIntoView 会干扰输入焦点, 反而导致键盘被收起。
+// 手机浏览器/App WebView 里, 输入框聚焦时软键盘可能盖住输入框(弹窗/全屏容器内)。两道保险:
+//  1) 键盘高度写入 CSS 变量 --kb-inset(见 layout.js 的 .modal-mask/.todo-fs-main padding-bottom):
+//     edge-to-edge(WebView 不随键盘缩)时 = 键盘高, adjustResize(WebView 已缩)时 ≈ 0, 自动适配。
+//     只设变量改布局留白, 不滚动/不动焦点, 绝不会干扰输入。
+//  2) 聚焦后等键盘弹起、视口收缩完成(300ms), 再把聚焦元素抬到可视视口内(此时留白已足够)。
 (function(){
+  function syncKb(){
+    var vv = window.visualViewport;
+    var kb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+    document.documentElement.style.setProperty('--kb-inset', kb + 'px');
+  }
   function liftFocused(){
     var el = document.activeElement;
     if (!el) return;
@@ -31,6 +36,12 @@ const COMMON_JS = `
     window.scrollBy(0, delta);
   }
   document.addEventListener('focusin', function(){ setTimeout(liftFocused, 300); });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncKb);
+    window.visualViewport.addEventListener('scroll', syncKb);
+  }
+  window.addEventListener('resize', syncKb);
+  syncKb();
 })();
 // ============ 统一 SVG 图标(24x24, stroke: currentColor, 与 topbar 风格一致) ============
 // 移动端 emoji 在浅底色行上易被吞噬(尤其 ✏️/🔗/🗑️), 全部换成矢量描边图标; 颜色由 .todo-op 决定
@@ -5877,7 +5888,12 @@ function openTodoEdit(node) {
   var fopts = isChild
     ? { childDueMode: !!(node._root && node._root.child_due), canRecur: node.children.length === 0 }
     : {};
-  openModal('编辑任务', todoFormHtml(node, false, isChild, fopts) +
+  // 子任务弹窗标题带所属主任务名(组件深链 ?edit 与卡片/树编辑共用), 明确当前在编辑哪个清单下的任务
+  var _rootTitle = isChild && node._root ? node._root.title : '';
+  var _modalTitle = isChild
+    ? (_rootTitle ? '编辑子任务 · ' + _rootTitle : '编辑子任务')
+    : '编辑任务';
+  openModal(_modalTitle, todoFormHtml(node, false, isChild, fopts) +
     '<div style="margin-top:12px;"><button class="btn" id="tfSave">保存</button> <button class="btn gray" onclick="closeModal()">取消</button></div>');
   todoFillCategoryOptions(_rows, node.category || '');
   bindClickBusy(document.getElementById('tfSave'), async function(){
@@ -6105,7 +6121,9 @@ bindClickBusy(document.getElementById('pushSend'), async function(){
     var _addChildId = _q.get('addChild');
     if (_addChildId) {
       history.replaceState(null, '', location.pathname);
-      openAddForm(Number(_addChildId), '添加子任务', true);
+      // 弹窗标题带主任务名, 明确正在给哪个清单添加子任务
+      var _addParent = (_rows || []).filter(function(r){ return String(r.id) === String(_addChildId); })[0];
+      openAddForm(Number(_addChildId), _addParent && _addParent.title ? '添加子任务 · ' + _addParent.title : '添加子任务', true);
     }
     // 小组件「编辑」入口: ?edit=<id> 自动打开该任务编辑弹窗（App 内点击任务直达）
     // 必须从 todoBuildTree 的树节点取: openTodoEdit 对子任务读 node.children/node._root,
@@ -6495,7 +6513,9 @@ async function reloadReport() {
     var _addChildId = _rq.get('addChild');
     if (_addChildId) {
       history.replaceState(null, '', location.pathname);
-      openAddForm(Number(_addChildId), '添加子任务', true);
+      // 弹窗标题带主任务名, 明确正在给哪个清单添加子任务
+      var _addParent = (_rows || []).filter(function(r){ return String(r.id) === String(_addChildId); })[0];
+      openAddForm(Number(_addChildId), _addParent && _addParent.title ? '添加子任务 · ' + _addParent.title : '添加子任务', true);
     }
   } catch(e) { document.body.innerHTML = '<div class="todo-empty" style="margin-top:60px;">' + esc(e.message || '链接无效') + '</div>'; }
 })();

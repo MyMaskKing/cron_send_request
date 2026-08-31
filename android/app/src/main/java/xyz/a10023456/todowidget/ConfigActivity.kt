@@ -79,6 +79,7 @@ class ConfigActivity : ComponentActivity() {
         val scope = Prefs.getScope(this, appWidgetId)
         val opacity = Prefs.getOpacity(this, appWidgetId)
         val fontScale = Prefs.getFontScale(this, appWidgetId)
+        val wrapChild = Prefs.getWrapChild(this, appWidgetId)
         val baseUrl = AppConfig.getBaseUrl(this)
         val sid = Prefs.getSid(this)
 
@@ -109,12 +110,14 @@ class ConfigActivity : ComponentActivity() {
                             initialScope = scope,
                             initialOpacity = opacity,
                             initialFontScale = fontScale,
+                            initialWrapChild = wrapChild,
                             baseUrl = baseUrl,
                             sid = sid,
                             onTest = { t -> testConnection(t) },
                             onOpacity = { v -> previewOpacity(v) },
                             onFontScale = { v -> previewFontScale(v) },
-                            onSave = { t, s, o, f -> save(t, s, o, f) }
+                            onWrapChild = { v -> previewWrapChild(v) },
+                            onSave = { t, s, o, f, w -> save(t, s, o, f, w) }
                         )
                     }
                 }
@@ -143,6 +146,13 @@ class ConfigActivity : ComponentActivity() {
     private fun previewFontScale(value: Int) {
         if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
         Prefs.setFontScale(this, appWidgetId, value)
+        WidgetStateStore.publish(this, appWidgetId)
+    }
+
+    /** 实时预览：子任务标题换行模式写 SP 后发布，驱动桌面小组件即时重组。 */
+    private fun previewWrapChild(value: Boolean) {
+        if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
+        Prefs.setWrapChild(this, appWidgetId, value)
         WidgetStateStore.publish(this, appWidgetId)
     }
 
@@ -199,7 +209,7 @@ class ConfigActivity : ComponentActivity() {
         }
     }
 
-    private fun save(token: String, scope: String, opacity: Int, fontScale: Int) {
+    private fun save(token: String, scope: String, opacity: Int, fontScale: Int, wrapChild: Boolean) {
         if (Prefs.getSid(this).isBlank() && token.isBlank()) {
             Toast.makeText(this, "请先在 App 内登录，或填写 report_token", Toast.LENGTH_SHORT).show()
             return
@@ -209,6 +219,7 @@ class ConfigActivity : ComponentActivity() {
             Prefs.setScope(this@ConfigActivity, appWidgetId, scope)
             Prefs.setOpacity(this@ConfigActivity, appWidgetId, opacity)
             Prefs.setFontScale(this@ConfigActivity, appWidgetId, fontScale)
+            Prefs.setWrapChild(this@ConfigActivity, appWidgetId, wrapChild)
             WidgetStateStore.publish(this@ConfigActivity, appWidgetId)
             RefreshWorker.enqueue(this@ConfigActivity)
             WidgetRepo.refresh(this@ConfigActivity, appWidgetId)
@@ -231,17 +242,20 @@ private fun ConfigSheet(
     initialScope: String,
     initialOpacity: Int,
     initialFontScale: Int,
+    initialWrapChild: Boolean,
     baseUrl: String,
     sid: String,
     onTest: (String) -> Unit,
     onOpacity: (Int) -> Unit,
     onFontScale: (Int) -> Unit,
-    onSave: (String, String, Int, Int) -> Unit
+    onWrapChild: (Boolean) -> Unit,
+    onSave: (String, String, Int, Int, Boolean) -> Unit
 ) {
     var token by remember { mutableStateOf(initialToken) }
     var scope by remember { mutableStateOf(initialScope) }
     var opacity by remember { mutableStateOf(initialOpacity.toFloat()) }
     var fontScale by remember { mutableStateOf(initialFontScale) }
+    var wrapChild by remember { mutableStateOf(initialWrapChild) }
     val loggedIn = sid.isNotBlank()
     val scopes = listOf(
         "cur" to "今日 + 逾期（推荐）",
@@ -323,6 +337,36 @@ private fun ConfigSheet(
             }
         }
 
+        Spacer(Modifier.height(12.dp))
+        Text("子任务标题", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 默认单行省略；选"完整换行"则过长标题多行显示不截断
+            listOf(false to "单行省略", true to "完整换行").forEach { (v, label) ->
+                val selected = wrapChild == v
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = if (selected) brand else Color.Transparent,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .clickable {
+                            wrapChild = v
+                            onWrapChild(v)
+                        }
+                        .padding(horizontal = 18.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        label,
+                        color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 14.sp
+                    )
+                }
+            }
+        }
+
         Spacer(Modifier.height(16.dp))
         Text("显示范围", style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(4.dp))
@@ -359,7 +403,7 @@ private fun ConfigSheet(
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TextButton(onClick = { onTest(if (loggedIn) "" else token) }) { Text("测试连接") }
             Spacer(Modifier.weight(1f))
-            Button(onClick = { onSave(if (loggedIn) "" else token, scope, opacity.toInt(), fontScale) }) {
+            Button(onClick = { onSave(if (loggedIn) "" else token, scope, opacity.toInt(), fontScale, wrapChild) }) {
                 Text("保存")
             }
         }

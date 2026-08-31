@@ -48,6 +48,13 @@ object Prefs {
     fun setFontScale(context: Context, widgetId: Int, scale: Int) =
         sp(context).edit().putInt("font_$widgetId", scale.coerceIn(0, 2)).apply()
 
+    /** 子任务标题显示模式：false=单行省略（默认），true=过长换行完整显示 */
+    fun getWrapChild(context: Context, widgetId: Int): Boolean =
+        sp(context).getBoolean("wrapchild_$widgetId", false)
+
+    fun setWrapChild(context: Context, widgetId: Int, wrap: Boolean) =
+        sp(context).edit().putBoolean("wrapchild_$widgetId", wrap).apply()
+
     fun getBaseUrl(context: Context, widgetId: Int): String {
         val per = sp(context).getString("baseurl_$widgetId", "") ?: ""
         return if (per.isNotBlank()) AppConfig.normalize(per) else AppConfig.getBaseUrl(context)

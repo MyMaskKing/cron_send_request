@@ -395,7 +395,7 @@ th { color: #6C6C7E; font-weight: 600; background: rgba(20, 20, 40, .025); }
 /* 短内容居中、长内容顶部对齐可滚：靠 .modal-box 的 margin:auto 自适应 */
 /* touch-action: pan-y —— body.no-scroll 锁背景滚动时祖先 touch-action:none 会连带禁掉后代滚动容器
    的触摸平移(手机上长弹窗表单会卡死), 在遮罩自身显式放行纵向手势; overscroll-behavior:contain 防止滚到边连锁背景 */
-.modal-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 10000; padding: 40px 16px; overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain; }
+.modal-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 10000; padding: 40px 16px calc(40px + var(--kb-inset, 0px)); overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain; }
 .modal-mask.show { display: flex; }
 /* 全局滚动锁: body.no-scroll 由 JS 在打开弹窗(modal / mp-menu)时加, 关闭时移除.
    position:fixed + width:100% 兼容 iOS Safari, 单纯 overflow:hidden 在 iOS 上仍能滑动.
@@ -770,7 +770,8 @@ body.todo-fs-on .todo-fullscreen { display: flex; }
 .todo-fs-main {
   flex: 1; min-width: 0;
   display: flex; flex-direction: column;
-  padding: 12px 16px 16px;
+  /* 底部 padding 随软键盘高度(--kb-inset, JS 据 visualViewport 写入)增大, 内联添加框不被键盘盖住 */
+  padding: 12px 16px calc(16px + var(--kb-inset, 0px));
   overflow-y: auto;
   touch-action: pan-y;
   overscroll-behavior: contain;
@@ -978,7 +979,7 @@ html { scrollbar-gutter: stable; }
   .login-wrap { margin: 40px auto; padding: 0 12px; }
   /* 窄屏下拉菜单左对齐, modal 内边距收小 */
   .dropdown-menu { right: auto; left: 0; }
-  .modal-mask { padding: 20px 10px; }
+  .modal-mask { padding: 20px 10px calc(20px + var(--kb-inset, 0px)); }
   /* 多选面板窄屏: 改为居中 modal 弹窗 (JS 侧已把 .mp-menu 移到 body 末尾, 彻底脱离 card 堆叠上下文,
      否则 .card 的 z-index/backdrop-filter 会封印内部 fixed 元素, 导致遮罩必然盖住面板)
      居中显示、大触点、显式"完成"按钮, 比底部弹出更好操作 */

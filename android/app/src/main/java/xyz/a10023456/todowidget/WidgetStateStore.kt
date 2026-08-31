@@ -28,7 +28,8 @@ object WidgetStateStore {
         val uiMsg: String,
         val updated: Long,
         val opacity: Int, // 背景不透明度 0-100
-        val fontScale: Int // 字号档位 0=小 1=中 2=大
+        val fontScale: Int, // 字号档位 0=小 1=中 2=大
+        val wrapChild: Boolean // 子任务标题：false=单行省略（默认），true=过长换行完整显示
     )
 
     private val flows = ConcurrentHashMap<Int, MutableStateFlow<WidgetFrame>>()
@@ -60,7 +61,8 @@ object WidgetStateStore {
             uiMsg = msg,
             updated = Prefs.getLastUpdated(context, widgetId),
             opacity = Prefs.getOpacity(context, widgetId),
-            fontScale = Prefs.getFontScale(context, widgetId)
+            fontScale = Prefs.getFontScale(context, widgetId),
+            wrapChild = Prefs.getWrapChild(context, widgetId)
         )
     }
 }
