@@ -62,27 +62,25 @@ const COMMON_JS = `
   function syncKb(){
     var k = curKb();
     document.documentElement.style.setProperty('--kb-inset', k.kb + 'px');
-    // 弹窗遮罩几何对齐到键盘上方: top=vv.offsetTop(一般0), height=布局视口高-键盘高; 无键盘清除 inline
+    // 不做遮罩几何压缩(那会把整个弹窗顶到键盘上方、重排位置)。键盘弹出时只给打开的遮罩加 .kb-on:
+    // modal-box 由垂直居中改为靠顶部对齐(见 layout.js), 弹窗从顶部排列、键盘盖住下半部分,
+    // 再由 liftFocused 把"当前聚焦框"滚到键盘上方——键盘只贴在当前输入框下面, 不挪动其它输入框。
     var masks = document.querySelectorAll('.modal-mask');
     Array.prototype.forEach.call(masks, function(mask){
-      if (k.kb > 80 && mask.classList.contains('show')) {
-        mask.style.top = (k.vv ? k.vv.offsetTop : 0) + 'px';
-        mask.style.height = (window.innerHeight - k.kb) + 'px';
-      } else {
-        mask.style.top = '';
-        mask.style.height = '';
-      }
+      mask.classList.toggle('kb-on', k.kb > 80 && mask.classList.contains('show'));
     });
     if (k.kb > 80) dbg(k);
     else if (_dbg) _dbg.style.display = 'none';
   }
-  // 聚焦后无条件显示一次诊断条(双来源都读), 确保能看到 native/vv 各自数值
-  document.addEventListener('focusin', function(){ setTimeout(function(){ syncKb(); liftFocused(); dbg(); }, 300); });
+  // 键盘变化/聚焦统一入口: 更新变量与 .kb-on, 再把当前聚焦框滚到键盘上方
+  function onKbChange(){ syncKb(); liftFocused(); }
+  window.__onKb = onKbChange; // 原生 App 注入 --kb-native 后调用(见 MainActivity), vv 不反映键盘时靠它驱动
+  document.addEventListener('focusin', function(){ setTimeout(function(){ onKbChange(); dbg(); }, 300); });
   if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', syncKb);
-    window.visualViewport.addEventListener('scroll', syncKb);
+    window.visualViewport.addEventListener('resize', onKbChange);
+    window.visualViewport.addEventListener('scroll', onKbChange);
   }
-  window.addEventListener('resize', syncKb);
+  window.addEventListener('resize', onKbChange);
   syncKb();
 })();
 // ============ 统一 SVG 图标(24x24, stroke: currentColor, 与 topbar 风格一致) ============

@@ -134,8 +134,11 @@ private fun AppShell(initialUrl: String?) {
     val imeBottomPx = WindowInsets.ime.getBottom(density)
     LaunchedEffect(imeBottomPx) {
         kbCss = imeBottomPx / density.density
+        // 注入键盘高度并通知网页：切换 .kb-on（弹窗靠顶）+ 把当前聚焦框滚到键盘上方
         webViewRef?.evaluateJavascript(
-            "document.documentElement.style.setProperty('--kb-native','${kbCss}px')", null
+            "document.documentElement.style.setProperty('--kb-native','${kbCss}px');" +
+                "window.__onKb&&window.__onKb();",
+            null
         )
     }
 
@@ -218,9 +221,10 @@ private fun AppShell(initialUrl: String?) {
 
                             override fun onPageFinished(view: WebView, url: String?) {
                                 super.onPageFinished(view, url)
-                                // 新页面 document 会重置 CSS 变量，重新注入当前键盘高度（--kb-native）
+                                // 新页面 document 会重置 CSS 变量，重新注入当前键盘高度（--kb-native）并通知网页
                                 view.evaluateJavascript(
-                                    "document.documentElement.style.setProperty('--kb-native','${currentKbCss}px')",
+                                    "document.documentElement.style.setProperty('--kb-native','${currentKbCss}px');" +
+                                        "window.__onKb&&window.__onKb();",
                                     null
                                 )
                                 // 下拉刷新触发的 reload 完成后收起指示器
