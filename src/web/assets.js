@@ -5,50 +5,29 @@
 // 通用 API 请求与工具函数（所有页面共用）
 const COMMON_JS = `
 // ============ 全局软键盘避让 ============
-// 目标: App WebView / 手机浏览器里, 任意输入框聚焦时, 弹窗与输入框都在键盘上方(不被遮挡)。
-// 用 visualViewport 的实测可视区做两件确定性的事, 不靠 flex padding/margin auto 的布局巧合:
-//  1) 键盘弹起时, 把打开的弹窗遮罩 .modal-mask 几何直接对齐可视视口(top=vv.offsetTop,
-//     height=vv.height), 弹窗可滚动区域即键盘上方; 键盘收起恢复 inset:0。
-//  2) 键盘高度写 CSS 变量 --kb-inset, 供 .todo-fs-main(全屏内联添加框) padding-bottom 避让。
-// 聚焦后等键盘动画完成(300ms)再把聚焦框滚进可视区。不逐帧 scrollIntoView, 不抢焦点。
+// App WebView / 手机浏览器里, 任意输入框聚焦时弹窗与输入框都不被软键盘遮挡。
+// 键盘高度(CSS px)双来源取大: App 原生 WindowInsets.ime 实测注入的 --kb-native(该 App WebView 的
+// visualViewport 不反映键盘, 为可靠来源) 与 visualViewport 计算值(手机浏览器/桌面回退)。
+//  - 写入 CSS 变量 --kb-inset: 供 .modal-mask / body / .todo-fs-main 底部留白(见 layout.js)。
+//  - 弹窗遮罩键盘弹出时加 .kb-on: modal-box 由垂直居中改靠顶部对齐, 键盘盖住弹窗下半部, 再把
+//    "当前聚焦框"滚到键盘上方——键盘只贴在当前输入框下面, 不挪动其它输入框。
+// 原生注入 --kb-native 后会调 window.__onKb 驱动(visualViewport 不反映键盘时靠它)。
 (function(){
-  var _dbg = null, _dbgTimer = null;
-  // 键盘高度(CSS px)双来源取大:
-  //   nativeKb = App 原生 WindowInsets.ime 实测注入的 --kb-native(edge-to-edge 下 vv 不反映键盘时的可靠来源)
-  //   vvKb     = visualViewport 计算(手机浏览器 / 桌面无注入时用)
   function curKb(){
     var vv = window.visualViewport;
     var vvKb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
     var nativeKb = 0;
     try { nativeKb = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--kb-native')) || 0; } catch(e){}
-    return { kb: Math.max(nativeKb, vvKb), nativeKb: nativeKb, vvKb: vvKb, vv: vv };
-  }
-  // 【临时诊断】聚焦输入框时屏幕顶部红条显示双来源键盘高度与聚焦框位置; 定位后整段 dbg 可删。
-  function dbg(k){
-    k = k || curKb();
-    if (!_dbg) {
-      _dbg = document.createElement('div');
-      _dbg.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483647;background:rgba(200,0,0,.88);color:#fff;font:11px/1.5 monospace;padding:3px 6px;pointer-events:none;display:none;white-space:pre-wrap;word-break:break-all;';
-      document.documentElement.appendChild(_dbg);
-    }
-    var el = document.activeElement, r = el ? el.getBoundingClientRect() : null;
-    var tag = el ? ((el.tagName || '').toLowerCase() + (el.id ? '#' + el.id : '')) : '-';
-    _dbg.textContent = 'native=' + Math.round(k.nativeKb) + ' vvKb=' + Math.round(k.vvKb) + ' kb=' + Math.round(k.kb) +
-      ' vv.h=' + Math.round(k.vv ? k.vv.height : 0) + ' win.h=' + window.innerHeight +
-      ' | act=' + tag + (r ? (' elBottom=' + Math.round(r.bottom)) : '') +
-      ' | mask=' + (document.querySelector('.modal-mask.show') ? 'Y' : 'n');
-    _dbg.style.display = 'block';
-    if (_dbgTimer) clearTimeout(_dbgTimer);
-    _dbgTimer = setTimeout(function(){ if (_dbg) _dbg.style.display = 'none'; }, 3500);
+    return Math.max(nativeKb, vvKb);
   }
   function liftFocused(){
     var el = document.activeElement;
     if (!el) return;
     var tag = (el.tagName || '').toLowerCase();
     if (tag !== 'input' && tag !== 'textarea' && !el.isContentEditable) return;
-    var k = curKb();
+    var kb = curKb();
     var r = el.getBoundingClientRect();
-    var bottom = window.innerHeight - k.kb; // 键盘上方可视底边(布局坐标)
+    var bottom = window.innerHeight - kb; // 键盘上方可视底边(布局坐标)
     var delta = r.bottom - bottom + 16; // + 16px 余量
     if (delta <= 0) return;
     for (var p = el.parentElement; p; p = p.parentElement) {
@@ -60,27 +39,22 @@ const COMMON_JS = `
     window.scrollBy(0, delta);
   }
   function syncKb(){
-    var k = curKb();
-    document.documentElement.style.setProperty('--kb-inset', k.kb + 'px');
-    // 不做遮罩几何压缩(那会把整个弹窗顶到键盘上方、重排位置)。键盘弹出时只给打开的遮罩加 .kb-on:
-    // modal-box 由垂直居中改为靠顶部对齐(见 layout.js), 弹窗从顶部排列、键盘盖住下半部分,
-    // 再由 liftFocused 把"当前聚焦框"滚到键盘上方——键盘只贴在当前输入框下面, 不挪动其它输入框。
+    var kb = curKb();
+    document.documentElement.style.setProperty('--kb-inset', kb + 'px');
+    // 键盘弹出时给打开的弹窗遮罩加 .kb-on(靠顶对齐, 见 layout.js); 不做遮罩几何压缩以免弹窗被顶起重排
     var masks = document.querySelectorAll('.modal-mask');
     Array.prototype.forEach.call(masks, function(mask){
-      mask.classList.toggle('kb-on', k.kb > 80 && mask.classList.contains('show'));
+      mask.classList.toggle('kb-on', kb > 80 && mask.classList.contains('show'));
     });
-    if (k.kb > 80) dbg(k);
-    else if (_dbg) _dbg.style.display = 'none';
   }
-  // 键盘变化/聚焦统一入口: 更新变量与 .kb-on, 再把当前聚焦框滚到键盘上方。
-  // lift 必须等两帧: --kb-inset 驱动的遮罩/body 底部 padding 要先完成重新布局, 可滚动高度才会
-  // 增加, 否则同步读 scrollHeight/scrollTop 时留白还没生效, 输入框滚不动(仍被键盘盖住)。
+  // 键盘变化/聚焦统一入口: 更新变量与 .kb-on, 等两帧(底部 padding 完成重新布局、可滚动高度增加)
+  // 再把当前聚焦框滚到键盘上方; 同步滚会因留白未生效而滚不动。
   function onKbChange(){
     syncKb();
     requestAnimationFrame(function(){ requestAnimationFrame(liftFocused); });
   }
-  window.__onKb = onKbChange; // 原生 App 注入 --kb-native 后调用(见 MainActivity), vv 不反映键盘时靠它驱动
-  document.addEventListener('focusin', function(){ setTimeout(function(){ onKbChange(); dbg(); }, 300); });
+  window.__onKb = onKbChange; // 原生 App 注入 --kb-native 后调用(见 MainActivity)
+  document.addEventListener('focusin', function(){ setTimeout(onKbChange, 300); });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', onKbChange);
     window.visualViewport.addEventListener('scroll', onKbChange);
