@@ -55,6 +55,11 @@ private fun openUrlOf(ctx: Context, baseUrl: String, token: String): String =
 private fun addUrlOf(ctx: Context, baseUrl: String, token: String): String =
     openUrlOf(ctx, baseUrl, token) + "?add=1"
 
+/** 主任务行「＋」快速添加子任务：登录态跳 /todo?addChild=<id> 由网页自动弹添加子任务表单；未登录回退免密报告页同参。 */
+private fun addChildUrlOf(ctx: Context, baseUrl: String, token: String, rootId: Long): String =
+    if (Prefs.isLoggedIn(ctx) || token.isBlank()) "$baseUrl/todo?addChild=$rootId"
+    else "$baseUrl/tr/$token?addChild=$rootId"
+
 /** 点击任务：已登录跳到 /todo?edit=<id> 由网页自动打开编辑弹窗；未登录回退到免密报告页。 */
 private fun editUrlOf(ctx: Context, baseUrl: String, token: String, itemId: Long): String =
     if (Prefs.isLoggedIn(ctx)) "$baseUrl/todo?edit=$itemId" else openUrlOf(ctx, baseUrl, token)
@@ -329,6 +334,9 @@ private fun GroupCard(
 @Composable
 private fun GroupTitleRow(g: WidgetGroup, widgetId: Int, isCollapsed: Boolean, fontScale: Int) {
     val solo = !g.collapsible && g.children.firstOrNull()?.id == g.id
+    // 标题行右侧「＋」：快速给该主任务添加子任务（跳 App 深链，网页识别 addChild 自动弹表单）
+    val ctx = androidx.glance.LocalContext.current
+    val addChildUrl = addChildUrlOf(ctx, Prefs.getBaseUrl(ctx, widgetId), Prefs.getToken(ctx, widgetId), g.id)
     val rowModifier = if (solo) {
         GlanceModifier.fillMaxWidth().padding(vertical = 2.dp)
     } else {
@@ -370,6 +378,15 @@ private fun GroupTitleRow(g: WidgetGroup, widgetId: Int, isCollapsed: Boolean, f
                 maxLines = 1
             )
         }
+        // 「＋」添加子任务：独立点击区，折叠组整行的折叠 clickable 不影响此按钮（子 View 点击优先）
+        Spacer(GlanceModifier.width(8.dp))
+        Text(
+            "＋",
+            style = TextStyle(fontSize = fs(fontScale, 15), color = W.brand, fontWeight = FontWeight.Bold),
+            modifier = GlanceModifier.clickable(
+                actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to addChildUrl))
+            )
+        )
     }
 }
 

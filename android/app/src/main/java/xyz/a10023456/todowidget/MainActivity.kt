@@ -23,6 +23,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -308,7 +309,9 @@ private fun AppShell(initialUrl: String?) {
                         wv.loadUrl(targetUrl, APP_HEADERS)
                     }
                 },
-                modifier = Modifier.fillMaxSize()
+                // imePadding: targetSdk 35 edge-to-edge 下 WebView 默认不随软键盘收缩,
+                // 显式消费 ime inset 让 WebView 底部缩到键盘上方, 网页内输入框才不被键盘盖住
+                modifier = Modifier.fillMaxSize().imePadding()
             )
             if (showMe) {
                 Surface(modifier = Modifier.fillMaxSize()) {

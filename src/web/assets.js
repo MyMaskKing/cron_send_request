@@ -4,6 +4,38 @@
 
 // 通用 API 请求与工具函数（所有页面共用）
 const COMMON_JS = `
+// ============ 全局软键盘遮挡兜底 ============
+// App WebView(Android 15 edge-to-edge, WebView 不随键盘自动收缩)或手机浏览器里, 输入框聚焦时
+// 软键盘可能盖住输入框。任意 input/textarea/contenteditable 聚焦、或 visualViewport 变化(键盘
+// 弹起)时, 把聚焦元素抬到可视视口内: 先 scrollIntoView, 再按可视视口底边补差滚动最近可滚动祖先
+// (全屏主区/弹窗遮罩/长表格), 兜底 window 滚动。与 todo 页 todoLiftIntoView 同口径, 此处全局生效。
+(function(){
+  function liftFocused(){
+    var el = document.activeElement;
+    if (!el) return;
+    var tag = (el.tagName || '').toLowerCase();
+    if (tag !== 'input' && tag !== 'textarea' && !el.isContentEditable) return;
+    try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch(e) {}
+    var vv = window.visualViewport;
+    if (!vv) return;
+    var r = el.getBoundingClientRect();
+    var delta = r.bottom - (vv.offsetTop + vv.height) + 16; // 可视视口底边(布局坐标) + 16px 余量
+    if (delta <= 0) return;
+    for (var p = el.parentElement; p; p = p.parentElement) {
+      var s = getComputedStyle(p);
+      if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && p.scrollHeight > p.clientHeight) {
+        p.scrollTop += delta; return;
+      }
+    }
+    window.scrollBy(0, delta);
+  }
+  document.addEventListener('focusin', function(){
+    requestAnimationFrame(function(){ requestAnimationFrame(liftFocused); }); // 两帧等键盘动画/视口收缩
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function(){ requestAnimationFrame(liftFocused); });
+  }
+})();
 // ============ 统一 SVG 图标(24x24, stroke: currentColor, 与 topbar 风格一致) ============
 // 移动端 emoji 在浅底色行上易被吞噬(尤其 ✏️/🔗/🗑️), 全部换成矢量描边图标; 颜色由 .todo-op 决定
 var ICONS = {
@@ -6073,11 +6105,29 @@ bindClickBusy(document.getElementById('pushSend'), async function(){
       history.replaceState(null, '', location.pathname);
       openAddForm(null, '新建任务', false);
     }
+    // 小组件主任务「＋」入口: ?addChild=<rootId> 自动弹出该主任务的添加子任务表单
+    var _addChildId = _q.get('addChild');
+    if (_addChildId) {
+      history.replaceState(null, '', location.pathname);
+      openAddForm(Number(_addChildId), '添加子任务', true);
+    }
     // 小组件「编辑」入口: ?edit=<id> 自动打开该任务编辑弹窗（App 内点击任务直达）
+    // 必须从 todoBuildTree 的树节点取: openTodoEdit 对子任务读 node.children/node._root,
+    // 扁平 _rows 节点没有 children, 直接用会抛 "Cannot read properties of undefined (reading 'length')"
     var _editId = _q.get('edit');
     if (_editId) {
       history.replaceState(null, '', location.pathname);
-      var _node = (_rows || []).filter(function(x){ return String(x.id) === String(_editId); })[0];
+      var _node = (function(){
+        var found = null;
+        (function walk(list){
+          list.forEach(function(n){
+            if (found) return;
+            if (String(n.id) === String(_editId)) { found = n; return; }
+            walk(n.children || []);
+          });
+        })(todoBuildTree(_rows || []));
+        return found;
+      })();
       if (_node) openTodoEdit(_node);
     }
   }
@@ -6440,9 +6490,16 @@ async function reloadReport() {
     });
     await loadChart();
     // 小组件「新增」入口: ?add=1 自动弹出新建表单, 读后清掉避免刷新重弹
-    if (new URLSearchParams(location.search).get('add') === '1') {
+    var _rq = new URLSearchParams(location.search);
+    if (_rq.get('add') === '1') {
       history.replaceState(null, '', location.pathname);
       openAddForm(null, '新建任务', false);
+    }
+    // 小组件主任务「＋」入口: ?addChild=<rootId> 自动弹出该主任务的添加子任务表单
+    var _addChildId = _rq.get('addChild');
+    if (_addChildId) {
+      history.replaceState(null, '', location.pathname);
+      openAddForm(Number(_addChildId), '添加子任务', true);
     }
   } catch(e) { document.body.innerHTML = '<div class="todo-empty" style="margin-top:60px;">' + esc(e.message || '链接无效') + '</div>'; }
 })();
