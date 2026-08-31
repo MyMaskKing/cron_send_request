@@ -22,8 +22,13 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.getBottom
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -121,6 +126,20 @@ private fun AppShell(initialUrl: String?) {
     // WebViewClient 只在 factory 创建一次，用 rememberUpdatedState 让它始终读到最新 baseUrl
     val currentBaseUrl by rememberUpdatedState(baseUrl)
 
+    // 软键盘高度（CSS px）：edge-to-edge 下 WebView 不随键盘收缩，且实测该 WebView 的
+    // visualViewport 不反映键盘（vv.height≈innerHeight，网页算不出键盘高）。改由原生
+    // WindowInsets.ime 实测键盘高，注入网页 CSS 变量 --kb-native，网页据此把弹窗/输入框抬到键盘上方。
+    var kbCss by remember { mutableStateOf(0f) }
+    val currentKbCss by rememberUpdatedState(kbCss)
+    val density = LocalDensity.current
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    LaunchedEffect(imeBottomPx) {
+        kbCss = imeBottomPx / density.density
+        webViewRef?.evaluateJavascript(
+            "document.documentElement.style.setProperty('--kb-native','${kbCss}px')", null
+        )
+    }
+
     // 小组件再次点入的深链：同步选中对应底部 Tab（待办/基金/体重/资产）
     androidx.compose.runtime.DisposableEffect(Unit) {
         DeepLinkBus.listener = { url ->
@@ -200,6 +219,11 @@ private fun AppShell(initialUrl: String?) {
 
                             override fun onPageFinished(view: WebView, url: String?) {
                                 super.onPageFinished(view, url)
+                                // 新页面 document 会重置 CSS 变量，重新注入当前键盘高度（--kb-native）
+                                view.evaluateJavascript(
+                                    "document.documentElement.style.setProperty('--kb-native','${currentKbCss}px')",
+                                    null
+                                )
                                 // 下拉刷新触发的 reload 完成后收起指示器
                                 swipe.isRefreshing = false
                                 // 同步登录会话给小组件：从 Cookie 取 sid（native 可读 HttpOnly Cookie）

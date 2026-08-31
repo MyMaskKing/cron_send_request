@@ -13,11 +13,19 @@ const COMMON_JS = `
 // 聚焦后等键盘动画完成(300ms)再把聚焦框滚进可视区。不逐帧 scrollIntoView, 不抢焦点。
 (function(){
   var _dbg = null, _dbgTimer = null;
-  // 【临时诊断】键盘弹起时屏幕顶部红条显示 visualViewport 实测值, 用于定位避让失效发生在哪一层
-  // (新代码是否加载 / vv 是否反映键盘 / 聚焦框位置); 定位后整段 dbg 可删。
-  function dbg(){
+  // 键盘高度(CSS px)双来源取大:
+  //   nativeKb = App 原生 WindowInsets.ime 实测注入的 --kb-native(edge-to-edge 下 vv 不反映键盘时的可靠来源)
+  //   vvKb     = visualViewport 计算(手机浏览器 / 桌面无注入时用)
+  function curKb(){
     var vv = window.visualViewport;
-    var kb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+    var vvKb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+    var nativeKb = 0;
+    try { nativeKb = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--kb-native')) || 0; } catch(e){}
+    return { kb: Math.max(nativeKb, vvKb), nativeKb: nativeKb, vvKb: vvKb, vv: vv };
+  }
+  // 【临时诊断】聚焦输入框时屏幕顶部红条显示双来源键盘高度与聚焦框位置; 定位后整段 dbg 可删。
+  function dbg(k){
+    k = k || curKb();
     if (!_dbg) {
       _dbg = document.createElement('div');
       _dbg.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483647;background:rgba(200,0,0,.88);color:#fff;font:11px/1.5 monospace;padding:3px 6px;pointer-events:none;display:none;white-space:pre-wrap;word-break:break-all;';
@@ -25,23 +33,23 @@ const COMMON_JS = `
     }
     var el = document.activeElement, r = el ? el.getBoundingClientRect() : null;
     var tag = el ? ((el.tagName || '').toLowerCase() + (el.id ? '#' + el.id : '')) : '-';
-    _dbg.textContent = 'kb=' + Math.round(kb) + ' vv.h=' + Math.round(vv ? vv.height : 0) +
-      ' off=' + Math.round(vv ? vv.offsetTop : 0) + ' win.h=' + window.innerHeight +
+    _dbg.textContent = 'native=' + Math.round(k.nativeKb) + ' vvKb=' + Math.round(k.vvKb) + ' kb=' + Math.round(k.kb) +
+      ' vv.h=' + Math.round(k.vv ? k.vv.height : 0) + ' win.h=' + window.innerHeight +
       ' | act=' + tag + (r ? (' elBottom=' + Math.round(r.bottom)) : '') +
       ' | mask=' + (document.querySelector('.modal-mask.show') ? 'Y' : 'n');
     _dbg.style.display = 'block';
     if (_dbgTimer) clearTimeout(_dbgTimer);
-    _dbgTimer = setTimeout(function(){ if (_dbg) _dbg.style.display = 'none'; }, 3000);
+    _dbgTimer = setTimeout(function(){ if (_dbg) _dbg.style.display = 'none'; }, 3500);
   }
   function liftFocused(){
     var el = document.activeElement;
     if (!el) return;
     var tag = (el.tagName || '').toLowerCase();
     if (tag !== 'input' && tag !== 'textarea' && !el.isContentEditable) return;
-    var vv = window.visualViewport;
+    var k = curKb();
     var r = el.getBoundingClientRect();
-    var bottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
-    var delta = r.bottom - bottom + 16; // 可视视口底边(布局坐标) + 16px 余量
+    var bottom = window.innerHeight - k.kb; // 键盘上方可视底边(布局坐标)
+    var delta = r.bottom - bottom + 16; // + 16px 余量
     if (delta <= 0) return;
     for (var p = el.parentElement; p; p = p.parentElement) {
       var s = getComputedStyle(p);
@@ -52,24 +60,23 @@ const COMMON_JS = `
     window.scrollBy(0, delta);
   }
   function syncKb(){
-    var vv = window.visualViewport;
-    var kb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
-    document.documentElement.style.setProperty('--kb-inset', kb + 'px');
-    // 弹窗遮罩几何对齐可视视口; 无键盘时清除 inline 覆盖回到 CSS inset:0
+    var k = curKb();
+    document.documentElement.style.setProperty('--kb-inset', k.kb + 'px');
+    // 弹窗遮罩几何对齐到键盘上方: top=vv.offsetTop(一般0), height=布局视口高-键盘高; 无键盘清除 inline
     var masks = document.querySelectorAll('.modal-mask');
     Array.prototype.forEach.call(masks, function(mask){
-      if (kb > 80 && vv && mask.classList.contains('show')) {
-        mask.style.top = vv.offsetTop + 'px';
-        mask.style.height = vv.height + 'px';
+      if (k.kb > 80 && mask.classList.contains('show')) {
+        mask.style.top = (k.vv ? k.vv.offsetTop : 0) + 'px';
+        mask.style.height = (window.innerHeight - k.kb) + 'px';
       } else {
         mask.style.top = '';
         mask.style.height = '';
       }
     });
-    if (kb > 80) dbg();
+    if (k.kb > 80) dbg(k);
     else if (_dbg) _dbg.style.display = 'none';
   }
-  // 聚焦后无条件显示一次诊断条(不只 kb>80), 确保 adjustResize/edge-to-edge 两种模式都能读到实测值
+  // 聚焦后无条件显示一次诊断条(双来源都读), 确保能看到 native/vv 各自数值
   document.addEventListener('focusin', function(){ setTimeout(function(){ syncKb(); liftFocused(); dbg(); }, 300); });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', syncKb);

@@ -766,6 +766,11 @@ body.todo-fs-on .impersonate-banner { display: none !important; }
 body.todo-fs-on .container > .card { display: none !important; }
 body.todo-fs-on .todo-fullscreen { display: flex; }
 
+/* 普通文档流页面(登录/系统设置/体重/资产公开填写等非弹窗表单): 键盘弹起时底部预留键盘高度,
+   短表单也能把输入框滚到键盘上方。弹窗(.modal-mask 由 JS 几何对齐)与待办全屏(.todo-fs-main
+   自身 padding)另有避让; 弹窗打开时 body.no-scroll 为 position:fixed, 此项不影响弹窗布局。
+   PC/无键盘时 --kb-inset 为 0, 无副作用。 */
+body { padding-bottom: var(--kb-inset, 0px); }
 /* 主区域：右侧填满 */
 /* touch-action: pan-y 显式放行纵向触摸滚动: 弹窗打开期间 body.no-scroll 生效,
    祖先 touch-action 会连带禁用后代滚动容器的手势, 这里显式声明保证卡片/树列表始终可上下滑动 */
