@@ -459,6 +459,11 @@ body.booting { overflow: hidden; position: fixed; width: 100%; touch-action: non
 .dp-cell.today { box-shadow: inset 0 0 0 1.5px #A855F7; color: #A855F7; font-weight: 700; }
 .dp-cell.sel { background: #A855F7; color: #fff; font-weight: 700; }
 .dp-cell.sel.today { box-shadow: none; }
+/* 月/年快选视图: 4 列网格; 标题可点(进下一级) */
+.dp-grid--mon { grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.dp-cell--mon { height: 40px; font-weight: 600; }
+.dp-ym { cursor: pointer; padding: 2px 10px; border-radius: 6px; }
+.dp-ym[data-goto]:hover { background: #f0eafb; color: #A855F7; }
 input[type="date"] { cursor: pointer; }
 
 /* 操作下拉菜单 */

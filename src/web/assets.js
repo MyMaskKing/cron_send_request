@@ -63,18 +63,20 @@ const COMMON_JS = `
   syncKb();
 })();
 // ============ 现代化日期选择器(渐进增强, 自动接管全站 input[type=date]) ============
-// 点击日期框弹出现代日历: 顶部"今天/明天/下周今天"快捷胶囊 + 月份翻页网格, 尊重 input 的 min/max;
-// 选中写回 input.value(YYYY-MM-DD) 并触发 input/change, 现有表单读取逻辑零改动。
-// 事件委托挂 document, modal 等动态注入的日期框也自动接管; 日期框置只读, 由弹层点选(不弹软键盘)。
+// 日视图: 今天/明天/下周今天快捷胶囊 + 日历网格; 点标题"2026年9月"进月视图(12 月快选),
+// 再点"2026年"进年视图(12 年快选), 逐级快速跳年月; ‹ › 日视图翻月、月视图翻年、年视图翻 12 年。
+// 尊重 input 的 min/max; 选中写回 input.value(YYYY-MM-DD) 并触发 input/change, 现有表单零改动。
+// 事件委托挂 document, modal 动态注入的日期框也接管; 日期框置只读, 点选不弹软键盘。
 (function(){
   var WD = ['日','一','二','三','四','五','六'];
+  var MO = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
   function bjToday(){ var d = new Date(Date.now() + 8*3600*1000); return d.toISOString().slice(0,10); }
   function parse(s){ if(!s) return null; var m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(s); return m ? {y:+m[1], mo:+m[2], d:+m[3]} : null; }
   function fmt(y,mo,d){ return y + '-' + (mo<10?'0':'') + mo + '-' + (d<10?'0':'') + d; }
   function pStr(p){ return fmt(p.y,p.mo,p.d); }
   function addDays(s,n){ var p=parse(s); return new Date(Date.UTC(p.y,p.mo-1,p.d)+n*86400000).toISOString().slice(0,10); }
   function wdOf(s){ var p=parse(s); return WD[new Date(Date.UTC(p.y,p.mo-1,p.d)).getUTCDay()]; }
-  var pop=null, cur=null, vY=0, vMo=0;
+  var pop=null, cur=null, vY=0, vMo=0, view='day';
   function close(){ if(pop){ pop.remove(); pop=null; cur=null; } }
   function disabled(ds, input){
     var mn=parse(input.min), mx=parse(input.max);
@@ -88,9 +90,12 @@ const COMMON_JS = `
     var top = (r.bottom + 6 + ph <= window.innerHeight) ? r.bottom + 6 : Math.max(8, r.top - ph - 6);
     pop.style.left = left + 'px'; pop.style.top = top + 'px';
   }
-  function render(){
-    if(!pop||!cur) return;
-    var today = bjToday(), sel = parse(cur.value);
+  function navBar(title, goto){
+    return '<div class="dp-nav"><button type="button" class="dp-navb" data-dir="-1">‹</button>' +
+      '<span class="dp-ym"' + (goto ? ' data-goto="'+goto+'"' : '') + '>'+title+'</span>' +
+      '<button type="button" class="dp-navb" data-dir="1">›</button></div>';
+  }
+  function renderDay(today, sel){
     var quick = [['今天', today], ['明天', addDays(today,1)], ['下周今天', addDays(today,7)]];
     var chips = quick.map(function(q){
       var p = parse(q[1]), dis = disabled(q[1], cur);
@@ -103,36 +108,66 @@ const COMMON_JS = `
     var cells = '';
     for(var i=firstWd-1;i>=0;i--) cells += '<span class="dp-cell mute">'+(prevDays-i)+'</span>';
     for(var d=1;d<=daysIn;d++){
-      var ds = fmt(vY,vMo,d);
+      var ds = fmt(vY,vMo,d), dis = disabled(ds,cur);
       var cls = 'dp-cell';
       if (ds===today) cls += ' today';
       if (sel && pStr(sel)===ds) cls += ' sel';
-      if (disabled(ds, cur)) cls += ' dis';
-      cells += '<button type="button" class="'+cls+'" data-d="'+ds+'"'+(disabled(ds,cur)?' disabled':'')+'>'+d+'</button>';
+      if (dis) cls += ' dis';
+      cells += '<button type="button" class="'+cls+'" data-d="'+ds+'"'+(dis?' disabled':'')+'>'+d+'</button>';
     }
-    pop.innerHTML =
-      '<div class="dp-quick">'+chips+'</div>' +
-      '<div class="dp-nav"><button type="button" class="dp-navb" data-m="-1">‹</button><span class="dp-ym">'+vY+'年'+vMo+'月</span><button type="button" class="dp-navb" data-m="1">›</button></div>' +
+    return '<div class="dp-quick">'+chips+'</div>' +
+      navBar(vY+'年'+vMo+'月', 'month') +
       '<div class="dp-wd">'+WD.map(function(w){return '<span>'+w+'</span>';}).join('')+'</div>' +
       '<div class="dp-grid">'+cells+'</div>';
+  }
+  function renderMonth(today){
+    var tp = parse(today);
+    var cells = MO.map(function(m,i){
+      var mo=i+1, cls='dp-cell dp-cell--mon';
+      if (tp && tp.y===vY && tp.mo===mo) cls += ' today';
+      return '<button type="button" class="'+cls+'" data-mo="'+mo+'">'+m+'</button>';
+    }).join('');
+    return navBar(vY+'年', 'year') + '<div class="dp-grid dp-grid--mon">'+cells+'</div>';
+  }
+  function renderYear(today){
+    var tp = parse(today);
+    var start = Math.floor(vY/12)*12, cells = '';
+    for(var i=0;i<12;i++){
+      var y=start+i, cls='dp-cell dp-cell--mon';
+      if (tp && tp.y===y) cls += ' today';
+      if (vY===y) cls += ' sel';
+      cells += '<button type="button" class="'+cls+'" data-yr="'+y+'">'+y+'</button>';
+    }
+    return navBar(start+'-'+(start+11), null) + '<div class="dp-grid dp-grid--mon">'+cells+'</div>';
+  }
+  function render(){
+    if(!pop||!cur) return;
+    var today = bjToday(), sel = parse(cur.value);
+    pop.innerHTML = view==='month' ? renderMonth(today) : view==='year' ? renderYear(today) : renderDay(today, sel);
     position();
   }
   function open(input){
     cur = input;
     input.readOnly = true;
     var base = parse(input.value) || parse(bjToday());
-    vY = base.y; vMo = base.mo;
+    vY = base.y; vMo = base.mo; view = 'day';
     if (!pop){
       pop = document.createElement('div');
       pop.className = 'dp-pop';
       document.body.appendChild(pop);
       pop.addEventListener('click', function(e){
-        var cell = e.target.closest ? e.target.closest('[data-d]') : null;
-        var nav = e.target.closest ? e.target.closest('.dp-navb') : null;
-        if (cell){ choose(cell.getAttribute('data-d')); return; }
+        var el = e.target;
+        function q(s){ return el.closest ? el.closest(s) : null; }
+        var day=q('[data-d]'), mo=q('[data-mo]'), yr=q('[data-yr]'), goto=q('[data-goto]'), nav=q('.dp-navb');
+        if (day){ choose(day.getAttribute('data-d')); return; }
+        if (mo){ vMo = parseInt(mo.getAttribute('data-mo'),10); view='day'; render(); return; }
+        if (yr){ vY = parseInt(yr.getAttribute('data-yr'),10); view='month'; render(); return; }
+        if (goto){ view = goto.getAttribute('data-goto'); render(); return; }
         if (nav){
-          vMo += parseInt(nav.getAttribute('data-m'),10);
-          if (vMo<1){vMo=12;vY--;} if (vMo>12){vMo=1;vY++;}
+          var dir = parseInt(nav.getAttribute('data-dir'),10);
+          if (view==='day'){ vMo += dir; if(vMo<1){vMo=12;vY--;} if(vMo>12){vMo=1;vY++;} }
+          else if (view==='month'){ vY += dir; }
+          else { vY += dir*12; }
           render();
         }
       });
