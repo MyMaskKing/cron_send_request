@@ -201,13 +201,15 @@ function buildWidgetGroups(rows, today, scope, limit) {
   // 每项带 due_label/overdue：叶子自身日期优先，否则继承最近有日期的祖先（旧模式即主任务日期）。
   // 同时返回 hasRecur：子树内是否存在重复任务（主任务或任一叶子）。
   // 若该根本身是叶子（无后代），回退为根自身，保证至少有一条可勾选。
-  const itemsOf = (node) => {
+  // scope 传入: today 口径下只收"今日到期"的叶子(非今日子任务不显示, 仅小组件)
+  const itemsOf = (node, scope) => {
     const out = [];
     let hasRecur = false;
     const walk = (n, ancestors, isRoot, inheritedDue) => {
       if (n.recurrence) hasRecur = true;
       const ownDue = n.due_date || inheritedDue;
-      if (!isRoot && n.children.length === 0) {
+      // 组件"今日"口径: 仅今日到期的叶子才收, 非今日的子任务不显示(网页/日报不走这里, 不受影响)
+      if (!isRoot && n.children.length === 0 && (scope !== 'today' || ownDue === today)) {
         const over = !!(today && ownDue && ownDue < today);
         out.push({
           id: n.id, title: n.title, path: ancestors,
@@ -221,13 +223,16 @@ function buildWidgetGroups(rows, today, scope, limit) {
     };
     walk(node, [], true, null);
     if (out.length === 0) {
-      const over = !!(today && node.due_date && node.due_date < today);
-      out.push({
-        id: node.id, title: node.title, path: [],
-        due_label: node.due_date ? todoDateBadge(node.due_date, today, over) : '',
-        overdue: over
-      });
-      if (node.recurrence) hasRecur = true;
+      // today 口径下根自身也非今日 → 不回退(组将因 items 为空被跳过)
+      if (scope !== 'today' || node.due_date === today) {
+        const over = !!(today && node.due_date && node.due_date < today);
+        out.push({
+          id: node.id, title: node.title, path: [],
+          due_label: node.due_date ? todoDateBadge(node.due_date, today, over) : '',
+          overdue: over
+        });
+        if (node.recurrence) hasRecur = true;
+      }
     }
     return { items: out, hasRecur };
   };
@@ -236,16 +241,16 @@ function buildWidgetGroups(rows, today, scope, limit) {
   for (const root of pending) {
     const due = rootDueOf(root);
     const overdue = !!(today && due && due < today);
-    // scope 按主任务显示日期过滤（与前端口径一致）
-    if (scope === 'today') {
-      if (!(due && due === today)) continue;
-    } else if (scope === 'overdue') {
+    // scope 过滤: overdue/cur 按主任务显示日期整组过滤(与前端口径一致);
+    // today 不按主任务日期整组跳过——改由 itemsOf 只收今日叶子: 主任务只要有今日子任务就
+    // 显示该组、且组内只列今日子任务(非今日子任务不显示, 仅小组件口径); 'all' 不筛选。
+    if (scope === 'overdue') {
       if (!overdue) continue;
     } else if (scope === 'cur') {
       if (!(due && due <= today)) continue;
-    } // 'all' 不筛选（含无日期的备忘录型顶层）
+    }
 
-    const { items, hasRecur } = itemsOf(root);
+    const { items, hasRecur } = itemsOf(root, scope);
     if (items.length === 0) continue; // 理论上 flattenPending 已排除，防御一下
     // child_due 空容器(分组壳, 尚未添加子任务): 回退出来的唯一一行是容器自身,
     // 小组件上没有可勾选的子任务, 且该行易被误勾成"完成整个容器"; 全部范围也隐藏,

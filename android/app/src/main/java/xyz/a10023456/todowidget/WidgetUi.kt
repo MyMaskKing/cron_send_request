@@ -60,6 +60,11 @@ private fun addChildUrlOf(ctx: Context, baseUrl: String, token: String, rootId: 
     if (Prefs.isLoggedIn(ctx) || token.isBlank()) "$baseUrl/todo?addChild=$rootId"
     else "$baseUrl/tr/$token?addChild=$rootId"
 
+/** 点主任务行：跳 App 进该主任务的子任务详情（等同网页卡片视图点主任务进入的画面），网页识别 ?root=<id>；未登录回退免密报告页同参。 */
+private fun rootDetailUrlOf(ctx: Context, baseUrl: String, token: String, rootId: Long): String =
+    if (Prefs.isLoggedIn(ctx) || token.isBlank()) "$baseUrl/todo?root=$rootId"
+    else "$baseUrl/tr/$token?root=$rootId"
+
 /** 点击任务：已登录跳到 /todo?edit=<id> 由网页自动打开编辑弹窗；未登录回退到免密报告页。 */
 private fun editUrlOf(ctx: Context, baseUrl: String, token: String, itemId: Long): String =
     if (Prefs.isLoggedIn(ctx)) "$baseUrl/todo?edit=$itemId" else openUrlOf(ctx, baseUrl, token)
@@ -334,30 +339,36 @@ private fun GroupCard(
     }
 }
 
-/** 卡片标题行：分组名（主任务名）粗体；可折叠组整行点击折叠并带 ▼/▶ 箭头，单主任务组无箭头不可点。右侧重复图标/截止日期。 */
+/**
+ * 卡片标题行：分组名（主任务名）粗体。整行点击 = 跳 App 进该主任务子任务详情（等同网页卡片点主任务）；
+ * 仅 ▼/▶ 箭头点击 = 折叠/展开（CollapseAction）；右侧「＋」= 添加子任务。子 View 点击优先于整行。
+ */
 @Composable
 private fun GroupTitleRow(g: WidgetGroup, widgetId: Int, isCollapsed: Boolean, fontScale: Int) {
     val solo = !g.collapsible && g.children.firstOrNull()?.id == g.id
-    // 标题行右侧「＋」：快速给该主任务添加子任务（跳 App 深链，网页识别 addChild 自动弹表单）
     val ctx = androidx.glance.LocalContext.current
-    val addChildUrl = addChildUrlOf(ctx, Prefs.getBaseUrl(ctx, widgetId), Prefs.getToken(ctx, widgetId), g.id)
-    val rowModifier = if (solo) {
-        GlanceModifier.fillMaxWidth().padding(vertical = 2.dp)
-    } else {
-        GlanceModifier.fillMaxWidth().padding(vertical = 2.dp).clickable(
-            actionRunCallback<CollapseAction>(
-                actionParametersOf(
-                    Keys.AppWidgetId to widgetId,
-                    Keys.RootId to g.id
-                )
-            )
-        )
-    }
+    val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
+    val token = Prefs.getToken(ctx, widgetId)
+    // 整行进 App 主任务详情；「＋」快速添加子任务（跳 App 深链，网页识别 root/addChild）
+    val detailUrl = rootDetailUrlOf(ctx, baseUrl, token, g.id)
+    val addChildUrl = addChildUrlOf(ctx, baseUrl, token, g.id)
+    val rowModifier = GlanceModifier.fillMaxWidth().padding(vertical = 2.dp).clickable(
+        actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to detailUrl))
+    )
     Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {
         if (!solo) {
+            // 箭头单独折叠/展开（子 View 点击优先，不触发行的进详情）；加 padding 扩大触点
             Text(
                 if (g.collapsible) (if (isCollapsed) "▶ " else "▼ ") else "• ",
-                style = TextStyle(color = W.sub, fontSize = fs(fontScale, 11))
+                style = TextStyle(color = W.sub, fontSize = fs(fontScale, 11)),
+                modifier = GlanceModifier.padding(horizontal = 2.dp).clickable(
+                    actionRunCallback<CollapseAction>(
+                        actionParametersOf(
+                            Keys.AppWidgetId to widgetId,
+                            Keys.RootId to g.id
+                        )
+                    )
+                )
             )
             Spacer(GlanceModifier.width(2.dp))
         }

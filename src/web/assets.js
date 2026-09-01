@@ -6262,6 +6262,13 @@ bindClickBusy(document.getElementById('pushSend'), async function(){
       })();
       if (_node) openTodoEdit(_node);
     }
+    // 小组件点主任务行入口: ?root=<id> 进入该主任务的子任务详情(等同卡片视图点主任务进入的画面)
+    var _rootId = _q.get('root');
+    if (_rootId) {
+      history.replaceState(null, '', location.pathname);
+      _todoDetailRootId = Number(_rootId);
+      drawTree();
+    }
   }
   catch(e){ if (String(e.message).indexOf('登录')>=0) navTo('/login'); else alertModal(e.message, {ok:false}); }
 })();
@@ -6634,6 +6641,13 @@ async function reloadReport() {
       // 弹窗标题带主任务名, 明确正在给哪个清单添加子任务
       var _addParent = (_rows || []).filter(function(r){ return String(r.id) === String(_addChildId); })[0];
       openAddForm(Number(_addChildId), _addParent && _addParent.title ? '添加子任务 · ' + _addParent.title : '添加子任务', true);
+    }
+    // 小组件点主任务行入口: ?root=<id> 进入该主任务的子任务详情(等同卡片视图点主任务)
+    var _rootId = _rq.get('root');
+    if (_rootId) {
+      history.replaceState(null, '', location.pathname);
+      _todoDetailRootId = Number(_rootId);
+      drawTree();
     }
   } catch(e) { document.body.innerHTML = '<div class="todo-empty" style="margin-top:60px;">' + esc(e.message || '链接无效') + '</div>'; }
 })();
