@@ -425,6 +425,42 @@ body.booting { overflow: hidden; position: fixed; width: 100%; touch-action: non
 .modal-body { padding: 20px; }
 @keyframes modalIn { from { transform: translateY(-12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
+/* ============ 现代化日期选择器(自动接管 input[type=date]) ============ */
+.dp-pop {
+  display: none; position: fixed; z-index: 10002; width: 296px; max-width: calc(100vw - 16px);
+  background: #fff; border: 1px solid #eceaf2; border-radius: 14px;
+  box-shadow: 0 14px 44px rgba(20,20,40,.22); padding: 12px;
+  animation: modalIn .16s ease;
+}
+.dp-quick { display: flex; gap: 8px; margin-bottom: 10px; }
+.dp-chip {
+  flex: 1; border: 1px solid #e7e6f0; background: #f7f7fb; border-radius: 10px;
+  padding: 7px 2px 6px; cursor: pointer; display: flex; flex-direction: column; align-items: center;
+  gap: 2px; line-height: 1.25; transition: background .12s, border-color .12s;
+}
+.dp-chip span { font-size: 13px; font-weight: 600; color: #1f2329; }
+.dp-chip small { font-size: 11px; color: #8890b8; }
+.dp-chip:hover { border-color: #d9cdf5; background: #f3eefc; }
+.dp-chip.active { background: #A855F7; border-color: #A855F7; }
+.dp-chip.active span, .dp-chip.active small { color: #fff; }
+.dp-chip.dis, .dp-cell.dis { opacity: .35; cursor: default; }
+.dp-nav { display: flex; align-items: center; justify-content: space-between; margin: 2px 0 6px; }
+.dp-ym { font-size: 14px; font-weight: 700; color: #1f2329; }
+.dp-navb { border: none; background: #f2f2f8; border-radius: 8px; width: 30px; height: 28px; font-size: 17px; line-height: 1; cursor: pointer; color: #5a6b9a; }
+.dp-navb:hover { background: #e8e8f5; }
+.dp-wd, .dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.dp-wd span { text-align: center; font-size: 11px; color: #8890b8; padding: 3px 0; }
+.dp-cell {
+  border: none; background: none; border-radius: 8px; height: 34px; font-size: 13px;
+  cursor: pointer; color: #1f2329; display: flex; align-items: center; justify-content: center;
+}
+.dp-cell:hover:not(.mute):not(.dis) { background: #f0eafb; }
+.dp-cell.mute { color: #c9ccdb; cursor: default; }
+.dp-cell.today { box-shadow: inset 0 0 0 1.5px #A855F7; color: #A855F7; font-weight: 700; }
+.dp-cell.sel { background: #A855F7; color: #fff; font-weight: 700; }
+.dp-cell.sel.today { box-shadow: none; }
+input[type="date"] { cursor: pointer; }
+
 /* 操作下拉菜单 */
 .dropdown { position: relative; display: inline-block; }
 .dropdown-menu { display: none; position: absolute; right: 0; top: 100%; background: #fff; border: 1px solid #e6e8f0; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.12); min-width: 120px; z-index: 50; overflow: hidden; }

@@ -62,6 +62,105 @@ const COMMON_JS = `
   window.addEventListener('resize', onKbChange);
   syncKb();
 })();
+// ============ 现代化日期选择器(渐进增强, 自动接管全站 input[type=date]) ============
+// 点击日期框弹出现代日历: 顶部"今天/明天/下周今天"快捷胶囊 + 月份翻页网格, 尊重 input 的 min/max;
+// 选中写回 input.value(YYYY-MM-DD) 并触发 input/change, 现有表单读取逻辑零改动。
+// 事件委托挂 document, modal 等动态注入的日期框也自动接管; 日期框置只读, 由弹层点选(不弹软键盘)。
+(function(){
+  var WD = ['日','一','二','三','四','五','六'];
+  function bjToday(){ var d = new Date(Date.now() + 8*3600*1000); return d.toISOString().slice(0,10); }
+  function parse(s){ if(!s) return null; var m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(s); return m ? {y:+m[1], mo:+m[2], d:+m[3]} : null; }
+  function fmt(y,mo,d){ return y + '-' + (mo<10?'0':'') + mo + '-' + (d<10?'0':'') + d; }
+  function pStr(p){ return fmt(p.y,p.mo,p.d); }
+  function addDays(s,n){ var p=parse(s); return new Date(Date.UTC(p.y,p.mo-1,p.d)+n*86400000).toISOString().slice(0,10); }
+  function wdOf(s){ var p=parse(s); return WD[new Date(Date.UTC(p.y,p.mo-1,p.d)).getUTCDay()]; }
+  var pop=null, cur=null, vY=0, vMo=0;
+  function close(){ if(pop){ pop.remove(); pop=null; cur=null; } }
+  function disabled(ds, input){
+    var mn=parse(input.min), mx=parse(input.max);
+    return (mn && ds < pStr(mn)) || (mx && ds > pStr(mx));
+  }
+  function position(){
+    if(!pop||!cur) return;
+    var r = cur.getBoundingClientRect();
+    var pw = pop.offsetWidth || 300, ph = pop.offsetHeight || 320;
+    var left = Math.min(Math.max(8, r.left), window.innerWidth - pw - 8);
+    var top = (r.bottom + 6 + ph <= window.innerHeight) ? r.bottom + 6 : Math.max(8, r.top - ph - 6);
+    pop.style.left = left + 'px'; pop.style.top = top + 'px';
+  }
+  function render(){
+    if(!pop||!cur) return;
+    var today = bjToday(), sel = parse(cur.value);
+    var quick = [['今天', today], ['明天', addDays(today,1)], ['下周今天', addDays(today,7)]];
+    var chips = quick.map(function(q){
+      var p = parse(q[1]), dis = disabled(q[1], cur);
+      return '<button type="button" class="dp-chip' + (sel&&pStr(sel)===q[1]?' active':'') + (dis?' dis':'') + '" data-d="'+q[1]+'"'+(dis?' disabled':'')+'>' +
+        '<span>'+q[0]+'</span><small>'+p.mo+'/'+p.d+' 周'+wdOf(q[1])+'</small></button>';
+    }).join('');
+    var firstWd = new Date(Date.UTC(vY, vMo-1, 1)).getUTCDay();
+    var daysIn = new Date(Date.UTC(vY, vMo, 0)).getUTCDate();
+    var prevDays = new Date(Date.UTC(vY, vMo-1, 0)).getUTCDate();
+    var cells = '';
+    for(var i=firstWd-1;i>=0;i--) cells += '<span class="dp-cell mute">'+(prevDays-i)+'</span>';
+    for(var d=1;d<=daysIn;d++){
+      var ds = fmt(vY,vMo,d);
+      var cls = 'dp-cell';
+      if (ds===today) cls += ' today';
+      if (sel && pStr(sel)===ds) cls += ' sel';
+      if (disabled(ds, cur)) cls += ' dis';
+      cells += '<button type="button" class="'+cls+'" data-d="'+ds+'"'+(disabled(ds,cur)?' disabled':'')+'>'+d+'</button>';
+    }
+    pop.innerHTML =
+      '<div class="dp-quick">'+chips+'</div>' +
+      '<div class="dp-nav"><button type="button" class="dp-navb" data-m="-1">‹</button><span class="dp-ym">'+vY+'年'+vMo+'月</span><button type="button" class="dp-navb" data-m="1">›</button></div>' +
+      '<div class="dp-wd">'+WD.map(function(w){return '<span>'+w+'</span>';}).join('')+'</div>' +
+      '<div class="dp-grid">'+cells+'</div>';
+    position();
+  }
+  function open(input){
+    cur = input;
+    input.readOnly = true;
+    var base = parse(input.value) || parse(bjToday());
+    vY = base.y; vMo = base.mo;
+    if (!pop){
+      pop = document.createElement('div');
+      pop.className = 'dp-pop';
+      document.body.appendChild(pop);
+      pop.addEventListener('click', function(e){
+        var cell = e.target.closest ? e.target.closest('[data-d]') : null;
+        var nav = e.target.closest ? e.target.closest('.dp-navb') : null;
+        if (cell){ choose(cell.getAttribute('data-d')); return; }
+        if (nav){
+          vMo += parseInt(nav.getAttribute('data-m'),10);
+          if (vMo<1){vMo=12;vY--;} if (vMo>12){vMo=1;vY++;}
+          render();
+        }
+      });
+    }
+    pop.style.display = 'block';
+    render();
+  }
+  function choose(ds){
+    if(!cur) return;
+    cur.value = ds;
+    cur.dispatchEvent(new Event('input',{bubbles:true}));
+    cur.dispatchEvent(new Event('change',{bubbles:true}));
+    close();
+  }
+  function isDate(t){ return t && t.tagName==='INPUT' && t.type==='date'; }
+  document.addEventListener('pointerdown', function(e){
+    var t = e.target;
+    if (isDate(t)){ e.preventDefault(); open(t); return; }
+    if (pop && !(t.closest && t.closest('.dp-pop'))) close();
+  }, true);
+  document.addEventListener('keydown', function(e){
+    var t = e.target;
+    if (isDate(t) && (e.key==='Enter' || e.key===' ')){ e.preventDefault(); open(t); }
+    if (e.key==='Escape') close();
+  }, true);
+  window.addEventListener('scroll', function(){ close(); }, true);
+  window.addEventListener('resize', function(){ close(); });
+})();
 // ============ 统一 SVG 图标(24x24, stroke: currentColor, 与 topbar 风格一致) ============
 // 移动端 emoji 在浅底色行上易被吞噬(尤其 ✏️/🔗/🗑️), 全部换成矢量描边图标; 颜色由 .todo-op 决定
 var ICONS = {
