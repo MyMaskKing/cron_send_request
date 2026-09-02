@@ -653,6 +653,8 @@ function buildTodoReportText(trees, base, token, reportToken, today, stats, remi
     return over ? `(⚠️逾期${disp})` : `(${disp})`;
   };
   const titleDate = today && today.length >= 10 ? `[今天:${Number(today.slice(5,7))}月${Number(today.slice(8,10))}]` : '';
+  // 子任务层级图标(叶子行): L2 主任务直属 ➖ / L3 ▸ / L4 ○ / L5 › / L6+ 复用 —, 视觉重量随深度递减
+  const LEAF_ICONS = ['➖', '▸', '○', '›', '—'];
   let t = `📌 待办日报${titleDate}\n\n`;
   // 定时推送(有 remind)时, remind 已含"还有 N 个待办"的时段化提示, 跳过固定统计句避免重复;
   // 手动推送/预览无 remind, 保留原统计句
@@ -679,10 +681,14 @@ function buildTodoReportText(trees, base, token, reportToken, today, stats, remi
       t += `❇️待办${ri + 1}：${root.title}${cat}(${leaves.length}件)${dateBadge(rootDue)}\n`;
       leaves.forEach((it) => {
         if (it.selfRoot) return; // 降级项已由上面的主任务行承载
+        // depth=0 主任务直属子任务(L2); 图标按深度取, 缩进每层 +2 空格
+        const depth = it.path.length;
+        const icon = LEAF_ICONS[Math.min(depth, LEAF_ICONS.length - 1)];
+        const indent = '  '.repeat(depth + 1);
         const crumb = it.path.length ? it.path.join(' / ') + '：' : '';
         const icat = it.category ? `〔${it.category}〕` : '';
         const badge = (it.due && it.due !== rootDue) ? dateBadge(it.due) : '';
-        t += `  ◽${crumb}${it.title}${icat}${badge}\n`;
+        t += `${indent}${icon} ${crumb}${it.title}${icat}${badge}\n`;
       });
       t += `${bar}\n`;
     });
