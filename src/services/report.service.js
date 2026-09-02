@@ -643,7 +643,7 @@ function todoDateTag(dueDate, today, kind) {
 }
 
 function buildTodoReportText(trees, base, token, reportToken, today, stats, remind = '') {
-  // 参考微信 TODO 格式: 标题带日期后缀 + 计数句 + 🔸 分隔线包每条任务 + 子任务以 ➖ 起首
+  // 参考微信 TODO 格式: 标题带日期后缀 + 计数句 + 🔸 分隔线包每条任务 + 叶子以 ├─/└─ 树状串接
   // 顶层任务前缀 ❇️待办N: <pri><title>(MM/DD or ⚠️逾期MM/DD)
   const bar = '🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸🔸';
   const dateBadge = (dueDate) => {
@@ -653,8 +653,6 @@ function buildTodoReportText(trees, base, token, reportToken, today, stats, remi
     return over ? `(⚠️逾期${disp})` : `(${disp})`;
   };
   const titleDate = today && today.length >= 10 ? `[今天:${Number(today.slice(5,7))}月${Number(today.slice(8,10))}]` : '';
-  // 子任务层级图标(叶子行): L2 主任务直属 ➖ / L3 ▸ / L4 ○ / L5 › / L6+ 复用 —, 视觉重量随深度递减
-  const LEAF_ICONS = ['➖', '▸', '○', '›', '—'];
   let t = `📌 待办日报${titleDate}\n\n`;
   // 定时推送(有 remind)时, remind 已含"还有 N 个待办"的时段化提示, 跳过固定统计句避免重复;
   // 手动推送/预览无 remind, 保留原统计句
@@ -670,7 +668,7 @@ function buildTodoReportText(trees, base, token, reportToken, today, stats, remi
   } else {
     t += `${bar}\n`;
     // 以子任务(可执行叶子)为单位: 主任务作分组头, 组内平铺末端叶子; 中间层父任务不单列,
-    // 经「中间层 / …：」面包屑体现层级。主任务无子任务时(selfRoot)下方无 ▸ 子项,
+    // 经「中间层 / …：」面包屑体现层级。主任务无子任务时(selfRoot)下方无 ├─ 子项,
     // 主任务标题行本身即那条待办(降级显示), 与小组件 collapsible=false 同口径。
     trees.forEach((root, ri) => {
       const cat = root.category ? `〔${root.category}〕` : '';
@@ -679,16 +677,15 @@ function buildTodoReportText(trees, base, token, reportToken, today, stats, remi
       // 组内可执行叶子数(无子任务的降级主任务自身计 1 件), 与顶部"N 件待办"逐组对账
       // text 版不加优先级圆圈: 微信/短信客户端里各家 emoji 尺寸不一, 反而挤占标题空间
       t += `❇️待办${ri + 1}：${root.title}${cat}(${leaves.length}件)${dateBadge(rootDue)}\n`;
-      leaves.forEach((it) => {
+      // 叶子扁平成树: ├─ 串接、组内末项 └─; 不画跨层 │(中间层父任务不成行, 竖线会悬空),
+      // 层级深度经面包屑(path)体现。每行前缀等长, 微信窄屏省空间, 也无竖线对齐问题
+      leaves.forEach((it, li) => {
         if (it.selfRoot) return; // 降级项已由上面的主任务行承载
-        // depth=0 主任务直属子任务(L2); 图标按深度取, 缩进每层 +2 空格
-        const depth = it.path.length;
-        const icon = LEAF_ICONS[Math.min(depth, LEAF_ICONS.length - 1)];
-        const indent = '  '.repeat(depth + 1);
+        const branch = li === leaves.length - 1 ? '└─ ' : '├─ ';
         const crumb = it.path.length ? it.path.join(' / ') + '：' : '';
         const icat = it.category ? `〔${it.category}〕` : '';
         const badge = (it.due && it.due !== rootDue) ? dateBadge(it.due) : '';
-        t += `${indent}${icon} ${crumb}${it.title}${icat}${badge}\n`;
+        t += `${branch}${crumb}${it.title}${icat}${badge}\n`;
       });
       t += `${bar}\n`;
     });
