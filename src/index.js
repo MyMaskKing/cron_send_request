@@ -57,6 +57,10 @@ import {
   widgetTodo, widgetTodoAuth,
   publicAllAdd, publicAllToggle, publicAllUpdate, publicAllReorder
 } from './api/todo.api.js';
+import {
+  createInvite, listInvites, resetInvite, revokeInvite,
+  joinInvite, listMyShares, removeShareMember
+} from './api/share.api.js';
 import { parseOffset, fmtShort } from './services/time.service.js';
 
 // Pages
@@ -222,6 +226,14 @@ router.post('/api/push/:module/send', runMyModulePush);
 router.get('/api/share/tokens', getMyShareTokens);
 router.post('/api/share/reset/:module', resetMyModuleShare);
 router.post('/api/admin/share/reset/:module/:userId', adminResetModuleShare);
+// 家庭/团队数据共享：邀请码 + 按模块授权
+router.post('/api/share/invites', createInvite);
+router.get('/api/share/invites', listInvites);
+router.post('/api/share/invites/:id/reset', resetInvite);
+router.post('/api/share/invites/:id/revoke', revokeInvite);
+router.post('/api/share/join', joinInvite);
+router.get('/api/share/mine', listMyShares);
+router.delete('/api/share/members/:id', removeShareMember);
 
 /**
  * 页面路由处理（需登录的页面统一校验会话）

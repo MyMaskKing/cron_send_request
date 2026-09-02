@@ -8,6 +8,7 @@ import { getStorage } from '../storage/adapter.js';
 import { requireAuth } from '../auth/middleware.js';
 import { generateToken } from '../auth/password.js';
 import { resolveBaseUrl } from '../config.js';
+import { requireDataContext } from './share.api.js';
 import { countStats, buildWidgetGroups, buildChartSeries, CHART_RANGES } from '../services/todo.service.js';
 
 /** 取北京时区当天 YYYY-MM-DD */
@@ -90,7 +91,9 @@ async function listTodos({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
-  const rows = await storage.todo.listByUser(auth.user_id);
+  const dc = await requireDataContext(storage, auth, 'todo', request);
+  if (dc instanceof Response) return dc;
+  const rows = await storage.todo.listByUser(dc.uid);
   const stats = countStats(rows, todayCN());
   return json({ success: true, todos: rows, stats });
 }
@@ -104,13 +107,15 @@ async function createTodo({ request, env }) {
   if (!title) return error('请填写任务标题');
 
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'todo', request);
+  if (dc instanceof Response) return dc;
   let parentId = null;
   let parentRow = null;
   let rootRow = null;
   if (body.parent_id != null && body.parent_id !== '') {
     parentId = parseInt(body.parent_id, 10);
     parentRow = await storage.todo.findById(parentId);
-    if (!parentRow || parentRow.user_id !== auth.user_id) return error('父任务不存在', 404);
+    if (!parentRow || parentRow.user_id !== dc.uid) return error('父任务不存在', 404);
     rootRow = await rootRowOf(storage, parentRow);
   }
   // child_due 新模式仅新建顶层主任务时可开启; 子任务沿用所在主任务的模式
@@ -124,7 +129,7 @@ async function createTodo({ request, env }) {
   const recFields = readRecurFields(body, parentId == null ? !childDue : childDueMode);
   // 不变量: 新模式下重复任务必须是叶子; 若给带重复的叶子任务添加首个子任务, 先记录, 建后清其重复
   const parentWasLeaf = parentRow ? (await storage.todo.collectDescendantIds(parentId)).length === 0 : false;
-  const id = await storage.todo.create(auth.user_id, {
+  const id = await storage.todo.create(dc.uid, {
     parent_id: parentId, title,
     priority: normPriority(body.priority),
     due_date: dueDate,
@@ -151,9 +156,11 @@ async function updateTodo({ request, env, params }) {
   if (!title) return error('请填写任务标题');
 
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'todo', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const t = await storage.todo.findById(id);
-  if (!t || t.user_id !== auth.user_id) return error('任务不存在', 404);
+  if (!t || t.user_id !== dc.uid) return error('任务不存在', 404);
   const isRoot = t.parent_id == null;
   const rootRow = isRoot ? t : await rootRowOf(storage, t);
 
@@ -195,7 +202,7 @@ async function updateTodo({ request, env, params }) {
     payload.recur_nth = recFields.recur_nth;
     payload.recur_weekday = recFields.recur_weekday;
   }
-  await storage.todo.update(id, auth.user_id, payload);
+  await storage.todo.update(id, dc.uid, payload);
   return json({ success: true, message: '任务已更新' });
 }
 
@@ -208,10 +215,12 @@ async function toggleTodo({ request, env, params }) {
   const jumpToCurrent = !!body.jumpToCurrent;
 
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'todo', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const t = await storage.todo.findById(id);
-  if (!t || t.user_id !== auth.user_id) return error('任务不存在', 404);
-  const r = await storage.todo.markDoneWithRecur(id, auth.user_id, done, jumpToCurrent, todayCN());
+  if (!t || t.user_id !== dc.uid) return error('任务不存在', 404);
+  const r = await storage.todo.markDoneWithRecur(id, dc.uid, done, jumpToCurrent, todayCN());
   return json({ success: true, message: done ? '已完成' : '已取消完成', cloned: !!r.cloned, next_id: r.next_id || null, next_due: r.next_due || null });
 }
 
@@ -227,14 +236,16 @@ async function reorderTodo({ request, env }) {
   if (ids.length === 0) return error('缺少排序列表');
 
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'todo', request);
+  if (dc instanceof Response) return dc;
   // 逐个校验归属与同父，防越权/跨级
   for (const id of ids) {
     const t = await storage.todo.findById(id);
-    if (!t || t.user_id !== auth.user_id) return error('任务不存在', 404);
+    if (!t || t.user_id !== dc.uid) return error('任务不存在', 404);
     const tp = t.parent_id != null ? t.parent_id : null;
     if (tp !== parentId) return error('存在跨层级的任务，无法排序', 400);
   }
-  await storage.todo.reorder(auth.user_id, parentId, ids);
+  await storage.todo.reorder(dc.uid, parentId, ids);
   return json({ success: true, message: '顺序已更新' });
 }
 
@@ -243,9 +254,11 @@ async function removeTodo({ request, env, params }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'todo', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const t = await storage.todo.findById(id);
-  if (!t || t.user_id !== auth.user_id) return error('任务不存在', 404);
+  if (!t || t.user_id !== dc.uid) return error('任务不存在', 404);
   const descendants = await storage.todo.collectDescendantIds(id);
   await storage.todo.remove([id, ...descendants]);
   return json({ success: true, message: '任务已删除' });
@@ -278,8 +291,10 @@ async function todoChart({ request, env, url }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'todo', request);
+  if (dc instanceof Response) return dc;
   const range = CHART_RANGES[url.searchParams.get('range')] ? url.searchParams.get('range') : '7d';
-  const raw = await storage.todo.chartRaw(auth.user_id);
+  const raw = await storage.todo.chartRaw(dc.uid);
   const series = buildChartSeries(raw, range, todayCN());
   return json({ success: true, series });
 }

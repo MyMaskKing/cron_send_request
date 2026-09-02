@@ -15,6 +15,7 @@ import { sendNotification } from '../services/notify.service.js';
 import { buildFundReport } from '../services/report.service.js';
 import { parseOffset, fmtShort, localParts } from '../services/time.service.js';
 import { resolveBaseUrl, ALLOWED_FORMATS, effectiveFormat } from '../config.js';
+import { requireDataContext } from './share.api.js';
 
 /** 校验持仓字段 */
 function validateFund(f) {
@@ -29,7 +30,9 @@ async function listFunds({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
-  const funds = await storage.fund.listByUser(auth.user_id);
+  const dc = await requireDataContext(storage, auth, 'fund', request);
+  if (dc instanceof Response) return dc;
+  const funds = await storage.fund.listByUser(dc.uid);
   return json({ success: true, funds });
 }
 
@@ -42,6 +45,8 @@ async function createFund({ request, env }) {
   if (invalid) return error(invalid);
 
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'fund', request);
+  if (dc instanceof Response) return dc;
   // 拉一次净值补全名称
   const nav = await fetchFundNav(body.code);
   const payload = {
@@ -50,7 +55,7 @@ async function createFund({ request, env }) {
     shares: parseFloat(body.shares),
     cost_nav: parseFloat(body.cost_nav)
   };
-  const id = await storage.fund.create(auth.user_id, payload);
+  const id = await storage.fund.create(dc.uid, payload);
   if (nav) await storage.fund.upsertNav(nav.code, nav);
   return json({ success: true, message: '持仓已添加', id });
 }
@@ -64,11 +69,13 @@ async function updateFund({ request, env, params }) {
   if (invalid) return error(invalid);
 
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'fund', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const existing = await storage.fund.findById(id);
-  if (!existing || existing.user_id !== auth.user_id) return error('持仓不存在', 404);
+  if (!existing || existing.user_id !== dc.uid) return error('持仓不存在', 404);
 
-  await storage.fund.update(id, auth.user_id, {
+  await storage.fund.update(id, dc.uid, {
     code: body.code,
     name: body.name || existing.name || '',
     shares: parseFloat(body.shares),
@@ -82,10 +89,12 @@ async function removeFund({ request, env, params }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'fund', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const existing = await storage.fund.findById(id);
-  if (!existing || existing.user_id !== auth.user_id) return error('持仓不存在', 404);
-  await storage.fund.remove(id, auth.user_id);
+  if (!existing || existing.user_id !== dc.uid) return error('持仓不存在', 404);
+  await storage.fund.remove(id, dc.uid);
   return json({ success: true, message: '持仓已删除' });
 }
 
@@ -94,7 +103,9 @@ async function fundReport({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
-  const funds = await storage.fund.listByUser(auth.user_id);
+  const dc = await requireDataContext(storage, auth, 'fund', request);
+  if (dc instanceof Response) return dc;
+  const funds = await storage.fund.listByUser(dc.uid);
   if (funds.length === 0) return json({ success: true, items: [], totals: { cost: 0, value: 0, profit: 0, rate: 0 } });
 
   const navMap = await fetchNavBatch(funds.map(f => f.code));
@@ -115,7 +126,9 @@ async function refreshFundNav({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
-  const funds = await storage.fund.listByUser(auth.user_id);
+  const dc = await requireDataContext(storage, auth, 'fund', request);
+  if (dc instanceof Response) return dc;
+  const funds = await storage.fund.listByUser(dc.uid);
   if (funds.length === 0) return json({ success: true, refreshed: 0, fallback: 0, missing: 0, totals: { cost: 0, value: 0, profit: 0, rate: 0 } });
 
   const navMap = await fetchNavBatch(funds.map(f => f.code));
@@ -127,7 +140,7 @@ async function refreshFundNav({ request, env }) {
   // 覆盖今日 fund_profit_daily 快照, 修正被错值污染的"较昨日 delta"
   const tzOffset = parseOffset(await storage.settings.get('tz_offset'));
   const today = localParts(Date.now(), tzOffset).dateStr;
-  await storage.fund.upsertProfitDaily(auth.user_id, today, portfolio.totals);
+  await storage.fund.upsertProfitDaily(dc.uid, today, portfolio.totals);
 
   const codes = new Set(funds.map(f => f.code));
   const missing = [...codes].filter(c => !navMap.has(c) && !fallback.has(c)).length;
@@ -145,7 +158,9 @@ async function fundProfitHistory({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
-  const rows = await storage.fund.listProfitDaily(auth.user_id);
+  const dc = await requireDataContext(storage, auth, 'fund', request);
+  if (dc instanceof Response) return dc;
+  const rows = await storage.fund.listProfitDaily(dc.uid);
   const series = rows.map((r, i) => ({
     date: r.record_date,
     profit: r.profit,
@@ -251,7 +266,9 @@ async function fundAnalysis({ request, env, url }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
-  const funds = await storage.fund.listByUser(auth.user_id);
+  const dc = await requireDataContext(storage, auth, 'fund', request);
+  if (dc instanceof Response) return dc;
+  const funds = await storage.fund.listByUser(dc.uid);
   if (funds.length === 0) {
     return json({ success: true, items: [], summary: [], rules: {}, disclaimer: '暂无持仓' });
   }
@@ -369,9 +386,11 @@ async function fundNavHistory({ request, env, params }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'fund', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const fund = await storage.fund.findById(id);
-  if (!fund || fund.user_id !== auth.user_id) return error('持仓不存在', 404);
+  if (!fund || fund.user_id !== dc.uid) return error('持仓不存在', 404);
   const tzOffset = parseOffset(await storage.settings.get('tz_offset'));
   const today = localParts(Date.now(), tzOffset).dateStr;
   const history = await fetchNavHistory(fund.code, 45);
@@ -443,9 +462,11 @@ async function buyFund({ request, env, params }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'fund', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const fund = await storage.fund.findById(id);
-  if (!fund || fund.user_id !== auth.user_id) return error('持仓不存在', 404);
+  if (!fund || fund.user_id !== dc.uid) return error('持仓不存在', 404);
 
   const body = await request.json().catch(() => ({}));
   const amount = parseFloat(body.amount);

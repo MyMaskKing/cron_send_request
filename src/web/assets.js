@@ -467,6 +467,48 @@ document.addEventListener('click', function(e){
     scheduleHide();
   }
 })();
+// ===== 数据共享(家庭/团队): 按模块记住当前查看的数据源(空=我的数据, 否则=主人 uid) =====
+// 登录态业务请求自动带 X-Data-As 头; 公开免密路径(/api/public/...)与共享管理(/api/share)不带
+function dataShareModOf(path){
+  if (path.indexOf('/api/fund')===0) return 'fund';
+  if (path.indexOf('/api/weight')===0) return 'weight';
+  if (path.indexOf('/api/asset')===0) return 'asset';
+  if (path.indexOf('/api/todo')===0) return 'todo';
+  return null;
+}
+function dataShareGet(mod){
+  try { return localStorage.getItem('dataAs_'+mod) || ''; } catch(e){ return ''; }
+}
+function dataShareSet(mod, uid){
+  try { uid ? localStorage.setItem('dataAs_'+mod, String(uid)) : localStorage.removeItem('dataAs_'+mod); } catch(e){}
+}
+// 在模块页 .container 顶部挂"数据源切换条"(仅有共享来源时出现); 切换后整页刷新
+async function mountDataSwitcher(mod){
+  var box = document.querySelector('.container');
+  if (!box) return;
+  var shares;
+  try { shares = (await api('/api/share/mine')).shares || []; } catch(e){ return; }
+  var sources = shares.filter(function(s){ return (s.modules||[]).indexOf(mod) >= 0; });
+  var cur = dataShareGet(mod);
+  var btn = function(uid, label){
+    var active = String(uid||'') === String(cur||'');
+    return '<button type="button" class="btn sm ' + (active?'':'gray') + '" data-uid="'+(uid||'')+'">'+label+'</button>';
+  };
+  var html = '<div style="font-size:13px;">📊 数据源：' + btn('', '我的数据') +
+    sources.map(function(s){ return btn(s.owner_user_id, '来自 '+esc(s.owner_name)+' 的共享'); }).join('') +
+    (cur ? '<div class="muted" style="width:100%;margin-top:4px;">你正在查看/编辑共享数据，推送设置、免密链接等个人功能不可用。</div>' : '') +
+    '</div>';
+  var bar = document.createElement('div');
+  bar.style.cssText = 'margin:0 0 12px;padding:9px 12px;background:#eef1ff;border:1px solid #dfe4ff;border-radius:8px;';
+  bar.innerHTML = html;
+  bar.querySelectorAll('button').forEach(function(b){
+    b.addEventListener('click', function(){
+      dataShareSet(mod, b.getAttribute('data-uid'));
+      location.reload();
+    });
+  });
+  box.insertBefore(bar, box.firstChild);
+}
 async function api(path, opts) {
   opts = opts || {};
   // ===== 请求指纹缓存: 三级防重, 覆盖 fetch 报错后手动重试导致的重复提交 =====
@@ -500,9 +542,14 @@ async function api(path, opts) {
     showLoading(loadingTextOf(path, opts));
     try {
       setLoadingProgress(35);
+      var reqHeaders = opts.body ? { 'Content-Type': 'application/json' } : {};
+      // 数据共享: 业务模块请求按当前数据源带上主人 uid(公开/共享管理路径不带)
+      var _mod = dataShareModOf(path);
+      var _as = _mod ? dataShareGet(_mod) : '';
+      if (_as) reqHeaders['X-Data-As'] = _as;
       var res = await fetch(path, {
         method: method,
-        headers: opts.body ? { 'Content-Type': 'application/json' } : {},
+        headers: reqHeaders,
         body: opts.body ? JSON.stringify(opts.body) : undefined,
         credentials: 'same-origin'
       });
@@ -1460,6 +1507,130 @@ document.getElementById('pwdForm').addEventListener('submit', async function(e){
     document.getElementById('pwOld').value = ''; document.getElementById('pwNew').value = '';
   } catch(err){ showMsg(msg, err.message, false); }
 });
+// ===== 家庭数据共享 =====
+var DS_MODS = [ {k:'fund',name:'基金持仓'}, {k:'weight',name:'体重'}, {k:'asset',name:'资产'}, {k:'todo',name:'待办'} ];
+function dsModNames(arr){ return DS_MODS.filter(function(m){ return arr.indexOf(m.k)>=0; }).map(function(m){ return m.name; }).join('、'); }
+async function loadDataShare(){
+  var box = document.getElementById('dataShareBox');
+  if (!box) return;
+  var mine = [], invites = [];
+  try {
+    mine = (await api('/api/share/mine')).shares || [];
+    invites = (await api('/api/share/invites')).invites || [];
+  } catch(e){ box.innerHTML = '<p class="muted" style="font-size:12px;color:#c00;">加载失败：' + esc(e.message) + '</p>'; return; }
+  var h = '';
+  // 我发起的共享
+  h += '<div style="padding:10px;background:#faf9f5;border-radius:6px;margin-bottom:12px;">';
+  h += '<div style="font-weight:600;margin-bottom:6px;">我发起的共享</div>';
+  h += '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px;">';
+  DS_MODS.forEach(function(m){
+    h += '<label style="font-weight:normal;display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" class="ds-mod" value="'+m.k+'" style="width:auto;"> '+m.name+'</label>';
+  });
+  h += '</div>';
+  h += '<div class="row" style="align-items:center;"><input id="dsNote" placeholder="备注（可选，如：咱家账本）" style="flex:1;"> <button class="btn sm" id="dsCreate">生成共享码</button></div>';
+  invites.forEach(function(inv){
+    h += '<div style="margin-top:10px;padding:8px;border:1px solid #eee;border-radius:6px;' + (inv.revoked ? 'opacity:.55;' : '') + '">';
+    h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
+    h += '<code style="font-size:15px;font-weight:700;letter-spacing:1px;">' + esc(inv.code) + '</code>';
+    h += '<span class="muted" style="font-size:12px;">' + esc(dsModNames(inv.modules)) + (inv.note ? ' · ' + esc(inv.note) : '') + (inv.revoked ? ' · 已撤销' : '') + '</span>';
+    h += '</div>';
+    if (!inv.revoked) {
+      h += '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">';
+      h += '<button class="btn sm" onclick="dsCopyLink(\\'' + inv.code + '\\')">复制加入链接</button>';
+      h += '<button class="btn sm gray" onclick="dsResetInvite(' + inv.id + ')">重置码</button>';
+      h += '<button class="btn sm danger" onclick="dsRevokeInvite(' + inv.id + ')">撤销邀请</button>';
+      h += '</div>';
+    }
+    var active = inv.members.filter(function(m){ return m.active; });
+    if (active.length) {
+      h += '<div style="margin-top:6px;font-size:13px;">成员：' + active.map(function(m){
+        return esc(m.nickname) + ' <button class="btn sm danger" style="padding:0 6px;font-size:11px;" onclick="dsKick(' + m.id + ')">移出</button>';
+      }).join(' &nbsp;') + '</div>';
+    }
+    h += '</div>';
+  });
+  h += '</div>';
+  // 加入共享
+  h += '<div style="padding:10px;background:#faf9f5;border-radius:6px;">';
+  h += '<div style="font-weight:600;margin-bottom:6px;">加入共享</div>';
+  h += '<div class="row" style="align-items:center;"><input id="dsJoinCode" placeholder="输入家人给的共享码" style="flex:1;letter-spacing:1px;text-transform:uppercase;"> <button class="btn sm" id="dsJoin">加入</button></div>';
+  if (mine.length) {
+    h += '<div style="margin-top:8px;font-size:13px;">我已加入：' + mine.map(function(s){
+      return esc(s.owner_name) + '（' + esc(dsModNames(s.modules)) + '） <button class="btn sm gray" style="padding:0 6px;font-size:11px;" onclick="dsLeave(' + s.member_id + ')">退出</button>';
+    }).join(' &nbsp;') + '</div>';
+  }
+  h += '</div>';
+  box.innerHTML = h;
+
+  document.getElementById('dsCreate').addEventListener('click', async function(){
+    var mods = Array.prototype.map.call(box.querySelectorAll('.ds-mod:checked'), function(c){ return c.value; });
+    if (!mods.length) { showMsg(msg, '请至少勾选一个模块', false); return; }
+    try {
+      var r = await api('/api/share/invites', { method:'POST', body:{ modules: mods, note: document.getElementById('dsNote').value } });
+      showMsg(msg, '共享码已生成：' + r.code, true);
+      loadDataShare();
+    } catch(e){ showMsg(msg, e.message, false); }
+  });
+  document.getElementById('dsJoin').addEventListener('click', function(){ dsDoJoin(); });
+  document.getElementById('dsJoinCode').addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); dsDoJoin(); } });
+  // 链接 ?join=code 落地自动加入
+  var jc = new URLSearchParams(location.search).get('join');
+  if (jc) dsDoJoin(jc.trim());
+}
+async function dsDoJoin(presetCode){
+  var code = (typeof presetCode === 'string' ? presetCode : ((document.getElementById('dsJoinCode')||{}).value || '')).trim();
+  if (!code) { showMsg(msg, '请输入共享码', false); return; }
+  try {
+    var r = await api('/api/share/join', { method:'POST', body:{ code: code } });
+    showMsg(msg, r.message, true);
+    if (typeof presetCode === 'string') {
+      try { history.replaceState(null, '', location.pathname); } catch(e){}
+      var el = document.getElementById('dsJoinCode'); if (el) el.value = '';
+    }
+    loadDataShare();
+  } catch(e){ showMsg(msg, e.message, false); }
+}
+window.dsCopyLink = function(code){
+  var link = location.origin + '/settings?join=' + code;
+  var done = function(){ showMsg(msg, '已复制加入链接', true); };
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(link).then(done, function(){ dsFallbackCopy(link, done); });
+      return;
+    }
+  } catch(e){}
+  dsFallbackCopy(link, done);
+};
+function dsFallbackCopy(text, done){
+  var t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select();
+  try { document.execCommand('copy'); done(); } catch(e){ showMsg(msg, '请手动复制：' + text, false); }
+  document.body.removeChild(t);
+}
+window.dsResetInvite = function(id){
+  confirmModal('重置共享码', '重置后旧码立即失效（已加入的成员不受影响）。确认？', async function(){
+    try { var r = await api('/api/share/invites/' + id + '/reset', { method:'POST' }); showMsg(msg, '新共享码：' + r.code, true); loadDataShare(); }
+    catch(e){ alertModal(e.message, { ok:false }); }
+  });
+};
+window.dsRevokeInvite = function(id){
+  confirmModal('撤销共享邀请', '撤销后旧码失效，且已加入的全部成员将被移出（不影响任何人已录入的数据）。确认？', async function(){
+    try { await api('/api/share/invites/' + id + '/revoke', { method:'POST' }); showMsg(msg, '邀请已撤销', true); loadDataShare(); }
+    catch(e){ alertModal(e.message, { ok:false }); }
+  });
+};
+window.dsKick = function(memberId){
+  confirmModal('移出成员', '确定把该成员移出共享？（不影响已录入的数据）', async function(){
+    try { await api('/api/share/members/' + memberId, { method:'DELETE' }); showMsg(msg, '已移出', true); loadDataShare(); }
+    catch(e){ alertModal(e.message, { ok:false }); }
+  });
+};
+window.dsLeave = function(memberId){
+  confirmModal('退出共享', '退出后你将不再看到该共享数据（可凭原码重新加入）。确认？', async function(){
+    try { await api('/api/share/members/' + memberId, { method:'DELETE' }); showMsg(msg, '已退出共享', true); loadDataShare(); }
+    catch(e){ alertModal(e.message, { ok:false }); }
+  });
+};
+loadDataShare();
 `;
 
 // 初始化超管页 JS
@@ -2150,6 +2321,7 @@ const FUND_JS = `
 ${COMMON_JS}
 bindLogout();
 bindModal();
+mountDataSwitcher('fund');
 var chart = null;   // 饼图
 var profitChart = null;
 var navChart = null;   // 单只基金近30日净值折线图
@@ -2948,6 +3120,7 @@ const WEIGHT_JS = `
 ${COMMON_JS}
 bindLogout();
 bindModal();
+mountDataSwitcher('weight');
 var wChart = null, cmpChart = null;
 var members = [];
 var unit = 'jin';
@@ -3720,6 +3893,7 @@ const ASSET_JS = `
 ${COMMON_JS}
 bindLogout();
 bindModal();
+mountDataSwitcher('asset');
 var wallets = [];
 var TYPE_LABEL = { bank:'银行卡', alipay:'支付宝', wechat:'微信', investment:'投资', credit:'信用支付', cash:'现金' };
 var nwChart = null, csChart = null;
@@ -6097,6 +6271,7 @@ ${COMMON_JS}
 ${TODO_TREE_CORE}
 bindLogout();
 bindModal();
+mountDataSwitcher('todo');
 var _rows = [];
 var _stats = { pending:0, overdue:0, done:0, total:0 };
 function todayStr(){ var d = new Date(Date.now() + 8*3600*1000); return d.toISOString().slice(0,10); }

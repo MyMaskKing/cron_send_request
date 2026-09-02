@@ -9,6 +9,7 @@ import { requireAuth } from '../auth/middleware.js';
 import { generateToken } from '../auth/password.js';
 import { buildAssetReportData, calcGoalProgress, resolveInvestment, CREDIT_TYPE } from '../services/asset.service.js';
 import { resolveBaseUrl } from '../config.js';
+import { requireDataContext } from './share.api.js';
 
 const WALLET_TYPES = ['bank', 'alipay', 'wechat', 'investment', 'credit', 'cash'];
 
@@ -37,7 +38,9 @@ async function listWallets({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
-  const wallets = await storage.asset.listWallets(auth.user_id);
+  const dc = await requireDataContext(storage, auth, 'asset', request);
+  if (dc instanceof Response) return dc;
+  const wallets = await storage.asset.listWallets(dc.uid);
   return json({ success: true, wallets });
 }
 
@@ -50,7 +53,9 @@ async function createWallet({ request, env }) {
   const name = (body.name || '').trim();
   if (!name) return error('请填写钱包名称');
   const storage = getStorage(env);
-  const id = await storage.asset.createWallet(auth.user_id, { type: body.type, name });
+  const dc = await requireDataContext(storage, auth, 'asset', request);
+  if (dc instanceof Response) return dc;
+  const id = await storage.asset.createWallet(dc.uid, { type: body.type, name });
   return json({ success: true, message: '钱包已创建', id });
 }
 
@@ -63,10 +68,12 @@ async function updateWallet({ request, env, params }) {
   const name = (body.name || '').trim();
   if (!name) return error('请填写钱包名称');
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'asset', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const w = await storage.asset.findWallet(id);
-  if (!w || w.user_id !== auth.user_id) return error('钱包不存在', 404);
-  await storage.asset.updateWallet(id, auth.user_id, { type: body.type, name });
+  if (!w || w.user_id !== dc.uid) return error('钱包不存在', 404);
+  await storage.asset.updateWallet(id, dc.uid, { type: body.type, name });
   return json({ success: true, message: '钱包已更新' });
 }
 
@@ -75,10 +82,12 @@ async function removeWallet({ request, env, params }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'asset', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const w = await storage.asset.findWallet(id);
-  if (!w || w.user_id !== auth.user_id) return error('钱包不存在', 404);
-  await storage.asset.removeWallet(id, auth.user_id);
+  if (!w || w.user_id !== dc.uid) return error('钱包不存在', 404);
+  await storage.asset.removeWallet(id, dc.uid);
   return json({ success: true, message: '钱包已删除' });
 }
 
@@ -110,14 +119,16 @@ async function saveRecord({ request, env }) {
   if (auth instanceof Response) return auth;
   const body = await request.json().catch(() => ({}));
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'asset', request);
+  if (dc instanceof Response) return dc;
   const walletId = parseInt(body.wallet_id, 10);
   const w = await storage.asset.findWallet(walletId);
-  if (!w || w.user_id !== auth.user_id) return error('钱包不存在', 404);
+  if (!w || w.user_id !== dc.uid) return error('钱包不存在', 404);
 
   const month = body.month || currentMonth();
   if (!/^\d{4}-\d{2}$/.test(month)) return error('月份格式应为 YYYY-MM');
   const fields = resolveRecordFields(w.type, body);
-  await storage.asset.addRecord({ wallet_id: walletId, user_id: auth.user_id, month, ...fields });
+  await storage.asset.addRecord({ wallet_id: walletId, user_id: dc.uid, month, ...fields });
   return json({ success: true, message: '记录已保存' });
 }
 
@@ -128,17 +139,19 @@ async function updateRecord({ request, env, params }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'asset', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const rec = await storage.asset.findRecordById(id);
-  if (!rec || rec.user_id !== auth.user_id) return error('记录不存在', 404);
+  if (!rec || rec.user_id !== dc.uid) return error('记录不存在', 404);
 
   const w = await storage.asset.findWallet(rec.wallet_id);
-  if (!w || w.user_id !== auth.user_id) return error('钱包不存在', 404);
+  if (!w || w.user_id !== dc.uid) return error('钱包不存在', 404);
   const body = await request.json().catch(() => ({}));
   const month = body.month || rec.month;
   if (!/^\d{4}-\d{2}$/.test(month)) return error('月份格式应为 YYYY-MM');
   const fields = resolveRecordFields(w.type, body);
-  await storage.asset.updateRecordById(id, auth.user_id, { month, ...fields });
+  await storage.asset.updateRecordById(id, dc.uid, { month, ...fields });
   return json({ success: true, message: '记录已更新' });
 }
 
@@ -147,10 +160,12 @@ async function removeRecord({ request, env, params }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'asset', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const rec = await storage.asset.findRecordById(id);
-  if (!rec || rec.user_id !== auth.user_id) return error('记录不存在', 404);
-  await storage.asset.removeRecord(id, auth.user_id);
+  if (!rec || rec.user_id !== dc.uid) return error('记录不存在', 404);
+  await storage.asset.removeRecord(id, dc.uid);
   return json({ success: true, message: '记录已删除' });
 }
 
@@ -159,12 +174,14 @@ async function assetReport({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
-  const wallets = await storage.asset.listWallets(auth.user_id);
-  const records = await storage.asset.listRecords(auth.user_id);
+  const dc = await requireDataContext(storage, auth, 'asset', request);
+  if (dc instanceof Response) return dc;
+  const wallets = await storage.asset.listWallets(dc.uid);
+  const records = await storage.asset.listRecords(dc.uid);
   const report = buildAssetReportData(wallets, records);
 
   const year = currentYear();
-  const goalRow = await storage.asset.getGoal(auth.user_id, year);
+  const goalRow = await storage.asset.getGoal(dc.uid, year);
   const goal = goalRow
     ? calcGoalProgress(goalRow.target_amount, report.latest.netWorth)
     : null;
@@ -177,8 +194,10 @@ async function getGoal({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'asset', request);
+  if (dc instanceof Response) return dc;
   const year = currentYear();
-  const row = await storage.asset.getGoal(auth.user_id, year);
+  const row = await storage.asset.getGoal(dc.uid, year);
   return json({ success: true, year, target_amount: row ? row.target_amount : 0 });
 }
 
@@ -190,7 +209,9 @@ async function setGoal({ request, env }) {
   const amount = parseFloat(body.target_amount);
   if (isNaN(amount) || amount < 0) return error('请填写有效目标金额');
   const storage = getStorage(env);
-  await storage.asset.setGoal(auth.user_id, currentYear(), amount);
+  const dc = await requireDataContext(storage, auth, 'asset', request);
+  if (dc instanceof Response) return dc;
+  await storage.asset.setGoal(dc.uid, currentYear(), amount);
   return json({ success: true, message: '目标已保存' });
 }
 

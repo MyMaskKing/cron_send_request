@@ -1043,6 +1043,106 @@ function createD1Adapter(env) {
         }
         return counts;
       }
+    },
+
+    // ==================== 数据共享（家庭/团队）====================
+    // 主人生成邀请(share_invites, 含短码+模块集), 家人凭码加入(share_members);
+    // 数据不搬家仍归主人, 家人在被授权模块内读写主人那套数据。
+    share: {
+      // ---- 邀请（主人视角）----
+      async createInvite(ownerUserId, { code, modules, note }) {
+        const res = await db.prepare(
+          'INSERT INTO share_invites (code, owner_user_id, modules, note) VALUES (?, ?, ?, ?)'
+        ).bind(code, ownerUserId, modules, note || null).run();
+        return res.meta.last_row_id;
+      },
+      async listInvitesByOwner(ownerUserId) {
+        const { results } = await db.prepare(
+          'SELECT * FROM share_invites WHERE owner_user_id = ? ORDER BY id DESC'
+        ).bind(ownerUserId).all();
+        return results || [];
+      },
+      // 凭码找有效邀请（已撤销的查不到）
+      async findInviteByCode(code) {
+        return await db.prepare(
+          'SELECT * FROM share_invites WHERE code = ? AND revoked_at IS NULL'
+        ).bind(code).first();
+      },
+      async findInviteById(id) {
+        return await db.prepare('SELECT * FROM share_invites WHERE id = ?').bind(id).first();
+      },
+      // 重置码：仅换 code，成员关系（按 invite_id 关联）保留，旧码立即失效
+      async updateInviteCode(id, code) {
+        await db.prepare('UPDATE share_invites SET code = ? WHERE id = ?').bind(code, id).run();
+      },
+      // 撤销邀请：作废该邀请（踢人由 revokeMembersByInvite 一并完成）
+      async revokeInvite(id) {
+        await db.prepare(
+          "UPDATE share_invites SET revoked_at = datetime('now') WHERE id = ?"
+        ).bind(id).run();
+      },
+
+      // ---- 成员关系 ----
+      // 加入：幂等。UNIQUE(invite_id, guest) 冲突时复活（曾退出则 revoked_at 置 NULL）
+      async addMember({ invite_id, owner_user_id, guest_user_id }) {
+        await db.prepare(
+          `INSERT INTO share_members (invite_id, owner_user_id, guest_user_id, role, revoked_at)
+           VALUES (?, ?, ?, 'editor', NULL)
+           ON CONFLICT(invite_id, guest_user_id) DO UPDATE SET revoked_at = NULL`
+        ).bind(invite_id, owner_user_id, guest_user_id).run();
+      },
+      // 某邀请下的成员（含已退出，附加入者用户名/昵称）
+      async listMembersByInvite(inviteId) {
+        const { results } = await db.prepare(
+          `SELECT m.id, m.invite_id, m.owner_user_id, m.guest_user_id, m.role,
+                  m.revoked_at, m.joined_at, u.username, u.nickname
+           FROM share_members m JOIN users u ON u.id = m.guest_user_id
+           WHERE m.invite_id = ? ORDER BY m.id`
+        ).bind(inviteId).all();
+        return results || [];
+      },
+      async findMemberById(id) {
+        return await db.prepare('SELECT * FROM share_members WHERE id = ?').bind(id).first();
+      },
+      // 踢人 / 自己退出：置 revoked_at（数据保留在主人处）
+      async revokeMember(id) {
+        await db.prepare(
+          "UPDATE share_members SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL"
+        ).bind(id).run();
+      },
+      // 撤销邀请时批量踢出该邀请下全部有效成员
+      async revokeMembersByInvite(inviteId) {
+        await db.prepare(
+          "UPDATE share_members SET revoked_at = datetime('now') WHERE invite_id = ? AND revoked_at IS NULL"
+        ).bind(inviteId).run();
+      },
+
+      // ---- 加入方（guest 视角）----
+      // 我加入的有效共享（未退出、邀请未撤销），附主人信息与模块集
+      async listMyShares(guestUserId) {
+        const { results } = await db.prepare(
+          `SELECT m.id AS member_id, m.invite_id, m.owner_user_id, m.joined_at,
+                  i.code, i.modules, i.note,
+                  u.username AS owner_username, u.nickname AS owner_nickname
+           FROM share_members m
+           JOIN share_invites i ON i.id = m.invite_id
+           JOIN users u ON u.id = m.owner_user_id
+           WHERE m.guest_user_id = ? AND m.revoked_at IS NULL AND i.revoked_at IS NULL
+           ORDER BY m.id DESC`
+        ).bind(guestUserId).all();
+        return results || [];
+      },
+      // 鉴权：guest 对 owner 是否存在有效共享关系，返回含 modules 的行；无则 null
+      async findActiveShare(guestUserId, ownerUserId) {
+        return await db.prepare(
+          `SELECT m.id AS member_id, m.invite_id, i.modules
+           FROM share_members m
+           JOIN share_invites i ON i.id = m.invite_id
+           WHERE m.guest_user_id = ? AND m.owner_user_id = ?
+             AND m.revoked_at IS NULL AND i.revoked_at IS NULL
+           LIMIT 1`
+        ).bind(guestUserId, ownerUserId).first();
+      }
     }
   };
 }

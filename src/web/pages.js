@@ -623,6 +623,10 @@ function settingsPage(user) {
         <button class="btn sm gray" onclick="resetShare('asset')">重置资产链接</button>
         <button class="btn sm gray" onclick="resetShare('todo')">重置待办链接</button>
       </div>
+      <hr style="margin:20px 0;border:none;border-top:1px solid #eee;">
+      <h2 style="font-size:15px;">家庭数据共享</h2>
+      <p class="muted" style="font-size:12px;">生成共享码并勾选模块，把码发给家人；家人在自己账号的本页输入码加入后，即可在对应模块顶部切换数据源，共同查看/录入同一套数据（数据仍归你所有）。</p>
+      <div id="dataShareBox" style="margin-top:10px;"><p class="muted" style="font-size:12px;">加载中…</p></div>
     </div>
   </div>`;
   return renderPage({ title: '个人设置', body, script: SETTINGS_JS });

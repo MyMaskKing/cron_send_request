@@ -8,6 +8,7 @@ import { getStorage } from '../storage/adapter.js';
 import { requireAuth, requireAdmin } from '../auth/middleware.js';
 import { generateToken } from '../auth/password.js';
 import { resolveBaseUrl } from '../config.js';
+import { requireDataContext } from './share.api.js';
 
 /** 取北京时区当天 YYYY-MM-DD */
 function todayCN() {
@@ -40,10 +41,12 @@ async function listMembers({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
-  let members = await storage.weight.listMembers(auth.user_id);
+  const dc = await requireDataContext(storage, auth, 'weight', request);
+  if (dc instanceof Response) return dc;
+  let members = await storage.weight.listMembers(dc.uid);
   if (members.length === 0) {
-    await storage.weight.createMember(auth.user_id, auth.username);
-    members = await storage.weight.listMembers(auth.user_id);
+    await storage.weight.createMember(dc.uid, (dc.owner && dc.owner.nickname) || auth.username);
+    members = await storage.weight.listMembers(dc.uid);
   }
   return json({ success: true, members });
 }
@@ -58,7 +61,9 @@ async function createMember({ request, env }) {
   const name = (body.name || '').trim();
   if (!name) return error('请填写成员名称');
   const storage = getStorage(env);
-  const archived = await storage.weight.findArchivedByName(auth.user_id, name);
+  const dc = await requireDataContext(storage, auth, 'weight', request);
+  if (dc instanceof Response) return dc;
+  const archived = await storage.weight.findArchivedByName(dc.uid, name);
   if (archived) {
     if (body.restore) {
       await storage.weight.restoreMember(archived.id);
@@ -66,7 +71,7 @@ async function createMember({ request, env }) {
     }
     return json({ success: true, needConfirm: true, archivedId: archived.id, archivedName: archived.name });
   }
-  const id = await storage.weight.createMember(auth.user_id, name);
+  const id = await storage.weight.createMember(dc.uid, name);
   return json({ success: true, message: '成员已添加', id });
 }
 
@@ -76,13 +81,15 @@ async function updateMember({ request, env, params }) {
   if (auth instanceof Response) return auth;
   const body = await request.json().catch(() => ({}));
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'weight', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const m = await storage.weight.findMember(id);
-  if (!m || !(await storage.weight.canAccessMember(auth.user_id, id))) return error('成员不存在', 404);
+  if (!m || !(await storage.weight.canAccessMember(dc.uid, id))) return error('成员不存在', 404);
   // 禁用/启用仅属主可操作
   if (typeof body.disabled === 'boolean') {
-    if (m.user_id !== auth.user_id) return error('只有成员属主可以停用/启用', 403);
-    await storage.weight.setMemberDisabled(id, auth.user_id, body.disabled);
+    if (m.user_id !== dc.uid) return error('只有成员属主可以停用/启用', 403);
+    await storage.weight.setMemberDisabled(id, dc.uid, body.disabled);
   }
   // 改名作用于成员本身（属主与共享方共用同一条），故按属主 user_id 更新
   const name = (body.name || '').trim();
@@ -100,7 +107,9 @@ async function reorderMembers({ request, env }) {
     : [];
   if (ids.length === 0) return error('参数错误');
   const storage = getStorage(env);
-  await storage.weight.reorderMembers(auth.user_id, ids);
+  const dc = await requireDataContext(storage, auth, 'weight', request);
+  if (dc instanceof Response) return dc;
+  await storage.weight.reorderMembers(dc.uid, ids);
   return json({ success: true, message: '顺序已保存' });
 }
 
@@ -112,10 +121,12 @@ async function removeMember({ request, env, params, url }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'weight', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const m = await storage.weight.findMember(id);
-  if (!m || !(await storage.weight.canAccessMember(auth.user_id, id))) return error('成员不存在', 404);
-  if (m.user_id === auth.user_id) {
+  if (!m || !(await storage.weight.canAccessMember(dc.uid, id))) return error('成员不存在', 404);
+  if (m.user_id === dc.uid) {
     if (url.searchParams.get('purge') === '1') {
       await storage.weight.removeMemberCascade(id);
       return json({ success: true, message: '成员及全部记录已删除' });
@@ -123,7 +134,7 @@ async function removeMember({ request, env, params, url }) {
     await storage.weight.archiveMember(id);
     return json({ success: true, message: '成员已移除（历史数据保留，新建同名可恢复）' });
   }
-  await storage.weight.unshareMember(id, auth.user_id);
+  await storage.weight.unshareMember(id, dc.uid);
   return json({ success: true, message: '已移除共享成员' });
 }
 
@@ -153,13 +164,15 @@ async function weightChart({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
-  let members = await storage.weight.listMembers(auth.user_id);
+  const dc = await requireDataContext(storage, auth, 'weight', request);
+  if (dc instanceof Response) return dc;
+  let members = await storage.weight.listMembers(dc.uid);
   if (members.length === 0) {
-    await storage.weight.createMember(auth.user_id, auth.username);
-    members = await storage.weight.listMembers(auth.user_id);
+    await storage.weight.createMember(dc.uid, (dc.owner && dc.owner.nickname) || auth.username);
+    members = await storage.weight.listMembers(dc.uid);
   }
-  const records = await storage.weight.listRecords(auth.user_id);
-  const user = await storage.users.findById(auth.user_id);
+  const records = await storage.weight.listRecords(dc.uid);
+  const user = await storage.users.findById(dc.uid);
   return json({ success: true, members, records, weight_unit: (user && user.weight_unit) || 'jin' });
 }
 
@@ -168,7 +181,9 @@ async function getUnit({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
-  const user = await storage.users.findById(auth.user_id);
+  const dc = await requireDataContext(storage, auth, 'weight', request);
+  if (dc instanceof Response) return dc;
+  const user = await storage.users.findById(dc.uid);
   return json({ success: true, weight_unit: (user && user.weight_unit) || 'jin' });
 }
 
@@ -179,7 +194,9 @@ async function setUnit({ request, env }) {
   const body = await request.json().catch(() => ({}));
   const unit = body.weight_unit === 'kg' ? 'kg' : 'jin';
   const storage = getStorage(env);
-  await storage.users.updateWeightUnit(auth.user_id, unit);
+  const dc = await requireDataContext(storage, auth, 'weight', request);
+  if (dc instanceof Response) return dc;
+  await storage.users.updateWeightUnit(dc.uid, unit);
   return json({ success: true, message: '单位已更新', weight_unit: unit });
 }
 
@@ -195,8 +212,10 @@ async function addRecord({ request, env }) {
   if (isNaN(weight) || weight <= 0) return error('请填写有效体重');
 
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'weight', request);
+  if (dc instanceof Response) return dc;
   const m = await storage.weight.findMember(memberId);
-  if (!m || !(await storage.weight.canAccessMember(auth.user_id, memberId))) return error('成员不存在', 404);
+  if (!m || !(await storage.weight.canAccessMember(dc.uid, memberId))) return error('成员不存在', 404);
 
   const date = body.record_date || todayCN();
   const existing = await storage.weight.findRecordByMemberDate(memberId, date);
@@ -220,9 +239,11 @@ async function updateRecord({ request, env, params }) {
   if (isNaN(weight) || weight <= 0) return error('请填写有效体重');
 
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'weight', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const rec = await storage.weight.findRecord(id);
-  if (!rec || !(await storage.weight.canAccessMember(auth.user_id, rec.member_id))) return error('记录不存在', 404);
+  if (!rec || !(await storage.weight.canAccessMember(dc.uid, rec.member_id))) return error('记录不存在', 404);
 
   const newDate = body.record_date;
   if (newDate && newDate !== rec.record_date) {
@@ -241,9 +262,11 @@ async function removeRecord({ request, env, params }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'weight', request);
+  if (dc instanceof Response) return dc;
   const id = parseInt(params.id, 10);
   const rec = await storage.weight.findRecord(id);
-  if (!rec || !(await storage.weight.canAccessMember(auth.user_id, rec.member_id))) return error('记录不存在', 404);
+  if (!rec || !(await storage.weight.canAccessMember(dc.uid, rec.member_id))) return error('记录不存在', 404);
   await storage.weight.removeRecord(id, rec.user_id);
   return json({ success: true, message: '记录已删除' });
 }
