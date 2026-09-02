@@ -6341,19 +6341,18 @@ bindClickBusy(document.getElementById('pushSend'), async function(){
 
 (async function(){
   try {
+    // 先解析深链: ?root=<id> 在首次渲染前就锁定详情视图, 避免先闪列表再进详情
+    var _q = new URLSearchParams(location.search);
+    var _deepRoot = _q.get('root');
+    if (_deepRoot) { _todoDetailRootId = Number(_deepRoot); }
     await loadTodos();
     await loadChart();
     await loadPush();
     // 应用视图状态: localStorage 里可能已有 'card'/'tree', 首次进入直接全屏
+    // （?root 已在加载前解析为 _todoDetailRootId, 首帧直接渲染详情, 不闪列表）
     applyTodoView(_todoGetRows, drawTree);
-    var _q = new URLSearchParams(location.search);
-    // ?root=<id> 最先处理: 点子任务/点＋都要先进该主任务的子任务详情画面, 再在其上弹表单
-    var _rootId = _q.get('root');
-    if (_rootId) {
-      history.replaceState(null, '', location.pathname);
-      _todoDetailRootId = Number(_rootId);
-      drawTree();
-    }
+    // 深链消费过参数后清地址, 避免刷新重复弹窗（_deepRoot 时连 root 一起清）
+    if (_deepRoot || _q.get('add') || _q.get('addChild') || _q.get('edit')) history.replaceState(null, '', location.pathname);
     // 小组件「新增」入口: ?add=1 新建主任务(顶层, 不进详情)
     if (_q.get('add') === '1') {
       history.replaceState(null, '', location.pathname);
@@ -6700,6 +6699,10 @@ async function reloadReport() {
 }
 (async function(){
   try {
+    // 先解析深链: ?root=<id> 在首帧渲染前就锁定详情视图, 避免先闪列表再进详情
+    var _rq = new URLSearchParams(location.search);
+    var _deepRoot = _rq.get('root');
+    if (_deepRoot) _todoDetailRootId = Number(_deepRoot);
     var d = await api('/api/public/todo-report/' + _token);
     document.getElementById('content').style.display = 'block';
     _rows = d.todos || [];
@@ -6763,14 +6766,8 @@ async function reloadReport() {
       loadChart();
     });
     await loadChart();
-    var _rq = new URLSearchParams(location.search);
-    // ?root=<id> 最先处理: 点子任务/点＋都要先进该主任务的子任务详情画面, 再在其上弹表单
-    var _rootId = _rq.get('root');
-    if (_rootId) {
-      history.replaceState(null, '', location.pathname);
-      _todoDetailRootId = Number(_rootId);
-      drawTree();
-    }
+    // ?root 已在加载前解析(_todoDetailRootId), 首帧即详情, 不再在此 drawTree
+    if (_deepRoot || _rq.get('add') || _rq.get('addChild') || _rq.get('edit')) history.replaceState(null, '', location.pathname);
     // ?add=1 新建主任务(顶层, 不进详情)
     if (_rq.get('add') === '1') {
       history.replaceState(null, '', location.pathname);
