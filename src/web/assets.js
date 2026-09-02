@@ -3858,20 +3858,21 @@ function renderMonthTable(wlist, records) {
 }
 
 // 录入/修改某月记录。preset: 预填 { balance | total, profit }
-// editId: 传入=修改该条记录(PUT, 月份可编辑)；不传=新增一条(POST)
+// editId: 传入=修改该条记录(PUT)；不传=新增一条(POST, 弹窗内可直接选月, 保存后保留弹窗可连续录入)
 function openRecModal(id, type, month, preset, editId) {
   var w = wallets.filter(function(x){return x.id===id;})[0];
   preset = preset || {};
-  var monthField = editId
-    ? '<label>月份</label><input id="fMonth" type="month" value="' + month + '">'
-    : '';
+  // 新增/修改都显示月份字段：新增时直接选月即录入(替代原"先选月份再录金额"两步)
+  var monthField = '<label>月份</label><input id="fMonth" type="month" value="' + month + '">';
   var fields = type === 'investment'
     ? '<label>当前总资产(元)</label><input id="fTotal" type="number" step="0.01" value="' + (preset.total != null ? preset.total : '') + '">' +
       '<label>持有收益(元)</label><input id="fProfit" type="number" step="0.01" value="' + (preset.profit != null ? preset.profit : '') + '">' +
       '<p class="muted" id="principalHint">本金将自动计算 = 总资产 − 收益</p>'
     : '<label>本月余额(元)</label><input id="fBalance" type="number" step="0.01" value="' + (preset.balance != null ? preset.balance : '') + '">';
-  openModal((editId ? '修改 · ' : '录入 · ') + w.name + ' (' + month + ')',
-    monthField + fields + '<div style="margin-top:12px;"><button class="btn" id="recConfirm">保存</button> <button class="btn gray" onclick="closeModal()">取消</button></div>');
+  openModal(editId ? '修改 · ' + w.name + ' (' + month + ')' : '录入 · ' + w.name,
+    monthField + fields +
+    '<p class="msg ok" id="recSavedHint" style="display:none;margin:8px 0 0;">已保存，可继续录入下一条</p>' +
+    '<div style="margin-top:12px;"><button class="btn" id="recConfirm">保存</button> <button class="btn gray" onclick="closeModal()">' + (editId ? '取消' : '完成') + '</button></div>');
   if (type === 'investment') {
     var calc = function(){
       var t = parseFloat(document.getElementById('fTotal').value)||0;
@@ -3882,7 +3883,7 @@ function openRecModal(id, type, month, preset, editId) {
     document.getElementById('fProfit').addEventListener('input', calc);
   }
   document.getElementById('recConfirm').addEventListener('click', async function(){
-    var mm = editId ? document.getElementById('fMonth').value : month;
+    var mm = document.getElementById('fMonth').value;
     if (!mm) { alertModal('请选择月份', {ok:false}); return; }
     var payload = { month: mm };
     if (type === 'investment') { payload.total = document.getElementById('fTotal').value; payload.profit = document.getElementById('fProfit').value; }
@@ -3890,11 +3891,24 @@ function openRecModal(id, type, month, preset, editId) {
     try {
       if (editId) {
         await api('/api/asset/records/' + editId, { method:'PUT', body: payload });
+        closeModal(); await loadAll();
       } else {
         payload.wallet_id = id;
         await api('/api/asset/records', { method:'POST', body: payload });
+        // 连续录入：弹窗保留、月份不动，清空金额并聚焦，后台刷新数据
+        var hint = document.getElementById('recSavedHint');
+        if (hint) hint.style.display = '';
+        if (type === 'investment') {
+          document.getElementById('fTotal').value = '';
+          document.getElementById('fProfit').value = '';
+          document.getElementById('principalHint').textContent = '本金将自动计算 = 总资产 − 收益';
+          document.getElementById('fTotal').focus();
+        } else {
+          document.getElementById('fBalance').value = '';
+          document.getElementById('fBalance').focus();
+        }
+        await loadAll();
       }
-      closeModal(); await loadAll();
     }
     catch(e){ alertModal(e.message, {ok:false}); }
   });
@@ -3917,18 +3931,8 @@ window.wLogs = function(id){
 };
 // 录入本月（新增一条）
 window.wRec = function(id, type){ openRecModal(id, type, curMonth(), null); };
-// 录入其他月：先选月份，再新增一条
-window.wRecOther = function(id, type){
-  var w = wallets.filter(function(x){return x.id===id;})[0];
-  openModal('选择月份 · ' + w.name,
-    '<label>月份</label><input id="omMonth" type="month" value="' + curMonth() + '">' +
-    '<div style="margin-top:12px;"><button class="btn" id="omNext">下一步</button> <button class="btn gray" onclick="closeModal()">取消</button></div>');
-  document.getElementById('omNext').addEventListener('click', function(){
-    var mm = document.getElementById('omMonth').value;
-    if (!mm) { alertModal('请选择月份', {ok:false}); return; }
-    openRecModal(id, type, mm, null);
-  });
-};
+// 录入其他月（新增一条）：与录入本月同一弹窗，月份字段直接选月，支持连续录入
+window.wRecOther = function(id, type){ openRecModal(id, type, curMonth(), null); };
 // 修改某条已有月度记录（按 id, 可改月份）
 window.recEditRow = function(recId){
   var rec = fullRecords.filter(function(r){ return r.id===recId; })[0];
