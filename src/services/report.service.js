@@ -673,14 +673,16 @@ function buildTodoReportText(trees, base, token, reportToken, today, stats, remi
     trees.forEach((root, ri) => {
       const cat = root.category ? `〔${root.category}〕` : '';
       const rootDue = rootDueOf(root);
+      const leaves = collectReportLeaves(root);
+      // 组内可执行叶子数(无子任务的降级主任务自身计 1 件), 与顶部"N 件待办"逐组对账
       // text 版不加优先级圆圈: 微信/短信客户端里各家 emoji 尺寸不一, 反而挤占标题空间
-      t += `❇️待办${ri + 1}：${root.title}${cat}${dateBadge(rootDue)}\n`;
-      collectReportLeaves(root).forEach((it) => {
+      t += `❇️待办${ri + 1}：${root.title}${cat}（${leaves.length}件）${dateBadge(rootDue)}\n`;
+      leaves.forEach((it) => {
         if (it.selfRoot) return; // 降级项已由上面的主任务行承载
         const crumb = it.path.length ? it.path.join(' / ') + '：' : '';
         const icat = it.category ? `〔${it.category}〕` : '';
         const badge = (it.due && it.due !== rootDue) ? dateBadge(it.due) : '';
-        t += `  ▸ ${crumb}${it.title}${icat}${badge}\n`;
+        t += `  🔸 ${crumb}${it.title}${icat}${badge}\n`;
       });
       t += `${bar}\n`;
     });
@@ -719,8 +721,9 @@ function buildTodoReportMarkdown(trees, base, token, reportToken, today, stats, 
       const cat = root.category ? ` \`${root.category}\`` : '';
       const pri = TODO_PRI_ICON[root.priority] || '⚪';
       const rootDue = rootDueOf(root);
-      m += `**❇️待办${ri + 1}：${pri}${root.title}**${cat}${dateBadge(rootDue)}\n`;
-      collectReportLeaves(root).forEach((it) => {
+      const leaves = collectReportLeaves(root);
+      m += `**❇️待办${ri + 1}：${pri}${root.title}**${cat}（${leaves.length} 件）${dateBadge(rootDue)}\n`;
+      leaves.forEach((it) => {
         if (it.selfRoot) return;
         const crumb = it.path.length ? it.path.join(' / ') + '：' : '';
         const icat = it.category ? ` \`${it.category}\`` : '';
