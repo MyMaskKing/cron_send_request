@@ -676,13 +676,13 @@ function buildTodoReportText(trees, base, token, reportToken, today, stats, remi
       const leaves = collectReportLeaves(root);
       // 组内可执行叶子数(无子任务的降级主任务自身计 1 件), 与顶部"N 件待办"逐组对账
       // text 版不加优先级圆圈: 微信/短信客户端里各家 emoji 尺寸不一, 反而挤占标题空间
-      t += `❇️待办${ri + 1}：${root.title}${cat}（${leaves.length}件）${dateBadge(rootDue)}\n`;
+      t += `❇️待办${ri + 1}：${root.title}${cat}(${leaves.length}件)${dateBadge(rootDue)}\n`;
       leaves.forEach((it) => {
         if (it.selfRoot) return; // 降级项已由上面的主任务行承载
         const crumb = it.path.length ? it.path.join(' / ') + '：' : '';
         const icat = it.category ? `〔${it.category}〕` : '';
         const badge = (it.due && it.due !== rootDue) ? dateBadge(it.due) : '';
-        t += `  🔸 ${crumb}${it.title}${icat}${badge}\n`;
+        t += `  🟢 ${crumb}${it.title}${icat}${badge}\n`;
       });
       t += `${bar}\n`;
     });
