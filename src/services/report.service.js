@@ -682,7 +682,7 @@ function buildTodoReportText(trees, base, token, reportToken, today, stats, remi
         const crumb = it.path.length ? it.path.join(' / ') + '：' : '';
         const icat = it.category ? `〔${it.category}〕` : '';
         const badge = (it.due && it.due !== rootDue) ? dateBadge(it.due) : '';
-        t += `  🟢 ${crumb}${it.title}${icat}${badge}\n`;
+        t += `  🗹 ${crumb}${it.title}${icat}${badge}\n`;
       });
       t += `${bar}\n`;
     });
