@@ -48,7 +48,9 @@ async function listMembers({ request, env }) {
   return json({ success: true, members });
 }
 
-/** POST /api/weight/members  新建成员  body: { name } */
+/** POST /api/weight/members  新建成员  body: { name, restore? }
+ * 若存在同名的已归档（软删）成员：restore=true → 恢复并关联历史数据；否则返回 needConfirm 由前端确认
+ */
 async function createMember({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
@@ -56,30 +58,57 @@ async function createMember({ request, env }) {
   const name = (body.name || '').trim();
   if (!name) return error('请填写成员名称');
   const storage = getStorage(env);
+  const archived = await storage.weight.findArchivedByName(auth.user_id, name);
+  if (archived) {
+    if (body.restore) {
+      await storage.weight.restoreMember(archived.id);
+      return json({ success: true, message: '已恢复成员及其历史记录', id: archived.id, restored: true });
+    }
+    return json({ success: true, needConfirm: true, archivedId: archived.id, archivedName: archived.name });
+  }
   const id = await storage.weight.createMember(auth.user_id, name);
   return json({ success: true, message: '成员已添加', id });
 }
 
-/** PUT /api/weight/members/:id  修改成员名  body: { name } */
+/** PUT /api/weight/members/:id  修改成员名 / 禁用启用  body: { name?, disabled? } */
 async function updateMember({ request, env, params }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const body = await request.json().catch(() => ({}));
-  const name = (body.name || '').trim();
-  if (!name) return error('请填写成员名称');
   const storage = getStorage(env);
   const id = parseInt(params.id, 10);
   const m = await storage.weight.findMember(id);
   if (!m || !(await storage.weight.canAccessMember(auth.user_id, id))) return error('成员不存在', 404);
+  // 禁用/启用仅属主可操作
+  if (typeof body.disabled === 'boolean') {
+    if (m.user_id !== auth.user_id) return error('只有成员属主可以停用/启用', 403);
+    await storage.weight.setMemberDisabled(id, auth.user_id, body.disabled);
+  }
   // 改名作用于成员本身（属主与共享方共用同一条），故按属主 user_id 更新
-  await storage.weight.updateMember(id, m.user_id, name);
+  const name = (body.name || '').trim();
+  if (name) await storage.weight.updateMember(id, m.user_id, name);
   return json({ success: true, message: '成员已更新' });
 }
 
-/** DELETE /api/weight/members/:id  删除成员
- * 属主删除 → 真删成员+全部记录+所有引用；共享方删除 → 仅解除自己的引用
+/** PUT /api/weight/members/reorder  调整成员顺序  body: { ids: [id,...] }（仅属主自己的成员） */
+async function reorderMembers({ request, env }) {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+  const body = await request.json().catch(() => ({}));
+  const ids = Array.isArray(body.ids)
+    ? body.ids.map(n => parseInt(n, 10)).filter(n => !isNaN(n))
+    : [];
+  if (ids.length === 0) return error('参数错误');
+  const storage = getStorage(env);
+  await storage.weight.reorderMembers(auth.user_id, ids);
+  return json({ success: true, message: '顺序已保存' });
+}
+
+/** DELETE /api/weight/members/:id?purge=1  删除成员
+ * 属主默认软删（归档：界面移除但历史数据保留，新建同名可恢复）；purge=1 → 真删成员+全部记录+引用。
+ * 共享方删除 → 仅解除自己的引用。
  */
-async function removeMember({ request, env, params }) {
+async function removeMember({ request, env, params, url }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
   const storage = getStorage(env);
@@ -87,8 +116,12 @@ async function removeMember({ request, env, params }) {
   const m = await storage.weight.findMember(id);
   if (!m || !(await storage.weight.canAccessMember(auth.user_id, id))) return error('成员不存在', 404);
   if (m.user_id === auth.user_id) {
-    await storage.weight.removeMemberCascade(id);
-    return json({ success: true, message: '成员已删除' });
+    if (url.searchParams.get('purge') === '1') {
+      await storage.weight.removeMemberCascade(id);
+      return json({ success: true, message: '成员及全部记录已删除' });
+    }
+    await storage.weight.archiveMember(id);
+    return json({ success: true, message: '成员已移除（历史数据保留，新建同名可恢复）' });
   }
   await storage.weight.unshareMember(id, auth.user_id);
   return json({ success: true, message: '已移除共享成员' });
@@ -222,6 +255,7 @@ async function publicMemberInfo({ env, params }) {
   const storage = getStorage(env);
   const m = await storage.weight.findMemberByShareToken(params.token);
   if (!m) return error('链接无效或已失效', 404);
+  if (m.disabled || m.archived) return error('该成员已停用，链接暂不可用', 403);
 
   await storage.users.updateLastPublic(m.user_id);
   const records = await storage.weight.listRecords(m.user_id, m.id);
@@ -249,6 +283,7 @@ async function publicSubmitWeight({ request, env, params }) {
   const storage = getStorage(env);
   const m = await storage.weight.findMemberByShareToken(params.token);
   if (!m) return error('链接无效或已失效', 404);
+  if (m.disabled || m.archived) return error('该成员已停用，链接暂不可用', 403);
 
   const body = await request.json().catch(() => ({}));
   const weight = parseFloat(body.weight);
@@ -330,7 +365,7 @@ async function adminShareMember({ request, env }) {
 }
 
 export {
-  listMembers, createMember, updateMember, removeMember, getMemberShareLink,
+  listMembers, createMember, updateMember, reorderMembers, removeMember, getMemberShareLink,
   weightChart, addRecord, updateRecord, removeRecord,
   publicMemberInfo, publicSubmitWeight, publicWeightReport, adminCompare, adminAllMembers, adminShareMember,
   getUnit, setUnit

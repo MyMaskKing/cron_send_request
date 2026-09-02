@@ -304,13 +304,14 @@ function createD1Adapter(env) {
       // 可访问成员 = 自己拥有的(user_id=me) ∪ 共享给自己的(weight_member_shares)
       // 共享来的行附 shared=1，自己拥有的 shared=0
       async listMembers(userId) {
+        // archived=1(软删)的成员不返回; 按 sort_order 排序(新建自动递增), 同级按 id
         const { results } = await db.prepare(
-          `SELECT m.*, 0 AS shared FROM weight_members m WHERE m.user_id = ?
+          `SELECT m.*, 0 AS shared FROM weight_members m WHERE m.user_id = ? AND m.archived = 0
            UNION
            SELECT m.*, 1 AS shared FROM weight_members m
              JOIN weight_member_shares s ON s.member_id = m.id
-             WHERE s.user_id = ?
-           ORDER BY id`
+             WHERE s.user_id = ? AND m.archived = 0
+           ORDER BY sort_order, id`
         ).bind(userId, userId).all();
         return results || [];
       },
@@ -340,13 +341,41 @@ function createD1Adapter(env) {
         return await db.prepare('SELECT * FROM weight_members WHERE id = ?').bind(id).first();
       },
       async createMember(userId, name) {
+        // sort_order 取该用户名下成员最大值 +1, 新成员排最后
         const res = await db.prepare(
-          'INSERT INTO weight_members (user_id, name) VALUES (?, ?)'
-        ).bind(userId, name).run();
+          'INSERT INTO weight_members (user_id, name, sort_order) ' +
+          'VALUES (?, ?, COALESCE((SELECT MAX(sort_order) FROM weight_members WHERE user_id = ?), -1) + 1)'
+        ).bind(userId, name, userId).run();
         return res.meta.last_row_id;
       },
       async updateMember(id, userId, name) {
         await db.prepare('UPDATE weight_members SET name=? WHERE id=? AND user_id=?').bind(name, id, userId).run();
+      },
+      // 禁用/启用（仅属主）：停用后曲线/录入/日报隐藏，数据保留
+      async setMemberDisabled(id, userId, disabled) {
+        await db.prepare('UPDATE weight_members SET disabled=? WHERE id=? AND user_id=?')
+          .bind(disabled ? 1 : 0, id, userId).run();
+      },
+      // 软删（归档）：成员从界面消失但体重记录保留；共享引用保留，恢复后仍在
+      async archiveMember(id) {
+        await db.prepare('UPDATE weight_members SET archived=1, disabled=0 WHERE id=?').bind(id).run();
+      },
+      // 恢复归档成员（同名新建时调用）：历史记录因 member_id 未变自动重新关联
+      async restoreMember(id) {
+        await db.prepare('UPDATE weight_members SET archived=0 WHERE id=?').bind(id).run();
+      },
+      // 按名字查该用户名下已归档（软删）的成员，供新建同名时提示恢复
+      async findArchivedByName(userId, name) {
+        return await db.prepare(
+          'SELECT * FROM weight_members WHERE user_id=? AND name=? AND archived=1 LIMIT 1'
+        ).bind(userId, name).first();
+      },
+      // 重排：按 orderedIds 顺序写 sort_order（仅属主自己的成员，共享成员不参与）
+      async reorderMembers(userId, orderedIds) {
+        for (let i = 0; i < orderedIds.length; i++) {
+          await db.prepare('UPDATE weight_members SET sort_order=? WHERE id=? AND user_id=?')
+            .bind(i, orderedIds[i], userId).run();
+        }
       },
       async removeMember(id, userId) {
         // 先删该成员的体重记录, 再删成员, 避免外键约束失败

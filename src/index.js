@@ -34,7 +34,7 @@ import {
 } from './api/fund.api.js';
 import { fetchNavBatch, buildPortfolio, enrichNavWithCache } from './services/fund.service.js';
 import {
-  listMembers, createMember, updateMember, removeMember, getMemberShareLink,
+  listMembers, createMember, updateMember, reorderMembers, removeMember, getMemberShareLink,
   weightChart, addRecord, updateRecord, removeRecord,
   publicMemberInfo, publicSubmitWeight, publicWeightReport, adminCompare, adminAllMembers, adminShareMember,
   getUnit, setUnit
@@ -157,6 +157,8 @@ router.post('/api/public/fund/:token/buy', publicFundBuy);
 // --- 体重曲线 API ---
 router.get('/api/weight/members', listMembers);
 router.post('/api/weight/members', createMember);
+// reorder 与 :id 同为 PUT 且段数相同，必须先注册，否则会被 :id（id="reorder"）抢匹配
+router.put('/api/weight/members/reorder', reorderMembers);
 router.put('/api/weight/members/:id', updateMember);
 router.get('/api/weight/members/:id/share-link', getMemberShareLink);
 router.delete('/api/weight/members/:id', removeMember);
@@ -663,7 +665,8 @@ async function buildModuleMessage(env, storage, module, userId, format, tzOffset
     return buildFundReport(portfolio, format, linkMap, tzOffset, reportLink, profitDelta);
   }
   if (module === 'weight') {
-    const members = await storage.weight.listMembers(userId);
+    // 日报只含启用中的成员（archived 已在 listMembers 过滤；disabled 停用成员不推送）
+    const members = (await storage.weight.listMembers(userId)).filter(m => !m.disabled);
     const records = await storage.weight.listRecords(userId);
     if (members.length === 0) return null;
     const user = await storage.users.findById(userId);

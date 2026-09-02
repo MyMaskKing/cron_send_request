@@ -2957,8 +2957,10 @@ function applyFilter() {
     if (e && r.record_date > e) return false;
     return true;
   });
-  drawChart(members, filtered);
-  renderRecordTable(members, filtered);
+  // 曲线/记录表只统计启用成员（停用成员历史数据保留但不展示）
+  var active = members.filter(function(m){ return !m.disabled; });
+  drawChart(active, filtered);
+  renderRecordTable(active, filtered);
 }
 
 async function loadAll() {
@@ -2969,7 +2971,8 @@ async function loadAll() {
   var us = document.getElementById('unitSel');
   if (us) us.value = unit;
   renderMembers(data.members);
-  renderMemberSelect(data.members);
+  // 录入下拉只列启用成员（管理列表 renderMembers 仍显示已停用，灰色可重新启用）
+  renderMemberSelect(data.members.filter(function(m){ return !m.disabled; }));
   updateUnitLabels();
   var dateInput = document.getElementById('recDate');
   if (dateInput && !dateInput.value) dateInput.value = todayStr();
@@ -2983,12 +2986,11 @@ function renderMembers(list) {
   var box = document.getElementById('memberList');
   box.innerHTML = list.map(function(m){
     var sharedTag = m.shared ? ' <span class="tag" style="background:#F5EBFE;color:#A855F7;padding:0 6px;border-radius:8px;font-size:11px;">共享</span>' : '';
-    var delTitle = m.shared ? '移除共享' : '删除';
-    return '<span class="tag user" style="margin:2px 4px;padding:4px 10px;">' +
-      '<a href="#" onclick="selMember(' + m.id + ');return false;" style="color:inherit;text-decoration:none;">' + esc(m.name) + '</a>' + sharedTag +
-      ' <a href="#" onclick="mRename(' + m.id + ",'" + esc(m.name).replace(/'/g,'') + "'" + ');return false;" style="margin-left:4px;">改名</a>' +
-      ' <a href="#" onclick="mShare(' + m.id + ');return false;" style="margin-left:4px;">链接</a>' +
-      ' <a href="#" title="' + delTitle + '" onclick="mDel(' + m.id + ');return false;" style="color:#cf1322;">×</a></span>';
+    var offTag = m.disabled ? ' <span class="tag" style="background:#eee;color:#999;padding:0 6px;border-radius:8px;font-size:11px;">已停用</span>' : '';
+    var nameStyle = m.disabled ? 'color:#aaa;text-decoration:line-through;' : 'color:inherit;';
+    return '<span class="tag user" style="margin:2px 4px;padding:4px 10px;' + (m.disabled ? 'opacity:.75;' : '') + '">' +
+      '<a href="#" onclick="selMember(' + m.id + ');return false;" style="' + nameStyle + 'text-decoration:none;">' + esc(m.name) + '</a>' + sharedTag + offTag +
+      ' <a href="#" title="更多操作" onclick="mMenu(' + m.id + ');return false;" style="margin-left:4px;color:#888;font-weight:bold;text-decoration:none;">⋯</a></span>';
   }).join('') || '<span class="muted">暂无成员</span>';
 }
 function selMember(id) {
@@ -3046,12 +3048,77 @@ function deltaCell(deltaKg) {
   return '<span class="muted">0</span>';
 }
 
+// 成员「⋯ 更多」菜单：改名/链接/上移下移/禁用启用/删除 收进一个弹窗，手机好操作
+window.mMenu = function(id){
+  var m = members.filter(function(x){ return x.id === id; })[0];
+  if (!m) return;
+  var own = !m.shared;
+  var ownIds = members.filter(function(x){ return !x.shared; }).map(function(x){ return x.id; });
+  var oi = ownIds.indexOf(id);
+  function btn(label, onclick, cls, disabled){
+    if (disabled) return '<button class="btn gray" style="width:100%;margin-bottom:8px;" disabled>' + label + '</button>';
+    return '<button class="btn ' + (cls || 'gray') + '" style="width:100%;margin-bottom:8px;" onclick="' + onclick + '">' + label + '</button>';
+  }
+  var html = btn('✏️ 改名', 'closeModal();mRename(' + id + ')') +
+    btn('🔗 分享 / 填写链接', 'closeModal();mShare(' + id + ')');
+  if (own) {
+    html += btn('⬆️ 上移', 'closeModal();mMove(' + id + ',-1)', 'gray', oi <= 0) +
+      btn('⬇️ 下移', 'closeModal();mMove(' + id + ',1)', 'gray', oi < 0 || oi >= ownIds.length - 1) +
+      btn(m.disabled ? '▶️ 启用' : '⏸️ 禁用', 'closeModal();mToggleDisable(' + id + ')') +
+      btn('🗑️ 删除', 'closeModal();mDel(' + id + ')', 'danger');
+  } else {
+    html += btn('移除共享（不影响属主数据）', 'closeModal();mDel(' + id + ')', 'danger');
+  }
+  html += '<button class="btn gray" style="width:100%;" onclick="closeModal()">取消</button>';
+  openModal('成员：' + m.name, html);
+};
+// 上移/下移：仅在自己的成员间调整顺序，提交完整有序 id 列表
+window.mMove = async function(id, dir){
+  var own = members.filter(function(x){ return !x.shared; });
+  var i = own.map(function(x){ return x.id; }).indexOf(id);
+  var j = i + dir;
+  if (i < 0 || j < 0 || j >= own.length) return;
+  var t = own[i]; own[i] = own[j]; own[j] = t;
+  try { await api('/api/weight/members/reorder', { method:'PUT', body:{ ids: own.map(function(x){ return x.id; }) } }); await loadAll(); }
+  catch(e){ alertModal(e.message, {ok:false}); }
+};
+// 禁用/启用（仅属主）：停用后曲线/录入/日报隐藏，数据保留
+window.mToggleDisable = async function(id){
+  var m = members.filter(function(x){ return x.id === id; })[0];
+  if (!m) return;
+  try { await api('/api/weight/members/' + id, { method:'PUT', body:{ disabled: !m.disabled } }); await loadAll(); }
+  catch(e){ alertModal(e.message, {ok:false}); }
+};
+// 删除：属主可选「仅移除(保留数据,同名可恢复)」或「连数据一起删」；共享方仅解除引用
 window.mDel = async function(id){
-  confirmModal('删除成员', '删除该成员及其记录?', async function(){
-    try { await api('/api/weight/members/' + id, { method:'DELETE' }); await loadAll(); } catch(e){ alertModal(e.message, {ok:false}); }
+  var m = members.filter(function(x){ return x.id === id; })[0];
+  if (!m) return;
+  if (m.shared) {
+    confirmModal('移除共享', '移除该共享成员？（不影响属主数据）', async function(){
+      try { await api('/api/weight/members/' + id, { method:'DELETE' }); await loadAll(); } catch(e){ alertModal(e.message, {ok:false}); }
+    });
+    return;
+  }
+  openModal('删除成员：' + m.name,
+    '<p style="line-height:1.6;margin-bottom:14px;">选择删除方式：</p>' +
+    '<button class="btn" id="mDelArc" style="width:100%;margin-bottom:8px;">仅移除成员（保留历史数据，以后新建同名可恢复）</button>' +
+    '<button class="btn danger" id="mDelPurge" style="width:100%;margin-bottom:8px;">删除成员及其全部体重记录（不可恢复）</button>' +
+    '<button class="btn gray" style="width:100%;" onclick="closeModal()">取消</button>');
+  document.getElementById('mDelArc').addEventListener('click', async function(){
+    try { await api('/api/weight/members/' + id, { method:'DELETE' }); closeModal(); await loadAll(); }
+    catch(e){ alertModal(e.message, {ok:false}); }
+  });
+  document.getElementById('mDelPurge').addEventListener('click', function(){
+    closeModal();
+    confirmModal('确认删除全部数据', '将永久删除「' + m.name + '」及其所有体重记录，且不可恢复。确认？', async function(){
+      try { await api('/api/weight/members/' + id + '?purge=1', { method:'DELETE' }); await loadAll(); }
+      catch(e){ alertModal(e.message, {ok:false}); await loadAll(); }
+    });
   });
 };
-window.mRename = function(id, curName){
+window.mRename = function(id){
+  var m = members.filter(function(x){ return x.id === id; })[0];
+  var curName = m ? m.name : '';
   openModal('修改成员名',
     '<label>成员名称</label><input id="mReName" value="' + esc(curName) + '">' +
     '<div style="margin-top:12px;"><button class="btn" id="mReConfirm">保存</button> <button class="btn gray" onclick="closeModal()">取消</button></div>');
@@ -3101,8 +3168,23 @@ document.getElementById('mAdd').addEventListener('click', function(){
     '<label>成员名称</label><input id="mName">' +
     '<div style="margin-top:12px;"><button class="btn" id="mConfirm">创建</button> <button class="btn gray" onclick="closeModal()">取消</button></div>');
   document.getElementById('mConfirm').addEventListener('click', async function(){
-    try { await api('/api/weight/members', { method:'POST', body:{ name: document.getElementById('mName').value } }); closeModal(); await loadAll(); }
-    catch(e){ alertModal(e.message, {ok:false}); }
+    var name = (document.getElementById('mName').value || '').trim();
+    if (!name) { alertModal('请填写成员名称', {ok:false}); return; }
+    try {
+      var d = await api('/api/weight/members', { method:'POST', body:{ name: name } });
+      // 命中同名已归档(软删)成员: 确认是否恢复并关联历史数据
+      if (d.needConfirm) {
+        closeModal();
+        confirmModal('恢复历史成员',
+          '「' + d.archivedName + '」此前被移除，但其历史体重记录仍保留。恢复该成员并关联历史记录？',
+          async function(){
+            try { await api('/api/weight/members', { method:'POST', body:{ name: name, restore: true } }); await loadAll(); alertModal('已恢复「' + d.archivedName + '」及其历史记录'); }
+            catch(e){ alertModal(e.message, {ok:false}); }
+          });
+        return;
+      }
+      closeModal(); await loadAll();
+    } catch(e){ alertModal(e.message, {ok:false}); }
   });
 });
 document.getElementById('recAdd').addEventListener('click', async function(){
@@ -6556,6 +6638,7 @@ function drawTree() {
       }
       catch(e){ alertModal(e.message, {ok:false}); }
     },
+    onEdit: function(node){ openReportEdit(node); },
     onAddChildSubmit: async function(node, payload){
       await api('/api/public/todo-all/' + _token, { method:'POST', body: payload });
       await reloadReport();
@@ -6564,6 +6647,25 @@ function drawTree() {
       try { await api('/api/public/todo-all/' + _token + '/reorder', { method:'PUT', body:{ parent_id: parentId, ids: ids } }); await reloadReport(); }
       catch(e){ alertModal(e.message, {ok:false}); await reloadReport(); }
     }
+  });
+}
+// 编辑任务弹窗(报告页 /tr/, 走 todo-all API); opts.onEdit 与组件 ?edit 深链共用
+function openReportEdit(node) {
+  var isChild = node.parent_id != null;
+  // 报告页(所有者本人): 主任务可切 child_due; 子任务按根模式显示日期/重复(仅叶子)
+  var fopts = isChild
+    ? { childDueMode: !!(node._root && node._root.child_due), canRecur: node.children.length === 0 }
+    : {};
+  var _rootTitle = isChild && node._root ? node._root.title : '';
+  openModal(isChild ? (_rootTitle ? '编辑子任务 · ' + _rootTitle : '编辑子任务') : '编辑任务',
+    todoFormHtml(node, false, isChild, fopts) +
+    '<div style="margin-top:12px;"><button class="btn" id="tfSave">保存</button> <button class="btn gray" onclick="closeModal()">取消</button></div>');
+  todoFillCategoryOptions(_rows, node.category || '');
+  bindClickBusy(document.getElementById('tfSave'), async function(){
+    var body = todoFormRead();
+    if (!body.title) { alertModal('请填写标题', {ok:false}); return; }
+    await api('/api/public/todo-all/' + _token + '/' + node.id, { method:'PUT', body: body });
+    closeModal(); await reloadReport();
   });
 }
 // 新建任务/子任务弹窗: parentId=null → 顶层主任务(可设日期/重复/独立截止模式); 传 id → 子任务
@@ -6683,6 +6785,23 @@ async function reloadReport() {
       history.replaceState(null, '', location.pathname);
       _todoDetailRootId = Number(_rootId);
       drawTree();
+    }
+    // 小组件点子任务入口: ?edit=<id> 自动打开编辑弹窗(须从树节点取, 带 children/_root)
+    var _editId = _rq.get('edit');
+    if (_editId) {
+      history.replaceState(null, '', location.pathname);
+      var _enode = (function(){
+        var found = null;
+        (function walk(list){
+          list.forEach(function(n){
+            if (found) return;
+            if (String(n.id) === String(_editId)) { found = n; return; }
+            walk(n.children || []);
+          });
+        })(_trees || []);
+        return found;
+      })();
+      if (_enode) openReportEdit(_enode);
     }
   } catch(e) { document.body.innerHTML = '<div class="todo-empty" style="margin-top:60px;">' + esc(e.message || '链接无效') + '</div>'; }
 })();
