@@ -122,6 +122,9 @@ private fun AppShell(initialUrl: String?) {
     var showMe by rememberSaveable { mutableStateOf(false) }
     var targetUrl by rememberSaveable { mutableStateOf(initialUrl ?: (baseUrl + TABS[0].path)) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    // 最近一次实际 loadUrl 的地址（自己维护，不用 wv.url——网页 replaceState 清深链参数后
+    // wv.url 不可靠）。深链即使与目标相同也要强制重载，保证 ?edit/?addChild 弹窗每次都重跑。
+    var lastLoadedUrl by remember { mutableStateOf<String?>(null) }
     // WebViewClient 只在 factory 创建一次，用 rememberUpdatedState 让它始终读到最新 baseUrl
     val currentBaseUrl by rememberUpdatedState(baseUrl)
 
@@ -148,6 +151,15 @@ private fun AppShell(initialUrl: String?) {
             targetUrl = url
             selected = tabIndexFor(url)
             showMe = false
+            // 强制重新加载：同一深链 URL 第二次点入也要重跑网页 init（?edit/?addChild 弹窗）。
+            // wv.url 在 replaceState 清参后不可靠，直接 loadUrl；加时间戳 nonce 保证同 URL 也必重载，
+            // 页面只认 root/edit/addChild 参数、replaceState(pathname) 会把 nonce 一起清掉。
+            webViewRef?.let { wv ->
+                CookieManager.getInstance().setCookie(baseUrl, "app_shell=1; Path=/")
+                val sep = if (url.contains('?')) '&' else '?'
+                wv.loadUrl("$url${sep}_t=${System.currentTimeMillis()}", APP_HEADERS)
+                lastLoadedUrl = url // 记逻辑 URL（不含 nonce），供 update 去重
+            }
         }
         onDispose { DeepLinkBus.listener = null }
     }
@@ -315,6 +327,7 @@ private fun AppShell(initialUrl: String?) {
                             false // 不消费, WebView 正常处理并继续派发给网页
                         }
                         loadUrl(targetUrl, APP_HEADERS)
+                        lastLoadedUrl = targetUrl
                     }
                     // 下拉刷新：网页滚到顶部时下拉触发 reload，onPageFinished 收起指示器
                     swipe.addView(
@@ -332,11 +345,13 @@ private fun AppShell(initialUrl: String?) {
                 update = {
                     // 不能用 getChildAt(0)：SwipeRefreshLayout 内部自带一个 CircleImageView
                     // （下拉转圈 mCircleView）占住 index 0，WebView 在 index 1，强转会崩溃。
-                    // 直接用 factory 中保存的 webViewRef。
+                    // 直接用 factory 中保存的 webViewRef。用 lastLoadedUrl 去重而非 wv.url：
+                    // 深链页 replaceState 清参后 wv.url 不可靠，且相同深链由 DeepLinkBus 强制重载。
                     val wv = webViewRef
-                    if (wv != null && wv.url != targetUrl) {
+                    if (wv != null && targetUrl != lastLoadedUrl) {
                         CookieManager.getInstance().setCookie(baseUrl, "app_shell=1; Path=/")
                         wv.loadUrl(targetUrl, APP_HEADERS)
+                        lastLoadedUrl = targetUrl
                     }
                 },
                 modifier = Modifier.fillMaxSize()
