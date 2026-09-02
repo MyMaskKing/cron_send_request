@@ -1050,11 +1050,28 @@ function createD1Adapter(env) {
     // 数据不搬家仍归主人, 家人在被授权模块内读写主人那套数据。
     share: {
       // ---- 邀请（主人视角）----
+      // 一人一码：每个主人至多一条有效邀请；重新生成 = 换新码 + 更新模块（成员关系保留）
       async createInvite(ownerUserId, { code, modules, note }) {
         const res = await db.prepare(
           'INSERT INTO share_invites (code, owner_user_id, modules, note) VALUES (?, ?, ?, ?)'
         ).bind(code, ownerUserId, modules, note || null).run();
         return res.meta.last_row_id;
+      },
+      // 主人当前唯一有效邀请（无则 null）
+      async findActiveInviteByOwner(ownerUserId) {
+        return await db.prepare(
+          'SELECT * FROM share_invites WHERE owner_user_id = ? AND revoked_at IS NULL ORDER BY id DESC LIMIT 1'
+        ).bind(ownerUserId).first();
+      },
+      // 更新邀请：换新码 + 调整模块/备注（成员按 invite_id 关联，不受影响）
+      async updateInvite(id, { code, modules, note }) {
+        await db.prepare(
+          'UPDATE share_invites SET code = ?, modules = ?, note = ? WHERE id = ?'
+        ).bind(code, modules, note || null, id).run();
+      },
+      // 仅重置码（不改模块）
+      async updateInviteCode(id, code) {
+        await db.prepare('UPDATE share_invites SET code = ? WHERE id = ?').bind(code, id).run();
       },
       async listInvitesByOwner(ownerUserId) {
         const { results } = await db.prepare(
@@ -1062,7 +1079,7 @@ function createD1Adapter(env) {
         ).bind(ownerUserId).all();
         return results || [];
       },
-      // 凭码找有效邀请（已撤销的查不到）
+      // 凭码找有效邀请（已撤销/已删除的查不到）
       async findInviteByCode(code) {
         return await db.prepare(
           'SELECT * FROM share_invites WHERE code = ? AND revoked_at IS NULL'
@@ -1071,31 +1088,35 @@ function createD1Adapter(env) {
       async findInviteById(id) {
         return await db.prepare('SELECT * FROM share_invites WHERE id = ?').bind(id).first();
       },
-      // 重置码：仅换 code，成员关系（按 invite_id 关联）保留，旧码立即失效
-      async updateInviteCode(id, code) {
-        await db.prepare('UPDATE share_invites SET code = ? WHERE id = ?').bind(code, id).run();
+      // 物理删除邀请及其全部成员关系（撤销邀请用）
+      async deleteInviteCascade(inviteId) {
+        await db.prepare('DELETE FROM share_members WHERE invite_id = ?').bind(inviteId).run();
+        await db.prepare('DELETE FROM share_invites WHERE id = ?').bind(inviteId).run();
       },
-      // 撤销邀请：作废该邀请（踢人由 revokeMembersByInvite 一并完成）
-      async revokeInvite(id) {
+      // 物理清理某主人所有已作废（revoked）的历史邀请及其成员关系，保证列表不留废码
+      async purgeRevokedInvitesByOwner(ownerUserId) {
         await db.prepare(
-          "UPDATE share_invites SET revoked_at = datetime('now') WHERE id = ?"
-        ).bind(id).run();
+          `DELETE FROM share_members WHERE invite_id IN
+             (SELECT id FROM share_invites WHERE owner_user_id = ? AND revoked_at IS NOT NULL)`
+        ).bind(ownerUserId).run();
+        await db.prepare(
+          'DELETE FROM share_invites WHERE owner_user_id = ? AND revoked_at IS NOT NULL'
+        ).bind(ownerUserId).run();
       },
 
       // ---- 成员关系 ----
-      // 加入：幂等。UNIQUE(invite_id, guest) 冲突时复活（曾退出则 revoked_at 置 NULL）
+      // 加入：幂等。物理删除模型下退出即删行，重加直接插入；INSERT OR IGNORE 防并发重复
       async addMember({ invite_id, owner_user_id, guest_user_id }) {
         await db.prepare(
-          `INSERT INTO share_members (invite_id, owner_user_id, guest_user_id, role, revoked_at)
-           VALUES (?, ?, ?, 'editor', NULL)
-           ON CONFLICT(invite_id, guest_user_id) DO UPDATE SET revoked_at = NULL`
+          `INSERT OR IGNORE INTO share_members (invite_id, owner_user_id, guest_user_id, role)
+           VALUES (?, ?, ?, 'editor')`
         ).bind(invite_id, owner_user_id, guest_user_id).run();
       },
-      // 某邀请下的成员（含已退出，附加入者用户名/昵称）
+      // 某邀请下的成员（附加入者用户名/昵称）
       async listMembersByInvite(inviteId) {
         const { results } = await db.prepare(
           `SELECT m.id, m.invite_id, m.owner_user_id, m.guest_user_id, m.role,
-                  m.revoked_at, m.joined_at, u.username, u.nickname
+                  m.joined_at, u.username, u.nickname
            FROM share_members m JOIN users u ON u.id = m.guest_user_id
            WHERE m.invite_id = ? ORDER BY m.id`
         ).bind(inviteId).all();
@@ -1104,17 +1125,9 @@ function createD1Adapter(env) {
       async findMemberById(id) {
         return await db.prepare('SELECT * FROM share_members WHERE id = ?').bind(id).first();
       },
-      // 踢人 / 自己退出：置 revoked_at（数据保留在主人处）
-      async revokeMember(id) {
-        await db.prepare(
-          "UPDATE share_members SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL"
-        ).bind(id).run();
-      },
-      // 撤销邀请时批量踢出该邀请下全部有效成员
-      async revokeMembersByInvite(inviteId) {
-        await db.prepare(
-          "UPDATE share_members SET revoked_at = datetime('now') WHERE invite_id = ? AND revoked_at IS NULL"
-        ).bind(inviteId).run();
+      // 踢人 / 自己退出：物理删除成员行（业务数据保留在主人处）
+      async deleteMember(id) {
+        await db.prepare('DELETE FROM share_members WHERE id = ?').bind(id).run();
       },
 
       // ---- 加入方（guest 视角）----

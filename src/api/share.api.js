@@ -70,13 +70,22 @@ async function createInvite({ request, env, url }) {
   )];
   if (modules.length === 0) return error('请至少选择一个共享模块');
   const storage = getStorage(env);
+  // 一人一码：先物理清理历史作废邀请，再对当前有效邀请做 upsert（有则换新码+更新模块，无则新建）
+  await storage.share.purgeRevokedInvitesByOwner(auth.user_id);
   const code = await uniqueCode(storage);
-  const id = await storage.share.createInvite(auth.user_id, {
-    code, modules: modules.join(','), note: (body.note || '').trim() || null
-  });
+  const note = (body.note || '').trim() || null;
+  const existing = await storage.share.findActiveInviteByOwner(auth.user_id);
+  let id;
+  if (existing) {
+    // 旧码立即失效；已加入成员按 invite_id 关联、关系保留，权限跟随新模块集
+    await storage.share.updateInvite(existing.id, { code, modules: modules.join(','), note });
+    id = existing.id;
+  } else {
+    id = await storage.share.createInvite(auth.user_id, { code, modules: modules.join(','), note });
+  }
   const base = await resolveBaseUrl(storage, env, url);
   return json({
-    success: true, id, code, modules,
+    success: true, id, code, modules, updated: !!existing,
     link: `${base}/settings?join=${code}`
   });
 }
@@ -130,8 +139,8 @@ async function revokeInvite({ request, env, params }) {
   const id = parseInt(params.id, 10);
   const inv = await storage.share.findInviteById(id);
   if (!inv || inv.owner_user_id !== auth.user_id) return error('邀请不存在', 404);
-  await storage.share.revokeInvite(id);
-  await storage.share.revokeMembersByInvite(id);
+  // 物理删除邀请 + 全部成员关系（码作废、家人全部失效；业务数据保留在主人处）
+  await storage.share.deleteInviteCascade(id);
   return json({ success: true, message: '邀请已撤销，全部成员已移出' });
 }
 
@@ -188,7 +197,7 @@ async function removeShareMember({ request, env, params }) {
   if (m.owner_user_id !== auth.user_id && m.guest_user_id !== auth.user_id) {
     return error('无权操作该共享关系', 403);
   }
-  await storage.share.revokeMember(id);
+  await storage.share.deleteMember(id);
   return json({
     success: true,
     message: m.guest_user_id === auth.user_id ? '已退出共享' : '已移出该成员'

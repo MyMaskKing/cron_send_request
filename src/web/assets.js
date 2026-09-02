@@ -1598,12 +1598,22 @@ async function loadDataShare(){
   h += '</div>';
   box.innerHTML = h;
 
+  // 一人一码: 已有有效邀请时回显勾选模块/备注, 按钮变为"保存并换新码"
+  var activeInv = invites.filter(function(i){ return !i.revoked; })[0];
+  var dsBtn = document.getElementById('dsCreate');
+  if (dsBtn) dsBtn.textContent = activeInv ? '保存并换新码' : '生成共享码';
+  if (activeInv) {
+    box.querySelectorAll('.ds-mod').forEach(function(c){ c.checked = activeInv.modules.indexOf(c.value) >= 0; });
+    var noteEl = document.getElementById('dsNote');
+    if (noteEl) noteEl.value = activeInv.note || '';
+  }
+
   document.getElementById('dsCreate').addEventListener('click', async function(){
     var mods = Array.prototype.map.call(box.querySelectorAll('.ds-mod:checked'), function(c){ return c.value; });
     if (!mods.length) { showMsg(msg, '请至少勾选一个模块', false); return; }
     try {
       var r = await api('/api/share/invites', { method:'POST', body:{ modules: mods, note: document.getElementById('dsNote').value } });
-      showMsg(msg, '共享码已生成：' + r.code, true);
+      showMsg(msg, (r.updated ? '共享码已更新，旧码已失效：' : '共享码已生成：') + r.code, true);
       loadDataShare();
     } catch(e){ showMsg(msg, e.message, false); }
   });

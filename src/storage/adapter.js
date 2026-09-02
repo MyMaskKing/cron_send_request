@@ -10,9 +10,10 @@
  *   monitor: { listByUser, listEnabledAll, findById, create, update, remove, addLog, listLogs }
  *   fund:    { listByUser, findById, create, update, remove, upsertNav, getNav, getReportConfig, setReportConfig, listReportEnabled }
  *   weight:  { listMembers, findMember, createMember, removeMember, listRecords, addRecord, removeRecord }
- *   share:   { createInvite, listInvitesByOwner, findInviteByCode, findInviteById, updateInviteCode, revokeInvite,
- *              addMember, listMembersByInvite, findMemberById, revokeMember, revokeMembersByInvite,
- *              listMyShares, findActiveShare }  // 家庭/团队数据共享（邀请码 + 按模块授权）
+ *   share:   { createInvite, findActiveInviteByOwner, updateInvite, updateInviteCode, listInvitesByOwner,
+ *              findInviteByCode, findInviteById, deleteInviteCascade, purgeRevokedInvitesByOwner,
+ *              addMember, listMembersByInvite, findMemberById, deleteMember,
+ *              listMyShares, findActiveShare }  // 家庭/团队数据共享（一人一码 + 按模块授权，作废物理删除）
  *   backup:  { dumpTables, restoreTables }  // 全量导入导出（仅 d1 驱动实现；mysql 桩暂无，api 层判空）
  */
 
