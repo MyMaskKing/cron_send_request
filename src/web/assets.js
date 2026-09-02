@@ -667,7 +667,7 @@ function bindModal() {
 }
 function confirmModal(title, message, onConfirm) {
   openModal(title || '确认操作',
-    '<p style="line-height:1.6;word-break:break-all;">' + esc(message) + '</p>' +
+    '<p style="line-height:1.6;word-break:break-all;white-space:pre-line;">' + esc(message) + '</p>' +
     '<div style="text-align:right;margin-top:18px;"><button type="button" class="btn gray" onclick="closeModal()">取消</button> <button type="button" class="btn danger" id="cmConfirm">确认</button></div>');
   // 用 bindClickBusy 统一防重: 三层防护 (btn.disabled + _busy + data-busy CSS)
   // handler 内先关弹窗再执行 onConfirm, 与原语义一致; 期间用户看到全局 loading 遮罩
@@ -1175,17 +1175,27 @@ function _isTodoPage() {
   return p === '/todo' || p.indexOf('/t/') === 0 || p.indexOf('/tr/') === 0 || p.indexOf('/tc/') === 0;
 }
 // 顶栏 Logo 右侧时钟: 页面存在 #brandClock 时启动秒级刷新, 无 topbar 的公开页无 element 自动跳过.
-// 桌面与手机窄屏均显示"MM-DD HH:mm:ss"实时秒级刷新; 用浏览器本地时间(用户所在时区).
-// tabular-nums 已在 CSS 里保证数字等宽, 秒变化不引起横向抖动.
+// 桌面与手机窄屏均显示"MM-DD HH:mm:ss"实时秒级刷新.
+// 时间按后端注入的配置时区 window.__TZ_OFFSET__(app_settings.tz_offset, 默认 8)显示;
+// 缺失时(旧页面/未注入)回退浏览器本地时间. tabular-nums 已在 CSS 里保证数字等宽, 秒变化不横向抖动.
 function initBrandClock() {
   var el = document.getElementById('brandClock');
   if (!el || el.__ticked) return;
   el.__ticked = 1;
   function pad2(n){ return (n < 10 ? '0' : '') + n; }
+  var off = window.__TZ_OFFSET__;
+  var useTz = typeof off === 'number' && isFinite(off);
   function tick() {
     var d = new Date();
-    el.textContent = pad2(d.getMonth()+1) + '-' + pad2(d.getDate()) + ' ' +
-                     pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+    if (useTz) {
+      // 平移到目标时区后用 UTC getters 读墙钟, 避免再受浏览器/设备本地时区影响
+      var t = new Date(d.getTime() + off*3600*1000);
+      el.textContent = pad2(t.getUTCMonth()+1) + '-' + pad2(t.getUTCDate()) + ' ' +
+                       pad2(t.getUTCHours()) + ':' + pad2(t.getUTCMinutes()) + ':' + pad2(t.getUTCSeconds());
+    } else {
+      el.textContent = pad2(d.getMonth()+1) + '-' + pad2(d.getDate()) + ' ' +
+                       pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+    }
   }
   tick();
   // 秒级刷新: 页面 visible 时 1s tick; 隐藏时 setInterval 由浏览器限流, 无需自处理
@@ -3838,12 +3848,9 @@ function drawCharts(report) {
 function renderMonthTable(wlist, records) {
   var nameOf = {}, typeOf = {}; wlist.forEach(function(w){ nameOf[w.id] = w.name; typeOf[w.id] = w.type; });
   var tb = document.getElementById('recTbody');
+  // 排序：月度倒序，同月内按创建时间倒序（最新录入在最上）
   var sorted = records.slice().sort(function(a,b){
     if (a.month !== b.month) return b.month < a.month ? -1 : 1;
-    var ta = typeOf[a.wallet_id]||'', tb2 = typeOf[b.wallet_id]||'';
-    if (ta !== tb2) return ta.localeCompare(tb2);
-    var na = nameOf[a.wallet_id]||'', nb = nameOf[b.wallet_id]||'';
-    if (na !== nb) return na.localeCompare(nb);
     return (b.created_at||'').localeCompare(a.created_at||'');
   });
   tb.innerHTML = sorted.map(function(r){
@@ -3942,9 +3949,16 @@ window.recEditRow = function(recId){
   var preset = { balance: rec.balance, total: rec.balance, profit: rec.profit };
   openRecModal(rec.wallet_id, w.type, rec.month, preset, recId);
 };
-// 删除某条月度记录
+// 删除某条月度记录（确认弹窗展示该条内容：月份/类型/钱包/金额）
 window.recDelRow = async function(id){
-  confirmModal('删除月度记录', '删除该月度记录?', async function(){
+  var rec = fullRecords.filter(function(r){ return r.id===id; })[0];
+  var w = rec ? wallets.filter(function(x){return x.id===rec.wallet_id;})[0] : null;
+  var info = rec
+    ? rec.month + ' · ' + (w ? (TYPE_LABEL[w.type]||w.type) + ' · ' + w.name : '未知钱包') +
+      ' · 金额 ' + fmtMoney(rec.balance, {frac:2}) +
+      (rec.principal||rec.profit ? '（本金' + fmtMoney(rec.principal, {frac:2}) + '/收益' + fmtMoney(rec.profit, {frac:2}) + '）' : '')
+    : '';
+  confirmModal('删除月度记录', '确定删除这条记录吗？' + (info ? '\n' + info : ''), async function(){
     try { await api('/api/asset/records/' + id, { method:'DELETE' }); await loadAll(); } catch(e){ alertModal(e.message, {ok:false}); }
   });
 };

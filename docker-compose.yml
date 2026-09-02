@@ -11,6 +11,8 @@ services:
     environment:
       # 存储驱动，本地部署固定用 d1（better-sqlite3 落盘 SQLite）
       STORAGE_DRIVER: d1
+      # 固定容器时区为中国时区（与镜像内 tzdata + ENV TZ 一致，日志/本地时间均按此）
+      TZ: Asia/Shanghai
       # 内置 /cron 触发口令；留空则免 key
       CRON_SECRET: ""
       # PUBLIC_BASE_URL 建议登录后到「系统设置」里填，DB 设置优先级高于环境变量

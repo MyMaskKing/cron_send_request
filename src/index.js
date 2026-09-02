@@ -323,6 +323,8 @@ async function handlePages(request, env) {
       appShell: request.headers.get('X-App-Shell') === '1' ||
         /(?:^|;\s*)app_shell=1/.test(request.headers.get('Cookie') || '')
     };
+    // 顶栏时钟按配置时区显示：读全局 app_settings.tz_offset（默认 8），注入页面供前端使用
+    user.tzOffset = parseOffset(await getStorage(env).settings.get('tz_offset'));
 
     switch (pageMap[path]) {
       case 'dashboard':

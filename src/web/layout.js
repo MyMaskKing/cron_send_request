@@ -1165,7 +1165,9 @@ function renderTopbar(user, active = '') {
   </div>` + (user.impersonating ? `<div class="impersonate-banner">
     ⚠️ 你（超管 ${user.admin_username || ''}）正在以 <b>${user.username}</b> 的身份浏览
     <a href="#" id="stopImpersonateBtn">点此退出</a>
-  </div>` : '');
+  </div>` : '') +
+  // 顶栏时钟按配置时区(app_settings.tz_offset)显示，内联注入供 COMMON_JS 的 initBrandClock 读取
+  `<script>window.__TZ_OFFSET__=${Number.isFinite(user.tzOffset) ? user.tzOffset : 8};</script>`;
 }
 
 export { renderPage, renderTopbar, BASE_CSS };

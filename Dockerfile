@@ -12,7 +12,9 @@ FROM node:20-alpine
 WORKDIR /app
 
 # su-exec: entrypoint 以 root 修正 /data 属主后，降权到 node 用户运行主进程
-RUN apk add --no-cache su-exec
+# tzdata: 固定容器时区为 Asia/Shanghai（Alpine 默认无时区数据，仅设 TZ 不生效）
+RUN apk add --no-cache su-exec tzdata
+ENV TZ=Asia/Shanghai
 
 # 复制依赖（node_modules 中已含 better-sqlite3 的预编译 .node 二进制）
 COPY --from=deps /app/node_modules ./node_modules
