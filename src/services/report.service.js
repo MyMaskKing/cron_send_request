@@ -670,11 +670,11 @@ function buildTodoReportText(trees, base, token, reportToken, today, stats, remi
     // 以子任务(可执行叶子)为单位: 主任务作分组头, 组内平铺末端叶子; 中间层父任务不单列,
     // 经「中间层 / …：」面包屑体现层级。主任务无子任务时(selfRoot)下方无 ▸ 子项,
     // 主任务标题行本身即那条待办(降级显示), 与小组件 collapsible=false 同口径。
-    trees.forEach((root) => {
+    trees.forEach((root, ri) => {
       const cat = root.category ? `〔${root.category}〕` : '';
       const rootDue = rootDueOf(root);
       // text 版不加优先级圆圈: 微信/短信客户端里各家 emoji 尺寸不一, 反而挤占标题空间
-      t += `❇️ ${root.title}${cat}${dateBadge(rootDue)}\n`;
+      t += `❇️待办${ri + 1}：${root.title}${cat}${dateBadge(rootDue)}\n`;
       collectReportLeaves(root).forEach((it) => {
         if (it.selfRoot) return; // 降级项已由上面的主任务行承载
         const crumb = it.path.length ? it.path.join(' / ') + '：' : '';
@@ -715,11 +715,11 @@ function buildTodoReportMarkdown(trees, base, token, reportToken, today, stats, 
     m += `${bar}\n`;
     // 以子任务(叶子)为单位: 主任务分组头 + 平铺末端叶子列表(中间层不单列, 经面包屑体现层级);
     // 无子任务的主任务(selfRoot)下方无叶子列表, 加粗标题行本身即那条待办(降级显示)。
-    trees.forEach((root) => {
+    trees.forEach((root, ri) => {
       const cat = root.category ? ` \`${root.category}\`` : '';
       const pri = TODO_PRI_ICON[root.priority] || '⚪';
       const rootDue = rootDueOf(root);
-      m += `**❇️ ${pri}${root.title}**${cat}${dateBadge(rootDue)}\n`;
+      m += `**❇️待办${ri + 1}：${pri}${root.title}**${cat}${dateBadge(rootDue)}\n`;
       collectReportLeaves(root).forEach((it) => {
         if (it.selfRoot) return;
         const crumb = it.path.length ? it.path.join(' / ') + '：' : '';
