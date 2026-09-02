@@ -6346,23 +6346,28 @@ bindClickBusy(document.getElementById('pushSend'), async function(){
     await loadPush();
     // 应用视图状态: localStorage 里可能已有 'card'/'tree', 首次进入直接全屏
     applyTodoView(_todoGetRows, drawTree);
-    // 小组件「新增」入口: ?add=1 自动弹出新建表单, 读后清掉避免刷新重弹
     var _q = new URLSearchParams(location.search);
+    // ?root=<id> 最先处理: 点子任务/点＋都要先进该主任务的子任务详情画面, 再在其上弹表单
+    var _rootId = _q.get('root');
+    if (_rootId) {
+      history.replaceState(null, '', location.pathname);
+      _todoDetailRootId = Number(_rootId);
+      drawTree();
+    }
+    // 小组件「新增」入口: ?add=1 新建主任务(顶层, 不进详情)
     if (_q.get('add') === '1') {
       history.replaceState(null, '', location.pathname);
       openAddForm(null, '新建任务', false);
     }
-    // 小组件主任务「＋」入口: ?addChild=<rootId> 自动弹出该主任务的添加子任务表单
+    // ?addChild: 在详情画面上弹该主任务的添加子任务表单
     var _addChildId = _q.get('addChild');
     if (_addChildId) {
       history.replaceState(null, '', location.pathname);
-      // 弹窗标题带主任务名, 明确正在给哪个清单添加子任务
       var _addParent = (_rows || []).filter(function(r){ return String(r.id) === String(_addChildId); })[0];
       openAddForm(Number(_addChildId), _addParent && _addParent.title ? '添加子任务 · ' + _addParent.title : '添加子任务', true);
     }
-    // 小组件「编辑」入口: ?edit=<id> 自动打开该任务编辑弹窗（App 内点击任务直达）
-    // 必须从 todoBuildTree 的树节点取: openTodoEdit 对子任务读 node.children/node._root,
-    // 扁平 _rows 节点没有 children, 直接用会抛 "Cannot read properties of undefined (reading 'length')"
+    // ?edit: 在详情画面上弹该任务编辑弹窗。必须从 todoBuildTree 树节点取(openTodoEdit 读
+    // node.children/node._root, 扁平 _rows 节点无 children 会抛 undefined.length)
     var _editId = _q.get('edit');
     if (_editId) {
       history.replaceState(null, '', location.pathname);
@@ -6378,13 +6383,6 @@ bindClickBusy(document.getElementById('pushSend'), async function(){
         return found;
       })();
       if (_node) openTodoEdit(_node);
-    }
-    // 小组件点主任务行入口: ?root=<id> 进入该主任务的子任务详情(等同卡片视图点主任务进入的画面)
-    var _rootId = _q.get('root');
-    if (_rootId) {
-      history.replaceState(null, '', location.pathname);
-      _todoDetailRootId = Number(_rootId);
-      drawTree();
     }
   }
   catch(e){ if (String(e.message).indexOf('登录')>=0) navTo('/login'); else alertModal(e.message, {ok:false}); }
@@ -6765,28 +6763,27 @@ async function reloadReport() {
       loadChart();
     });
     await loadChart();
-    // 小组件「新增」入口: ?add=1 自动弹出新建表单, 读后清掉避免刷新重弹
     var _rq = new URLSearchParams(location.search);
-    if (_rq.get('add') === '1') {
-      history.replaceState(null, '', location.pathname);
-      openAddForm(null, '新建任务', false);
-    }
-    // 小组件主任务「＋」入口: ?addChild=<rootId> 自动弹出该主任务的添加子任务表单
-    var _addChildId = _rq.get('addChild');
-    if (_addChildId) {
-      history.replaceState(null, '', location.pathname);
-      // 弹窗标题带主任务名, 明确正在给哪个清单添加子任务
-      var _addParent = (_rows || []).filter(function(r){ return String(r.id) === String(_addChildId); })[0];
-      openAddForm(Number(_addChildId), _addParent && _addParent.title ? '添加子任务 · ' + _addParent.title : '添加子任务', true);
-    }
-    // 小组件点主任务行入口: ?root=<id> 进入该主任务的子任务详情(等同卡片视图点主任务)
+    // ?root=<id> 最先处理: 点子任务/点＋都要先进该主任务的子任务详情画面, 再在其上弹表单
     var _rootId = _rq.get('root');
     if (_rootId) {
       history.replaceState(null, '', location.pathname);
       _todoDetailRootId = Number(_rootId);
       drawTree();
     }
-    // 小组件点子任务入口: ?edit=<id> 自动打开编辑弹窗(须从树节点取, 带 children/_root)
+    // ?add=1 新建主任务(顶层, 不进详情)
+    if (_rq.get('add') === '1') {
+      history.replaceState(null, '', location.pathname);
+      openAddForm(null, '新建任务', false);
+    }
+    // ?addChild: 在详情画面上弹添加子任务表单
+    var _addChildId = _rq.get('addChild');
+    if (_addChildId) {
+      history.replaceState(null, '', location.pathname);
+      var _addParent = (_rows || []).filter(function(r){ return String(r.id) === String(_addChildId); })[0];
+      openAddForm(Number(_addChildId), _addParent && _addParent.title ? '添加子任务 · ' + _addParent.title : '添加子任务', true);
+    }
+    // ?edit: 在详情画面上弹编辑弹窗(须从树节点取, 带 children/_root)
     var _editId = _rq.get('edit');
     if (_editId) {
       history.replaceState(null, '', location.pathname);

@@ -55,19 +55,23 @@ private fun openUrlOf(ctx: Context, baseUrl: String, token: String): String =
 private fun addUrlOf(ctx: Context, baseUrl: String, token: String): String =
     openUrlOf(ctx, baseUrl, token) + "?add=1"
 
-/** 主任务行「＋」快速添加子任务：登录态跳 /todo?addChild=<id> 由网页自动弹添加子任务表单；未登录回退免密报告页同参。 */
+/**
+ * 主任务行「＋」添加子任务：先进该主任务的子任务详情（?root），再在详情上弹添加表单（?addChild）。
+ * 登录态 /todo，未登录 /tr/:token。
+ */
 private fun addChildUrlOf(ctx: Context, baseUrl: String, token: String, rootId: Long): String =
-    if (Prefs.isLoggedIn(ctx) || token.isBlank()) "$baseUrl/todo?addChild=$rootId"
-    else "$baseUrl/tr/$token?addChild=$rootId"
+    if (Prefs.isLoggedIn(ctx) || token.isBlank()) "$baseUrl/todo?root=$rootId&addChild=$rootId"
+    else "$baseUrl/tr/$token?root=$rootId&addChild=$rootId"
 
 /** 点主任务行：跳 App 进该主任务的子任务详情（等同网页卡片视图点主任务进入的画面），网页识别 ?root=<id>；未登录回退免密报告页同参。 */
 private fun rootDetailUrlOf(ctx: Context, baseUrl: String, token: String, rootId: Long): String =
     if (Prefs.isLoggedIn(ctx) || token.isBlank()) "$baseUrl/todo?root=$rootId"
     else "$baseUrl/tr/$token?root=$rootId"
 
-/** 点击任务：已登录跳到 /todo?edit=<id> 由网页自动打开编辑弹窗；未登录回退到免密报告页。 */
-private fun editUrlOf(ctx: Context, baseUrl: String, token: String, itemId: Long): String =
-    if (Prefs.isLoggedIn(ctx)) "$baseUrl/todo?edit=$itemId" else openUrlOf(ctx, baseUrl, token)
+/** 点子任务行：先进所属主任务详情（?root），再在详情上弹该子任务编辑表单（?edit）。 */
+private fun editUrlOf(ctx: Context, baseUrl: String, token: String, itemId: Long, rootId: Long): String =
+    if (Prefs.isLoggedIn(ctx) || token.isBlank()) "$baseUrl/todo?root=$rootId&edit=$itemId"
+    else "$baseUrl/tr/$token?root=$rootId&edit=$itemId"
 
 /** 小组件渲染入口。 */
 class TodoAppWidget : GlanceAppWidget() {
@@ -335,7 +339,7 @@ private fun GroupCard(
         GroupTitleRow(g, widgetId, isCollapsed, fontScale)
         // 仅多任务分组可折叠；折叠时隐藏子行。单主任务组恒显示其唯一子行（主任务自身）。
         if (g.collapsible && isCollapsed) return@CardScaffold
-        g.children.forEach { child -> ChildRow(child, widgetId, fontScale, wrapChild) }
+        g.children.forEach { child -> ChildRow(child, widgetId, fontScale, wrapChild, g.id) }
     }
 }
 
@@ -509,11 +513,11 @@ private fun StatChip(value: Int, color: ColorProvider, fontScale: Int) {
 }
 
 @Composable
-private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int, wrapChild: Boolean) {
+private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int, wrapChild: Boolean, rootId: Long) {
     val ctx = androidx.glance.LocalContext.current
     val token = Prefs.getToken(ctx, widgetId)
     val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
-    val editUrl = editUrlOf(ctx, baseUrl, token, child.id)
+    val editUrl = editUrlOf(ctx, baseUrl, token, child.id, rootId)
     Row(
         modifier = GlanceModifier.fillMaxWidth().padding(start = 6.dp, top = 3.dp, bottom = 3.dp),
         verticalAlignment = Alignment.CenterVertically
