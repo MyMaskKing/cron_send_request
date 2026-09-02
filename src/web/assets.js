@@ -575,6 +575,24 @@ function showMsg(el, text, ok) {
   el.className = 'msg ' + (ok ? 'ok' : 'err');
   el.textContent = text;
 }
+// 顶部 toast 提示: 固定在视口顶部居中, 成功绿/失败红, 2.8s 自动淡出; 单例复用, 连续调用重置计时
+var _toastTimer = null;
+function showToast(text, ok) {
+  var bar = document.getElementById('appToast');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'appToast';
+    bar.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:10002;max-width:92vw;'
+      + 'padding:10px 20px;border-radius:10px;color:#fff;font-size:14px;line-height:1.5;text-align:center;'
+      + 'word-break:break-all;box-shadow:0 6px 20px rgba(0,0,0,.2);opacity:0;transition:opacity .25s;pointer-events:none;';
+    document.body.appendChild(bar);
+  }
+  bar.style.background = ok === false ? '#cf1322' : '#389e0d';
+  bar.textContent = text;
+  bar.style.opacity = '1';
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(function(){ bar.style.opacity = '0'; }, 2800);
+}
 function bindLogout() {
   bindClickBusy(document.getElementById('logoutBtn'), async function(e){
     if (e && e.preventDefault) e.preventDefault();
@@ -591,6 +609,19 @@ function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
   });
+}
+// 数据库时间按配置时区显示: DB 存 UTC(datetime('now') 形如 'YYYY-MM-DD HH:mm:ss'),
+// 按顶栏时钟同一配置 window.__TZ_OFFSET__(默认 8)平移到墙钟, 输出 'YYYY-MM-DD HH:mm'。
+// 与时钟口径一致, 保证"录入/更新时间"和网页实时时间对得上; 空/非法串安全兜底。
+function fmtDbTime(s) {
+  if (!s) return '';
+  var t = Date.parse(String(s).replace(' ', 'T') + 'Z');
+  if (isNaN(t)) return esc(String(s));
+  var off = (typeof window.__TZ_OFFSET__ === 'number' && isFinite(window.__TZ_OFFSET__)) ? window.__TZ_OFFSET__ : 8;
+  var d = new Date(t + off * 3600 * 1000);
+  var p = function(n){ return (n < 10 ? '0' : '') + n; };
+  return d.getUTCFullYear() + '-' + p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate()) +
+    ' ' + p(d.getUTCHours()) + ':' + p(d.getUTCMinutes());
 }
 // 极简安全 markdown 渲染：先转义再替换标记，输出可直接 innerHTML
 // 支持：# 标题、粗体、斜体、行内代码(反引号)、[文字](链接)、-/* 与 1. 列表、段落与换行
@@ -1422,6 +1453,8 @@ ${COMMON_JS}
 bindLogout();
 bindModal();
 var msg = document.getElementById('msg');
+// 个人设置页: 成功/失败提示统一走顶部 toast(替代页内 #msg 行内提示)
+var showMsg = function(_el, text, ok){ showToast(text, ok); };
 (async function(){
   try {
     var d = await api('/api/auth/profile');
@@ -1522,9 +1555,12 @@ async function loadDataShare(){
   // 我发起的共享
   h += '<div style="padding:10px;background:#faf9f5;border-radius:6px;margin-bottom:12px;">';
   h += '<div style="font-weight:600;margin-bottom:6px;">我发起的共享</div>';
-  h += '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px;">';
+  h += '<div style="margin-bottom:8px;">';
   DS_MODS.forEach(function(m){
-    h += '<label style="font-weight:normal;display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" class="ds-mod" value="'+m.k+'" style="width:auto;"> '+m.name+'</label>';
+    // label 用 inline-flex 横排; checkbox 显式重置全局 input 的 width:100%/padding/margin-bottom, 否则方框与文字错位换行
+    h += '<label style="display:inline-flex;align-items:center;gap:6px;font-weight:normal;font-size:13px;margin:0 16px 8px 0;white-space:nowrap;">'
+      + '<input type="checkbox" class="ds-mod" value="'+m.k+'" style="width:auto;min-width:0;height:auto;margin:0;padding:0;flex:none;">'
+      + m.name + '</label>';
   });
   h += '</div>';
   h += '<div class="row" style="align-items:center;"><input id="dsNote" placeholder="备注（可选，如：咱家账本）" style="flex:1;"> <button class="btn sm" id="dsCreate">生成共享码</button></div>';
@@ -1673,16 +1709,10 @@ bindModal();
 var tbody = document.getElementById('userTbody');
 var detail = document.getElementById('detail');
 
-// D1 存储的 datetime('now') 是 UTC 'YYYY-MM-DD HH:mm:ss'
-// 沿用项目其他前端处理惯例 +8 小时展示北京时间; 空值显示破折号
+// DB 时间(datetime('now') 存 UTC)统一按配置时区显示: 复用 COMMON_JS 的 fmtDbTime(与顶栏时钟同口径); 空值显示破折号
 function fmtUTC2CN(s) {
-  if (!s) return '<span class="muted">—</span>';
-  var t = Date.parse(String(s).replace(' ', 'T') + 'Z');
-  if (isNaN(t)) return esc(s);
-  var d = new Date(t + 8*3600*1000);
-  var pad = function(n){ return n < 10 ? '0'+n : ''+n; };
-  return d.getUTCFullYear() + '-' + pad(d.getUTCMonth()+1) + '-' + pad(d.getUTCDate()) +
-    ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
+  var t = fmtDbTime(s);
+  return t ? t : '<span class="muted">—</span>';
 }
 
 async function loadUsers() {
@@ -2147,7 +2177,7 @@ window.viewLogs = async function(id, name){
     box.innerHTML = '<h2>执行日志 · ' + esc(name) + '</h2>' +
       '<table><thead><tr><th>时间</th><th>结果</th><th>状态</th><th>耗时</th><th>大小</th></tr></thead><tbody>' +
       (data.logs.map(function(l){
-        return '<tr><td data-label="时间" class="muted">' + esc(l.created_at) + '</td>' +
+        return '<tr><td data-label="时间" class="muted">' + fmtDbTime(l.created_at) + '</td>' +
           '<td data-label="结果">' + (l.success ? '<span class="tag ok">成功</span>' : '<span class="tag fail">失败</span>') + '</td>' +
           '<td data-label="状态">' + esc(l.status) + ' ' + esc(l.status_text||'') + '</td>' +
           '<td data-label="耗时">' + (l.response_time||0) + 'ms</td><td data-label="大小">' + (l.response_size||0) + '</td></tr>';
@@ -3840,7 +3870,7 @@ function renderMonthDetail(wlist, records, recentSet) {
       '<td data-label="类型">' + (TYPE_LABEL[typeOf[r.wallet_id]] || '') + '</td>' +
       '<td data-label="钱包">' + esc(nameOf[r.wallet_id]||'') + '</td>' +
       '<td data-label="金额">' + fmtMoney(r.balance, {frac:2}) + (r.principal||r.profit ? ' <span class="muted">(本金'+ fmtMoney(r.principal, {frac:2}) +'/收益'+ fmtMoney(r.profit, {frac:2}) +')</span>' : '') + '</td>' +
-      '<td data-label="更新时间" class="muted">' + esc(r.created_at||'') + '</td></tr>';
+      '<td data-label="更新时间" class="muted">' + fmtDbTime(r.created_at) + '</td></tr>';
   }).join('') || '<tr><td colspan="5" class="muted">暂无记录</td></tr>';
 }
 bindQuickLogin('asset-report');
@@ -4032,7 +4062,7 @@ function renderMonthTable(wlist, records) {
       '<td data-label="类型">' + (TYPE_LABEL[typeOf[r.wallet_id]] || '') + '</td>' +
       '<td data-label="钱包">' + esc(nameOf[r.wallet_id]||'') + '</td>' +
       '<td data-label="金额">' + fmtMoney(r.balance, {frac:2}) + (r.principal||r.profit ? ' <span class="muted">(本金'+ fmtMoney(r.principal, {frac:2}) +'/收益'+ fmtMoney(r.profit, {frac:2}) +')</span>' : '') + '</td>' +
-      '<td data-label="更新时间" class="muted">' + esc(r.created_at||'') + '</td>' +
+      '<td data-label="更新时间" class="muted">' + fmtDbTime(r.created_at) + '</td>' +
       '<td data-label="操作"><button class="btn sm gray" onclick="recEditRow(' + r.id + ')">修改</button> ' +
         '<button class="btn sm danger" onclick="recDelRow(' + r.id + ')">删除</button></td></tr>';
   }).join('') || '<tr><td colspan="6" class="muted">暂无记录</td></tr>';
@@ -4104,7 +4134,7 @@ window.wLogs = function(id){
   var rows = recs.map(function(r){
     return '<tr><td data-label="月份">' + r.month + '</td>' +
       '<td data-label="金额">' + fmtMoney(r.balance, {frac:2}) + (r.principal||r.profit ? ' <span class="muted">(本金'+ fmtMoney(r.principal, {frac:2}) +'/收益'+ fmtMoney(r.profit, {frac:2}) +')</span>' : '') + '</td>' +
-      '<td data-label="更新时间" class="muted">' + esc(r.created_at||'') + '</td></tr>';
+      '<td data-label="更新时间" class="muted">' + fmtDbTime(r.created_at) + '</td></tr>';
   }).join('') || '<tr><td colspan="3" class="muted">该月暂无记录</td></tr>';
   openModal('记录 · ' + w.name + (month ? '（' + month + '）' : ''),
     '<table><thead><tr><th>月份</th><th>金额</th><th>更新时间</th></tr></thead><tbody>' + rows + '</tbody></table>' +
