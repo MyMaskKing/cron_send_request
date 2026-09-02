@@ -3958,7 +3958,7 @@ window.recDelRow = async function(id){
       ' · 金额 ' + fmtMoney(rec.balance, {frac:2}) +
       (rec.principal||rec.profit ? '（本金' + fmtMoney(rec.principal, {frac:2}) + '/收益' + fmtMoney(rec.profit, {frac:2}) + '）' : '')
     : '';
-  confirmModal('删除月度记录', '确定删除这条记录吗？' + (info ? '\n' + info : ''), async function(){
+  confirmModal('删除月度记录', '确定删除这条记录吗？' + (info ? '\\n' + info : ''), async function(){
     try { await api('/api/asset/records/' + id, { method:'DELETE' }); await loadAll(); } catch(e){ alertModal(e.message, {ok:false}); }
   });
 };
