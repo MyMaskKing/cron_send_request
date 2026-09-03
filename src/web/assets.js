@@ -6373,7 +6373,8 @@ function todayStr(){ var d = new Date(Date.now() + 8*3600*1000); return d.toISOS
 
 async function loadTodos() {
   var data = await api('/api/todo/list');
-  await loadSharedCats();
+  // 共享分类列表不在此刷新: 首屏由初始化并行加载, 成员变动(加入/退出/踢人/解散)后显式刷新,
+  // 避免每次勾选/新建都多一个串行请求
   _rows = data.todos || [];
   var s = data.stats || { pending:0, overdue:0, done:0, total:0, memo:0 };
   _stats = s;
@@ -6791,7 +6792,10 @@ bindClickBusy(document.getElementById('pushSend'), async function(){
     var _q = new URLSearchParams(location.search);
     var _deepRoot = _q.get('root');
     if (_deepRoot) { _todoDetailRootId = Number(_deepRoot); }
+    // 共享分类列表与待办并行加载(首帧抽屉需要), 后续操作不再重复请求
+    var _catsReady = loadSharedCats();
     await loadTodos();
+    await _catsReady;
     await loadChart();
     await loadPush();
     // 应用视图状态: localStorage 里可能已有 'card'/'tree', 首次进入直接全屏
