@@ -74,9 +74,16 @@ import {
   weightReportPage, assetReportPage, fundReportPage,
   todoPage, publicTodoPage, todoReportPage, todoCollabPage
 } from './web/pages.js';
+import { serveStaticAsset } from './web/static.js';
 
 // ==================== 路由注册 ====================
 const router = new Router();
+
+// --- 静态资源（CSS/JS 外连长缓存；无需鉴权，白名单内才返回）---
+router.get('/s/:name', ({ params }) => {
+  const res = serveStaticAsset(params.name);
+  return res || new Response('not found', { status: 404 });
+});
 
 // --- 认证 API ---
 router.post('/api/auth/register', register);

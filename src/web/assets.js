@@ -1377,7 +1377,6 @@ window.fmtSign = fmtSign;
 
 // 登录页 JS
 const LOGIN_JS = `
-${COMMON_JS}
 var loginForm = document.getElementById('loginForm');
 var regForm = document.getElementById('regForm');
 var msg = document.getElementById('msg');
@@ -1437,7 +1436,6 @@ applyRegLimit();
 
 // 仪表盘 JS
 const DASHBOARD_JS = `
-${COMMON_JS}
 bindLogout();
 (async function() {
   try {
@@ -1449,7 +1447,6 @@ bindLogout();
 
 // 个人设置页 JS
 const SETTINGS_JS = `
-${COMMON_JS}
 bindLogout();
 bindModal();
 var msg = document.getElementById('msg');
@@ -1681,7 +1678,6 @@ loadDataShare();
 
 // 初始化超管页 JS
 const SETUP_JS = `
-${COMMON_JS}
 var form = document.getElementById('setupForm');
 var msg = document.getElementById('msg');
 var tokenField = document.getElementById('tokenField');
@@ -1713,7 +1709,6 @@ form.addEventListener('submit', async function(e) {
 
 // 超管用户管理 JS
 const ADMIN_JS = `
-${COMMON_JS}
 bindLogout();
 bindModal();
 var tbody = document.getElementById('userTbody');
@@ -2117,7 +2112,6 @@ loadPushLogs();
 
 // 定时任务管理 JS
 const MONITOR_JS = `
-${COMMON_JS}
 bindLogout();
 var channels = [];
 
@@ -2259,7 +2253,6 @@ if (mpSend) mpSend.addEventListener('click', async function(){
 
 // 通知渠道管理 JS（独立页）
 const CHANNELS_JS = `
-${COMMON_JS}
 bindLogout();
 bindModal();
 var CH_HELP = {
@@ -2358,7 +2351,6 @@ document.getElementById('chDisableAll').addEventListener('click', function(){ wi
 
 // 基金追踪 JS
 const FUND_JS = `
-${COMMON_JS}
 bindLogout();
 bindModal();
 mountDataSwitcher('fund');
@@ -3057,7 +3049,6 @@ function initStrategyPanel(){
 
 // 免密加仓公开页 JS（无需登录，通过 URL 中的 token 操作）
 const PUBLIC_BUY_JS = `
-${COMMON_JS}
 var token = location.pathname.split('/').filter(Boolean).pop();
 var msg = document.getElementById('msg');
 var profitChartInst = null;
@@ -3157,7 +3148,6 @@ bindQuickLogin('fund');
 
 // 体重曲线页 JS
 const WEIGHT_JS = `
-${COMMON_JS}
 bindLogout();
 bindModal();
 mountDataSwitcher('weight');
@@ -3545,7 +3535,6 @@ if (pushSend) pushSend.addEventListener('click', async function(){
 
 // 体重免密填写公开页 JS
 const PUBLIC_WEIGHT_JS = `
-${COMMON_JS}
 var token = location.pathname.split('/').filter(Boolean).pop();
 var msg = document.getElementById('msg');
 var pwChart = null;
@@ -3754,7 +3743,6 @@ bindQuickLogin('weight');
 
 // 体重免密报告查看页 JS（曲线图，无需登录）
 const WEIGHT_REPORT_JS = `
-${COMMON_JS}
 var token = location.pathname.split('/').filter(Boolean).pop();
 var COLORS = ['#667eea','#f5222d','#52c41a','#faad14','#13c2c2','#722ed1','#eb2f96','#fa8c16'];
 (async function(){
@@ -3818,7 +3806,6 @@ bindQuickLogin('weight-report');
 
 // 资产免密报告查看页 JS
 const ASSET_REPORT_JS = `
-${COMMON_JS}
 var token = location.pathname.split('/').filter(Boolean).pop();
 var TYPE_LABEL = { bank:'银行卡', alipay:'支付宝', wechat:'微信', investment:'投资', credit:'信用支付', cash:'现金' };
 (async function(){
@@ -3888,7 +3875,6 @@ bindQuickLogin('asset-report');
 
 // 基金持仓分布免密报告页 JS（doughnut 饼图，无需登录）
 const FUND_REPORT_JS = `
-${COMMON_JS}
 var token = location.pathname.split('/').filter(Boolean).pop();
 var COLORS = ['#667eea','#f5222d','#52c41a','#faad14','#13c2c2','#722ed1','#eb2f96','#fa8c16','#a0d911','#2f54eb'];
 function sign(n){ return fmtSign(n); }
@@ -3930,7 +3916,6 @@ bindQuickLogin('fund-report');
 
 // 资产报表页 JS
 const ASSET_JS = `
-${COMMON_JS}
 bindLogout();
 bindModal();
 mountDataSwitcher('asset');
@@ -4278,7 +4263,6 @@ if (aPushSend) aPushSend.addEventListener('click', async function(){
 
 // 资产免密录入公开页 JS
 const PUBLIC_ASSET_JS = `
-${COMMON_JS}
 var token = location.pathname.split('/').filter(Boolean).pop();
 var msg = document.getElementById('msg');
 var TYPE_LABEL = { bank:'银行卡', alipay:'支付宝', wechat:'微信', investment:'投资', credit:'信用支付', cash:'现金' };
@@ -6368,8 +6352,6 @@ function todoToast(msg, tip) {
 
 // ============ 待办清单页（登录态） ============
 const TODO_JS = `
-${COMMON_JS}
-${TODO_TREE_CORE}
 bindLogout();
 bindModal();
 mountDataSwitcher('todo');
@@ -6860,8 +6842,6 @@ bindClickBusy(document.getElementById('pushSend'), async function(){
 
 // ============ 待办免密协作公开页 ============
 const PUBLIC_TODO_JS = `
-${COMMON_JS}
-${TODO_TREE_CORE}
 bindModal();
 bindQuickLogin('todo');
 var _token = location.pathname.split('/').filter(Boolean).pop();
@@ -7030,8 +7010,6 @@ loadPublic();
 
 // ============ 待办免密报告查看页（只读） ============
 const TODO_REPORT_JS = `
-${COMMON_JS}
-${TODO_TREE_CORE}
 bindModal();
 bindQuickLogin('todo-report');
 var _token = location.pathname.split('/').filter(Boolean).pop();
@@ -7273,8 +7251,6 @@ async function reloadReport() {
 
 // ============ 待办免密汇总协作页（跨全部清单，今天+逾期，可写） ============
 const TODO_COLLAB_JS = `
-${COMMON_JS}
-${TODO_TREE_CORE}
 bindModal();
 bindQuickLogin('todo-report');
 var _token = location.pathname.split('/').filter(Boolean).pop();
@@ -7468,5 +7444,5 @@ export {
   COMMON_JS, LOGIN_JS, DASHBOARD_JS, ADMIN_JS, SETUP_JS, MONITOR_JS, FUND_JS,
   PUBLIC_BUY_JS, WEIGHT_JS, PUBLIC_WEIGHT_JS, SETTINGS_JS, ASSET_JS, PUBLIC_ASSET_JS, CHANNELS_JS,
   WEIGHT_REPORT_JS, ASSET_REPORT_JS, FUND_REPORT_JS,
-  TODO_JS, PUBLIC_TODO_JS, TODO_REPORT_JS, TODO_COLLAB_JS
+  TODO_TREE_CORE, TODO_JS, PUBLIC_TODO_JS, TODO_REPORT_JS, TODO_COLLAB_JS
 };

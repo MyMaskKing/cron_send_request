@@ -15,6 +15,7 @@
  */
 import { createServer } from 'node:http';
 import { URL } from 'node:url';
+import { gzipSync } from 'node:zlib';
 
 /** 读 Node IncomingMessage 完整 body 为 Buffer */
 function readBody(req) {
@@ -84,7 +85,19 @@ export function createHttpServer(fetchHandler, env, createCtx) {
       const response = await fetchHandler(request, env, ctx);
 
       // 一次性读出 body（项目响应体都不大：HTML 页面 + JSON）
-      const buf = Buffer.from(await response.arrayBuffer());
+      let buf = Buffer.from(await response.arrayBuffer());
+
+      // gzip 压缩：文本类响应（html/js/css/json/svg）且客户端支持时压缩。
+      // 仅作用于 Node/Docker 宿主（Workers 线上由 Cloudflare 边缘自动 br/gzip，不经过此处）。
+      const acceptEnc = String(req.headers['accept-encoding'] || '');
+      const ct = String(response.headers.get('content-type') || '');
+      if (acceptEnc.includes('gzip') && buf.length > 1024 && /text|javascript|json|css|html|svg|xml/.test(ct)) {
+        buf = gzipSync(buf);
+        response.headers.set('Content-Encoding', 'gzip');
+        response.headers.delete('Content-Length'); // 交由 res.end 按压缩后字节重设
+        response.headers.set('Vary', 'Accept-Encoding');
+      }
+
       writeHeaders(res, response.headers, response.status);
       res.end(buf);
     } catch (err) {

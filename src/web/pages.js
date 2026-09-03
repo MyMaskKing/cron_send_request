@@ -43,7 +43,7 @@ function setupPage() {
       </form>
     </div>
   </div>`;
-  return renderPage({ title: '系统初始化', body, script: SETUP_JS });
+  return renderPage({ title: '系统初始化', body, scripts: ['page-setup.js'] });
 }
 
 /** 登录 / 注册页 */
@@ -102,7 +102,7 @@ function loginPage() {
   </div>`;
 
   const body = `<div class="lg-fs">${field}${brand}${panel}</div>`;
-  return renderPage({ title: '登录', body, script: LOGIN_JS });
+  return renderPage({ title: '登录', body, scripts: ['page-login.js'] });
 }
 
 /** 仪表盘 */
@@ -134,7 +134,7 @@ function dashboardPage(user) {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '仪表盘', body, script: DASHBOARD_JS });
+  return renderPage({ title: '仪表盘', body, scripts: ['page-dashboard.js'] });
 }
 
 /** 超管用户管理页 */
@@ -245,7 +245,7 @@ function adminPage(user) {
     </div>
     <div class="card" id="detail" style="display:none;"></div>
   </div>`;
-  return renderPage({ title: '用户管理', body, script: ADMIN_JS });
+  return renderPage({ title: '用户管理', body, scripts: ['page-admin.js'] });
 }
 
 /** 定时任务管理页 */
@@ -294,7 +294,7 @@ function monitorPage(user) {
 
     <div class="card" id="logBox" style="display:none;"></div>
   </div>`;
-  return renderPage({ title: '定时任务', body, script: MONITOR_JS });
+  return renderPage({ title: '定时任务', body, scripts: ['page-monitor.js'] });
 }
 
 /** 通知渠道管理页 */
@@ -313,7 +313,7 @@ function channelsPage(user) {
       <p class="muted" style="margin-top:8px;">渠道用于监控任务、基金/资产/体重日报的消息推送。三种类型：企业微信机器人、通用 Webhook、邮件转发。</p>
     </div>
   </div>`;
-  return renderPage({ title: '通知渠道', body, script: CHANNELS_JS });
+  return renderPage({ title: '通知渠道', body, scripts: ['page-channels.js'] });
 }
 
 /** 基金追踪页 */
@@ -421,7 +421,7 @@ function fundPage(user) {
     </div>
   </div>
   <button id="stratSetup" class="btn" style="position:fixed;right:24px;bottom:24px;z-index:998;box-shadow:0 4px 12px rgba(74,108,247,.35);">📝 记录我的投资策略</button>`;
-  return renderPage({ title: '基金追踪', body, script: FUND_JS });
+  return renderPage({ title: '基金追踪', body, scripts: ['page-fund.js'] });
 }
 
 /** 免密快速加仓公开页（无需登录） */
@@ -459,7 +459,7 @@ function publicBuyPage() {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '快速加仓', body, script: PUBLIC_BUY_JS });
+  return renderPage({ title: '快速加仓', body, scripts: ['page-fund-buy.js'] });
 }
 
 /** 体重曲线页 */
@@ -540,7 +540,7 @@ function weightPage(user) {
       <canvas id="compareChart" style="max-height:340px;margin-top:14px;"></canvas>
     </div>
   </div>`;
-  return renderPage({ title: '体重曲线', body, script: WEIGHT_JS });
+  return renderPage({ title: '体重曲线', body, scripts: ['page-weight.js'] });
 }
 
 /** 体重免密快速填写公开页 */
@@ -579,7 +579,7 @@ function publicWeightPage() {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '体重打卡', body, script: PUBLIC_WEIGHT_JS });
+  return renderPage({ title: '体重打卡', body, scripts: ['page-weight-public.js'] });
 }
 
 /** 个人设置页 */
@@ -629,7 +629,7 @@ function settingsPage(user) {
       <div id="dataShareBox" style="margin-top:10px;"><p class="muted" style="font-size:12px;">加载中…</p></div>
     </div>
   </div>`;
-  return renderPage({ title: '个人设置', body, script: SETTINGS_JS });
+  return renderPage({ title: '个人设置', body, scripts: ['page-settings.js'] });
 }
 
 /** 资产报表页 */
@@ -724,7 +724,7 @@ function assetPage(user) {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '资产报表', body, script: ASSET_JS });
+  return renderPage({ title: '资产报表', body, scripts: ['page-asset.js'] });
 }
 
 /** 资产免密录入公开页 */
@@ -747,7 +747,7 @@ function publicAssetPage() {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '资产录入', body, script: PUBLIC_ASSET_JS });
+  return renderPage({ title: '资产录入', body, scripts: ['page-asset-public.js'] });
 }
 
 /** 体重免密报告查看页 */
@@ -761,7 +761,7 @@ function weightReportPage() {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '体重曲线', body, script: WEIGHT_REPORT_JS });
+  return renderPage({ title: '体重曲线', body, scripts: ['page-weight-report.js'] });
 }
 
 /** 资产免密报告查看页 */
@@ -782,7 +782,7 @@ function assetReportPage() {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '资产趋势', body, script: ASSET_REPORT_JS });
+  return renderPage({ title: '资产趋势', body, scripts: ['page-asset-report.js'] });
 }
 
 /** 基金持仓分布免密报告页 */
@@ -806,7 +806,7 @@ function fundReportPage() {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '持仓分布', body, script: FUND_REPORT_JS });
+  return renderPage({ title: '持仓分布', body, scripts: ['page-fund-report.js'] });
 }
 
 /** 待办清单页 */
@@ -894,7 +894,7 @@ function todoPage(user) {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '待办清单', body, script: TODO_JS });
+  return renderPage({ title: '待办清单', body, scripts: ['todo-core.js','page-todo.js'] });
 }
 
 /** 待办免密协作公开页 */
@@ -945,7 +945,7 @@ function publicTodoPage() {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '待办协作', body, script: PUBLIC_TODO_JS });
+  return renderPage({ title: '待办协作', body, scripts: ['todo-core.js','page-todo-public.js'] });
 }
 
 /** 待办免密报告查看页 */
@@ -1017,7 +1017,7 @@ function todoReportPage() {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '全部待办', body, script: TODO_REPORT_JS });
+  return renderPage({ title: '全部待办', body, scripts: ['todo-core.js','page-todo-report.js'] });
 }
 
 /** 待办免密汇总协作页（跨全部清单，今天+逾期，可勾选/编辑/添加） */
@@ -1078,7 +1078,7 @@ function todoCollabPage() {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '待办协作', body, script: TODO_COLLAB_JS });
+  return renderPage({ title: '待办协作', body, scripts: ['todo-core.js','page-todo-collab.js'] });
 }
 
 export {

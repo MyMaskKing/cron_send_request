@@ -2,12 +2,23 @@
  * HTML 页面框架：统一 CSS、导航、页面外壳
  */
 
+// 与 static.js 构成循环 import：仅在 renderPage 函数体内调用 assetUrl（请求时才执行），
+// ESM live binding 下模块已全部就绪。静态资源 URL 带「内容 hash」版本：内容变 hash 自动变、
+// 浏览器自动重新下载，内容不变则走 immutable 强缓存零传输，无需手动维护版本号。
+import { assetUrl } from './static.js';
+
 /**
  * 渲染完整 HTML 页面
- * @param {Object} opts - { title, body, script }
+ * @param {Object} opts - { title, body, scripts?, script? }
+ *   scripts: 页特定外链脚本文件名数组（如 ['todo-core.js','page-todo.js']），common.js 恒载
+ *   script : 需内联的小段 bootstrap 脚本（可空）；大段 JS 一律走 /s/ 外链以便缓存
  * @returns {string}
  */
-function renderPage({ title = '控制台', body = '', script = '' }) {
+function renderPage({ title = '控制台', body = '', script = '', scripts = [] }) {
+  const jsLinks = [assetUrl('common.js')]
+    .concat(scripts.map(s => assetUrl(s)))
+    .map(src => `<script src="${src}"></script>`)
+    .join('\n');
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -15,7 +26,7 @@ function renderPage({ title = '控制台', body = '', script = '' }) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${title}</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-<style>${BASE_CSS}</style>
+<link rel="stylesheet" href="${assetUrl('core.css')}">
 </head>
 <body class="booting">
 <div id="globalLoading" class="boot-visible" style="display:flex;">
@@ -32,7 +43,8 @@ function renderPage({ title = '控制台', body = '', script = '' }) {
   </div>
 </div>
 ${body}
-<script>${script}</script>
+${jsLinks}
+${script ? `<script>${script}</script>` : ''}
 </body>
 </html>`;
 }
