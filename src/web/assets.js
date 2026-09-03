@@ -4753,18 +4753,34 @@ function todoBindRecurUI() {
 }
 // 弹窗内分类下拉填充: 先清空 sel 里除固定项外的所有 option, 再插入现有分类
 // currentValue 为当前任务的分类(编辑时非空); 若不在下拉列表则动态插入并选中
-function todoFillCategoryOptions(rows, currentValue) {
+// opts.disableShared: 编辑任务/子任务表单中禁用共享分类选项(归属不可改; 子任务继承父任务分类)
+function todoFillCategoryOptions(rows, currentValue, opts) {
+  opts = opts || {};
   var sel = document.getElementById('tfCatSel');
   if (!sel) return;
   // 固定两项: '' (无分类) / '__new__' (新建)
   var frag = document.createDocumentFragment();
   var optNone = document.createElement('option'); optNone.value = ''; optNone.textContent = '（无分类）'; frag.appendChild(optNone);
   var cats = todoCatDistinct(rows);
-  if (currentValue && cats.indexOf(currentValue) < 0) cats.push(currentValue);
+  if (currentValue && currentValue.indexOf('sc:') !== 0 && cats.indexOf(currentValue) < 0) cats.push(currentValue);
   cats.forEach(function(c){
     var o = document.createElement('option'); o.value = c; o.textContent = c; frag.appendChild(o);
   });
   var optNew = document.createElement('option'); optNew.value = '__new__'; optNew.textContent = '➕ 新建分类…'; frag.appendChild(optNew);
+  // 共享分类(仅登录态页面有 _sharedCats; 免密页为空不渲染): value='sc:<catId>'
+  var scs = (typeof _sharedCats !== 'undefined' && _sharedCats) ? _sharedCats : [];
+  if (scs.length) {
+    var og = document.createElement('optgroup');
+    og.label = '👥 共享分类';
+    scs.forEach(function(c){
+      var o = document.createElement('option');
+      o.value = 'sc:' + c.cat_id;
+      o.textContent = '👥 ' + c.name + (c.role === 'owner' ? '' : ' · ' + c.owner_name);
+      if (opts.disableShared) o.disabled = true;
+      og.appendChild(o);
+    });
+    frag.appendChild(og);
+  }
   sel.innerHTML = '';
   sel.appendChild(frag);
   sel.value = currentValue || '';
@@ -6196,11 +6212,13 @@ function todoFormRead() {
     var catNewEl = document.getElementById('tfCatNew');
     catVal = catNewEl ? catNewEl.value.trim() : '';
   }
+  // 共享分类选项 value='sc:<catId>': 归入共享分类(与文本分类互斥, category 置空)
+  var sharedCatId = (catVal && catVal.indexOf('sc:') === 0) ? parseInt(catVal.slice(3), 10) : null;
   var out = {
     title: document.getElementById('tfTitle').value.trim(),
     priority: parseInt(document.getElementById('tfPri').value, 10),
     due_date: dueEl ? (dueEl.value || null) : null,
-    category: catVal || null,
+    category: (!sharedCatId && catVal) ? catVal : null,
     note: document.getElementById('tfNote').value.trim() || null,
     recurrence: (function(){ var e = document.getElementById('tfRecur'); return e ? (e.value || null) : null; })(),
     recur_interval: (function(){
@@ -6232,6 +6250,7 @@ function todoFormRead() {
   // child_due 勾选框仅主任务表单存在; 不存在(子任务/协作页锁定)时不输出该键, 后端即不切换模式
   var cdEl = document.getElementById('tfChildDue');
   if (cdEl) out.child_due = cdEl.checked ? 1 : 0;
+  if (sharedCatId) out.shared_cat_id = sharedCatId;
   return out;
 }
 function todoTodayStr(){ var d = new Date(Date.now() + 8*3600*1000); return d.toISOString().slice(0,10); }
@@ -6400,7 +6419,9 @@ function openTodoEdit(node) {
     : '编辑任务';
   openModal(_modalTitle, todoFormHtml(node, false, isChild, fopts) +
     '<div style="margin-top:12px;"><button class="btn" id="tfSave">保存</button> <button class="btn gray" onclick="closeModal()">取消</button></div>');
-  todoFillCategoryOptions(_rows, node.category || '');
+  // 编辑时分类归属锁定(共享任务显示其共享分类但不可改; 个人任务也不能在编辑中改归属)
+  var _catPref = node.shared_cat_id != null ? ('sc:' + node.shared_cat_id) : (node.category || '');
+  todoFillCategoryOptions(_rows, _catPref, { disableShared: true });
   bindClickBusy(document.getElementById('tfSave'), async function(){
     var body = todoFormRead();
     if (!body.title) { alertModal('请填写标题', {ok:false}); return; }
@@ -6509,17 +6530,14 @@ function openAddForm(parentId, title, isChild) {
   }
   openModal(title, todoFormHtml({}, true, !!isChild, fopts) +
     '<div style="margin-top:12px;"><button class="btn" id="tfCreate">创建</button> <button class="btn gray" onclick="closeModal()">取消</button></div>');
-  // 新建时若抽屉选中了具体分类, 预填该分类, 便于连续录入
-  // 共享分类段(key='sc:<id>')不是文本分类, 不预填下拉, 而是建任务时带 shared_cat_id
-  var scMatch = (_todoCategory && _todoCategory.indexOf('sc:') === 0) ? Number(_todoCategory.slice(3)) : null;
-  var pref = (_todoCategory && _todoCategory !== '__none__' && !scMatch) ? _todoCategory : '';
-  todoFillCategoryOptions(_rows, pref);
+  // 新建时若抽屉选中了分类则预填下拉(文本分类或共享分类 sc:<id>), 便于连续录入
+  // 子任务分类继承父任务(后端处理), 表单中共享分类选项禁用
+  var pref = (_todoCategory && _todoCategory !== '__none__') ? _todoCategory : '';
+  todoFillCategoryOptions(_rows, pref, { disableShared: parentId != null });
   bindClickBusy(document.getElementById('tfCreate'), async function(){
     var body = todoFormRead();
     if (!body.title) { alertModal('请填写标题', {ok:false}); return; }
     if (parentId != null) body.parent_id = parentId;
-    // 共享分类视图下新建顶层任务归入该分类(子任务由后端按父任务继承分类)
-    if (scMatch && parentId == null) body.shared_cat_id = scMatch;
     await api('/api/todo', { method:'POST', body: body });
     closeModal(); await loadTodos(); await loadChart();
     // 新建"子任务各自设日期"的主任务后, 空容器在"今日+逾期"等筛选下不显示 → 自动跳到"全部"
