@@ -62,9 +62,9 @@ import {
   joinInvite, listMyShares, removeShareMember
 } from './api/share.api.js';
 import {
-  createSharedList, convertList, getListInvite, resetListInvite,
-  joinList, myLists, listMembers as listTodoListMembers, leaveList, kickMember
-} from './api/todoList.api.js';
+  createSharedCat, joinSharedCat, mySharedCats, getCatInvite, resetCatInvite,
+  listCatMembers, leaveSharedCat, kickCatMember, deleteSharedCat
+} from './api/todoSharedCat.api.js';
 import { parseOffset, fmtShort } from './services/time.service.js';
 
 // Pages
@@ -205,16 +205,16 @@ router.get('/api/todo-widget', widgetTodoAuth);
 router.get('/api/todo/chart', todoChart);
 router.put('/api/todo/reorder', reorderTodo);
 router.post('/api/todo', createTodo);
-// 待办共享目录（字面量段须在 /api/todo/:id/* 参数路由前注册）
-router.post('/api/todo/lists', createSharedList);
-router.get('/api/todo/lists/mine', myLists);
-router.post('/api/todo/lists/join', joinList);
-router.post('/api/todo/lists/:id/convert', convertList);
-router.get('/api/todo/lists/:id/invite', getListInvite);
-router.post('/api/todo/lists/:id/invite/reset', resetListInvite);
-router.get('/api/todo/lists/:id/members', listTodoListMembers);
-router.post('/api/todo/lists/:id/leave', leaveList);
-router.delete('/api/todo/lists/:id/members/:userId', kickMember);
+// 待办共享分类（字面量段须在 /api/todo/:id/* 参数路由前注册）
+router.post('/api/todo/shared-cats', createSharedCat);
+router.get('/api/todo/shared-cats/mine', mySharedCats);
+router.post('/api/todo/shared-cats/join', joinSharedCat);
+router.get('/api/todo/shared-cats/:id/invite', getCatInvite);
+router.post('/api/todo/shared-cats/:id/invite/reset', resetCatInvite);
+router.get('/api/todo/shared-cats/:id/members', listCatMembers);
+router.post('/api/todo/shared-cats/:id/leave', leaveSharedCat);
+router.delete('/api/todo/shared-cats/:id/members/:userId', kickCatMember);
+router.delete('/api/todo/shared-cats/:id', deleteSharedCat);
 router.get('/api/todo/:id/share-link', getTodoShareLink);
 router.put('/api/todo/:id/done', toggleTodo);
 router.put('/api/todo/:id', updateTodo);
@@ -741,7 +741,7 @@ async function buildModuleMessage(env, storage, module, userId, format, tzOffset
     return buildAssetReport(data, format, chartLink, target, walletLinkMap);
   }
   if (module === 'todo') {
-    // 日报含本人个人任务 + 我加入的共享目录任务(成员各推各的, 共享目录带 👥 标记)
+    // 日报含本人个人任务 + 我加入的共享分类任务(成员各推各的, 共享分类带 👥 标记)
     const rows = await storage.todo.listVisibleForUser(userId);
     const today = nowCN(Date.now(), tzOffset).dateStr;
     const pendingTrees = flattenPending(buildTree(rows));

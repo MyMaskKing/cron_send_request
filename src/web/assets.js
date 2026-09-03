@@ -4680,16 +4680,17 @@ function todoCatCounts(rows) {
   var m = { __all__: 0, __none__: 0 };
   rows.forEach(function(r){
     if (r.parent_id != null) return;
+    if (r.shared_cat_id != null) return; // 共享分类任务不计入个人文本分类
     m.__all__++;
     if (!r.category) m.__none__++;
     else { m[r.category] = (m[r.category] || 0) + 1; }
   });
   return m;
 }
-// 从 rows 提取去重排序的分类列表
+// 从 rows 提取去重排序的分类列表(仅个人文本分类, 不含共享分类)
 function todoCatDistinct(rows) {
   var set = {};
-  rows.forEach(function(r){ if (r.category) set[r.category] = 1; });
+  rows.forEach(function(r){ if (r.category && r.shared_cat_id == null) set[r.category] = 1; });
   return Object.keys(set).sort(function(a, b){ return a.localeCompare(b); });
 }
 // 重复徽章文案: recurrence + interval → "每日" / "每2周" / "每3月" / ...
@@ -4852,8 +4853,36 @@ function renderTodoDrawer(rows, onSelect) {
   cats.forEach(function(c){ addItem(c, c); });
   box.appendChild(section3);
 
+  // 共享分类段(仅登录态页面有 _sharedCats 数据; 免密页为空数组即不渲染)
+  // key='sc:<catId>', 由 todoRowsByCategory 按 shared_cat_id 筛选; 计数为该分类下顶层任务数
+  var scs = (typeof _sharedCats !== 'undefined' && _sharedCats) ? _sharedCats : [];
+  if (scs.length) {
+    var section4 = document.createElement('div');
+    section4.className = 'todo-drawer__section';
+    var title4 = document.createElement('div');
+    title4.className = 'todo-drawer__section-title';
+    title4.textContent = '👥 共享分类';
+    section4.appendChild(title4);
+    scs.forEach(function(c){
+      var key = 'sc:' + c.cat_id;
+      var it = document.createElement('div');
+      it.className = 'todo-drawer__item' + (cur === key ? ' active' : '');
+      var l = document.createElement('span');
+      l.className = 'todo-drawer__label';
+      l.textContent = '👥 ' + c.name + (c.role === 'owner' ? '' : ' · ' + c.owner_name);
+      var cnt = rows.filter(function(r){ return r.parent_id == null && r.shared_cat_id === c.cat_id; }).length;
+      var cc = document.createElement('span');
+      cc.className = 'todo-drawer__count';
+      cc.textContent = '(' + cnt + ')';
+      it.appendChild(l); it.appendChild(cc);
+      it.addEventListener('click', function(){ if (onSelect) onSelect(key); });
+      section4.appendChild(it);
+    });
+    box.appendChild(section4);
+  }
+
   var foot = document.getElementById('drawerFoot');
-  if (foot) foot.textContent = '共 ' + cats.length + ' 个分类';
+  if (foot) foot.textContent = '共 ' + cats.length + ' 个分类' + (scs.length ? ' · ' + scs.length + ' 个共享' : '');
 }
 // 时间维度顶层任务计数(顶层口径, 与 todoFilterTrees 同): 全部/计划中/今日+逾期/今日/逾期/未来/备忘录/已完成
 // 只统计顶层任务, 日期取顶层显示日期 todoRootDue(旧模式=自身 due_date; 新模式=最早到期子任务), 不重复计数
@@ -5073,10 +5102,16 @@ function toggleTodoDrawer(getRowsFn, onDrawTree) {
 // _todoCategory==null 或 '__all__' 时原样返回
 function todoRowsByCategory(rows) {
   if (_todoCategory == null || _todoCategory === '__all__') return rows;
+  // 共享分类段: key='sc:<catId>', 整棵任务树(含子孙)都带 shared_cat_id, 直接按值筛
+  if (_todoCategory.indexOf('sc:') === 0) {
+    var cid = Number(_todoCategory.slice(3));
+    return rows.filter(function(r){ return r.shared_cat_id === cid; });
+  }
   var pass = {}, out = [];
-  // 第一遍: 挑符合的顶层
+  // 第一遍: 挑符合的顶层(个人文本分类; 共享分类任务不进个人分类)
   rows.forEach(function(r){
     if (r.parent_id != null) return;
+    if (r.shared_cat_id != null) return;
     var hit = _todoCategory === '__none__' ? !r.category : (r.category === _todoCategory);
     if (hit) pass[r.id] = 1;
   });
@@ -5207,8 +5242,8 @@ function renderTodoTree(container, trees, opts) {
     main.className = 'todo-main';
     var title = document.createElement('div');
     title.className = 'todo-title';
-    // 共享目录根(顶层行且 list_id 非空)标题前加 👥; 旧数据/个人任务无 list_id 不显示
-    title.textContent = (depth === 0 && node.list_id != null ? '👥 ' : '') + node.title;
+    // 共享分类任务(顶层行且 shared_cat_id 非空)标题前加 👥; 个人任务不显示
+    title.textContent = (depth === 0 && node.shared_cat_id != null ? '👥 ' : '') + node.title;
     if (hasChildren) {
       var cnt = document.createElement('span');
       cnt.className = 'todo-count';
@@ -5369,10 +5404,10 @@ function renderTodoCards(container, trees, opts) {
       head.appendChild(check);
     }
 
-    // 标题（共享目录根加 👥; 个人任务/旧数据 list_id 为空不显示）
+    // 标题（共享分类任务加 👥; 个人任务不显示）
     var title = document.createElement('div');
     title.className = 'todo-card__title';
-    title.textContent = (root.list_id != null ? '👥 ' : '') + root.title;
+    title.textContent = (root.shared_cat_id != null ? '👥 ' : '') + root.title;
     head.appendChild(title);
     body.appendChild(head);
 
@@ -5571,7 +5606,7 @@ function todoRenderView(container, trees, opts) {
       back.addEventListener('click', function(){ if (opts.onExitDetail) opts.onExitDetail(); });
       var t = document.createElement('div');
       t.className = 'todo-crumb__title';
-      t.textContent = (root.list_id != null ? '👥 ' : '') + root.title;
+      t.textContent = (root.shared_cat_id != null ? '👥 ' : '') + root.title;
       crumb.appendChild(back);
       crumb.appendChild(t);
       // "完成主任务"入口不放这里(已由 todoAttachDoneLinkToTip 挂到提示文末尾或独立一行)
@@ -6319,6 +6354,7 @@ function todayStr(){ var d = new Date(Date.now() + 8*3600*1000); return d.toISOS
 
 async function loadTodos() {
   var data = await api('/api/todo/list');
+  await loadSharedCats();
   _rows = data.todos || [];
   var s = data.stats || { pending:0, overdue:0, done:0, total:0, memo:0 };
   _stats = s;
@@ -6474,166 +6510,161 @@ function openAddForm(parentId, title, isChild) {
   openModal(title, todoFormHtml({}, true, !!isChild, fopts) +
     '<div style="margin-top:12px;"><button class="btn" id="tfCreate">创建</button> <button class="btn gray" onclick="closeModal()">取消</button></div>');
   // 新建时若抽屉选中了具体分类, 预填该分类, 便于连续录入
-  var pref = (_todoCategory && _todoCategory !== '__none__') ? _todoCategory : '';
+  // 共享分类段(key='sc:<id>')不是文本分类, 不预填下拉, 而是建任务时带 shared_cat_id
+  var scMatch = (_todoCategory && _todoCategory.indexOf('sc:') === 0) ? Number(_todoCategory.slice(3)) : null;
+  var pref = (_todoCategory && _todoCategory !== '__none__' && !scMatch) ? _todoCategory : '';
   todoFillCategoryOptions(_rows, pref);
   bindClickBusy(document.getElementById('tfCreate'), async function(){
     var body = todoFormRead();
     if (!body.title) { alertModal('请填写标题', {ok:false}); return; }
     if (parentId != null) body.parent_id = parentId;
+    // 共享分类视图下新建顶层任务归入该分类(子任务由后端按父任务继承分类)
+    if (scMatch && parentId == null) body.shared_cat_id = scMatch;
     await api('/api/todo', { method:'POST', body: body });
     closeModal(); await loadTodos(); await loadChart();
     // 新建"子任务各自设日期"的主任务后, 空容器在"今日+逾期"等筛选下不显示 → 自动跳到"全部"
     if (body.child_due === 1) switchTodoFilter('all');
   });
 }
-// ==================== 共享目录（登录账号 + 邀请码协作）====================
-function tlCopy(text, okMsg) {
+// ==================== 共享分类（登录账号 + 邀请码协作）====================
+// 我参与的共享分类缓存(mine 接口): [{cat_id, name, role, owner_name, member_count, code}]
+// 定义在共享核心里, 免密页面不填充(为空), 抽屉渲染时空数组即不显示该段
+var _sharedCats = [];
+async function loadSharedCats() {
+  try { var d = await api('/api/todo/shared-cats/mine'); _sharedCats = d.cats || []; }
+  catch(e) { _sharedCats = []; }
+}
+function scCopy(text, okMsg) {
   function done(){ alertModal(okMsg || '已复制到剪贴板'); }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(done, function(){ dsFallbackCopy(text, done); });
   } else dsFallbackCopy(text, done);
 }
-// 共享目录主面板：新建/加入/转共享 + 我参与的目录列表
-function openTodoListPanel() {
-  api('/api/todo/lists/mine').then(function(d){
-    var lists = d.lists || [];
-    var rows = lists.map(function(l){
-      var roleTag = l.role === 'owner'
+// 共享分类主面板：新建/加入 + 我参与的分类列表
+function openSharedCatPanel() {
+  api('/api/todo/shared-cats/mine').then(function(d){
+    _sharedCats = d.cats || [];
+    var rows = _sharedCats.map(function(c){
+      var roleTag = c.role === 'owner'
         ? '<span class="todo-chip cat">创建者</span>'
         : '<span class="todo-chip" style="background:#f0f2f5;color:#666;">成员</span>';
       var ops;
-      if (l.role === 'owner') {
-        ops = '<button class="btn sm gray" onclick="tlInvite(' + l.list_id + ')">邀请</button> '
-            + '<button class="btn sm gray" onclick="tlMembers(' + l.list_id + ')">成员(' + l.member_count + ')</button> '
-            + '<button class="btn sm danger" onclick="tlDissolve(' + l.list_id + ')">解散</button>';
+      if (c.role === 'owner') {
+        ops = '<button class="btn sm gray" onclick="scInvite(' + c.cat_id + ')">邀请</button> '
+            + '<button class="btn sm gray" onclick="scMembers(' + c.cat_id + ')">成员(' + c.member_count + ')</button> '
+            + '<button class="btn sm danger" onclick="scDissolve(' + c.cat_id + ')">解散</button>';
       } else {
-        ops = '<button class="btn sm danger" onclick="tlLeave(' + l.list_id + ')">退出</button>';
+        ops = '<button class="btn sm danger" onclick="scLeave(' + c.cat_id + ')">退出</button>';
       }
       return '<div style="padding:10px 0;border-bottom:1px solid #eef0f4;">'
-        + '<div style="font-weight:600;margin-bottom:6px;">👥 ' + esc(l.title) + ' ' + roleTag
-        + '<span class="muted" style="font-size:12px;font-weight:normal;">' + (l.role === 'owner' ? '' : '来自 ' + esc(l.owner_name) + ' · ') + l.member_count + ' 人</span></div>'
+        + '<div style="font-weight:600;margin-bottom:6px;">👥 ' + esc(c.name) + ' ' + roleTag
+        + '<span class="muted" style="font-size:12px;font-weight:normal;">' + (c.role === 'owner' ? '' : '来自 ' + esc(c.owner_name) + ' · ') + c.member_count + ' 人</span></div>'
         + '<div style="text-align:right;">' + ops + '</div>'
         + '</div>';
     }).join('');
-    openModal('👥 共享目录',
+    openModal('👥 共享分类',
       '<div style="margin-bottom:12px;">'
-      + '<button class="btn sm" onclick="tlCreate()" style="margin-right:6px;">➕ 新建共享目录</button>'
-      + '<button class="btn sm gray" onclick="tlJoin()" style="margin-right:6px;">🔗 加入目录</button>'
-      + '<button class="btn sm gray" onclick="tlConvert()">🔄 现有清单转共享</button>'
+      + '<button class="btn sm" onclick="scCreate()" style="margin-right:6px;">➕ 新建共享分类</button>'
+      + '<button class="btn sm gray" onclick="scJoin()">🔗 加入分类</button>'
       + '</div>'
-      + (rows || '<p class="muted">还没有共享目录。新建一个，或凭家人的邀请码加入。</p>')
+      + (rows || '<p class="muted">还没有共享分类。新建一个，或凭家人的邀请码加入。</p>')
       + '<div style="text-align:right;margin-top:12px;"><button class="btn gray" onclick="closeModal()">关闭</button></div>');
   }).catch(function(e){ alertModal(e.message, {ok:false}); });
 }
-function tlCreate() {
-  openModal('新建共享目录',
-    '<p class="muted" style="margin:0 0 8px;">创建一个共享目录，家人凭邀请码加入后可一起添加、勾选待办；目录内任务每天也会出现在成员的日报中。</p>' +
-    '<input id="tlNewName" placeholder="目录名称，如：家庭事务" style="width:100%;padding:8px;border:1px solid #d4d8e0;border-radius:6px;box-sizing:border-box;">' +
-    '<div style="text-align:right;margin-top:14px;"><button class="btn gray" onclick="closeModal()">取消</button> <button class="btn" id="tlCreateOk">创建</button></div>');
-  bindClickBusy(document.getElementById('tlCreateOk'), async function(){
-    var title = (document.getElementById('tlNewName').value || '').trim();
-    if (!title) { alertModal('请填写目录名称', {ok:false}); return; }
-    var r = await api('/api/todo/lists', { method:'POST', body:{ title: title } });
+function scCreate() {
+  openModal('新建共享分类',
+    '<p class="muted" style="margin:0 0 8px;">创建一个共享分类（如「家庭」），家人凭邀请码加入后，分类下的待办对大家可见可协作，也会出现在每位成员的日报中。</p>' +
+    '<input id="scNewName" placeholder="分类名称，如：家庭" style="width:100%;padding:8px;border:1px solid #d4d8e0;border-radius:6px;box-sizing:border-box;">' +
+    '<div style="text-align:right;margin-top:14px;"><button class="btn gray" onclick="closeModal()">取消</button> <button class="btn" id="scCreateOk">创建</button></div>');
+  bindClickBusy(document.getElementById('scCreateOk'), async function(){
+    var name = (document.getElementById('scNewName').value || '').trim();
+    if (!name) { alertModal('请填写分类名称', {ok:false}); return; }
+    var r = await api('/api/todo/shared-cats', { method:'POST', body:{ name: name } });
     closeModal();
-    await loadTodos();
-    openTodoListInvite(r.id, r.code, r.link, true);
+    await loadSharedCats(); await loadTodos();
+    openCatInvite(r.id, r.code, r.link, true);
   });
 }
-function tlJoin() {
-  openModal('加入共享目录',
+function scJoin() {
+  openModal('加入共享分类',
     '<p class="muted" style="margin:0 0 8px;">输入家人分享的 8 位邀请码（或直接打开家人发的邀请链接）。</p>' +
-    '<input id="tlJoinCode" placeholder="邀请码" style="width:100%;padding:8px;border:1px solid #d4d8e0;border-radius:6px;box-sizing:border-box;text-transform:uppercase;letter-spacing:2px;">' +
-    '<div style="text-align:right;margin-top:14px;"><button class="btn gray" onclick="closeModal()">取消</button> <button class="btn" id="tlJoinOk">加入</button></div>');
-  bindClickBusy(document.getElementById('tlJoinOk'), async function(){
-    var code = (document.getElementById('tlJoinCode').value || '').trim();
+    '<input id="scJoinCode" placeholder="邀请码" style="width:100%;padding:8px;border:1px solid #d4d8e0;border-radius:6px;box-sizing:border-box;text-transform:uppercase;letter-spacing:2px;">' +
+    '<div style="text-align:right;margin-top:14px;"><button class="btn gray" onclick="closeModal()">取消</button> <button class="btn" id="scJoinOk">加入</button></div>');
+  bindClickBusy(document.getElementById('scJoinOk'), async function(){
+    var code = (document.getElementById('scJoinCode').value || '').trim();
     if (!code) { alertModal('请输入邀请码', {ok:false}); return; }
-    var r = await api('/api/todo/lists/join', { method:'POST', body:{ code: code } });
+    var r = await api('/api/todo/shared-cats/join', { method:'POST', body:{ code: code } });
     closeModal();
-    await loadTodos();
+    await loadSharedCats(); await loadTodos();
     alertModal(r.message || '已加入');
-    openTodoListPanel();
-  });
-}
-function tlConvert() {
-  var roots = _rows.filter(function(r){ return r.parent_id == null && r.list_id == null; });
-  if (!roots.length) { alertModal('没有可转换的个人清单', {ok:false}); return; }
-  var opts = roots.map(function(r){ return '<option value="' + r.id + '">' + esc(r.title) + '</option>'; }).join('');
-  openModal('现有清单转为共享目录',
-    '<p class="muted" style="margin:0 0 8px;">转换后可邀请家人加入协作；清单内任务不移动、不丢失，仍归你所有。</p>' +
-    '<select id="tlConvId" style="width:100%;padding:8px;border:1px solid #d4d8e0;border-radius:6px;box-sizing:border-box;">' + opts + '</select>'
-    + '<div style="text-align:right;margin-top:14px;"><button class="btn gray" onclick="closeModal()">取消</button> <button class="btn" id="tlConvOk">转为共享</button></div>');
-  bindClickBusy(document.getElementById('tlConvOk'), async function(){
-    var id = document.getElementById('tlConvId').value;
-    var r = await api('/api/todo/lists/' + id + '/convert', { method:'POST' });
-    closeModal();
-    await loadTodos();
-    openTodoListInvite(id, r.code, r.link, true);
+    openSharedCatPanel();
   });
 }
 // 邀请码/链接（owner）；code/link 缺省时拉取
-async function openTodoListInvite(id, code, link, justCreated) {
+async function openCatInvite(id, code, link, justCreated) {
   if (!code) {
-    var d = await api('/api/todo/lists/' + id + '/invite');
+    var d = await api('/api/todo/shared-cats/' + id + '/invite');
     code = d.code; link = d.link;
   }
-  openModal(justCreated ? '共享目录已创建' : '邀请家人',
-    '<p style="margin:0 0 8px;">把邀请链接发给家人，家人登录后打开链接即可加入；也可在「加入目录」中手动输入 8 位邀请码。</p>' +
+  openModal(justCreated ? '共享分类已创建' : '邀请家人',
+    '<p style="margin:0 0 8px;">把邀请链接发给家人，家人登录后打开链接即可加入；也可在「加入分类」中手动输入 8 位邀请码。</p>' +
     '<div style="background:#f5f7fa;border-radius:6px;padding:10px;margin-bottom:10px;">' +
       '<div style="font-size:22px;font-weight:700;letter-spacing:3px;text-align:center;">' + esc(code) + '</div></div>' +
     '<input readonly value="' + esc(link || '') + '" onfocus="this.select()" style="width:100%;padding:8px;border:1px solid #d4d8e0;border-radius:6px;box-sizing:border-box;margin-bottom:10px;">' +
-    '<div style="text-align:right;"><button class="btn gray" id="tlInvReset">重置邀请码</button> <button class="btn gray" id="tlInvCopy">复制链接</button> <button class="btn" onclick="closeModal()">完成</button></div>');
-  document.getElementById('tlInvCopy').addEventListener('click', function(){ tlCopy(link); });
-  document.getElementById('tlInvReset').addEventListener('click', function(){
+    '<div style="text-align:right;"><button class="btn gray" id="scInvReset">重置邀请码</button> <button class="btn gray" id="scInvCopy">复制链接</button> <button class="btn" onclick="closeModal()">完成</button></div>');
+  document.getElementById('scInvCopy').addEventListener('click', function(){ scCopy(link); });
+  document.getElementById('scInvReset').addEventListener('click', function(){
     confirmModal('重置邀请码', '重置后旧邀请码立即失效（已加入的成员不受影响）。确认？', async function(){
-      var r = await api('/api/todo/lists/' + id + '/invite/reset', { method:'POST' });
-      openTodoListInvite(id, r.code, null, false);
+      var r = await api('/api/todo/shared-cats/' + id + '/invite/reset', { method:'POST' });
+      openCatInvite(id, r.code, null, false);
     });
   });
 }
-function tlInvite(id) {
-  openTodoListInvite(id, null, null, false).catch(function(e){ alertModal(e.message, {ok:false}); });
+function scInvite(id) {
+  openCatInvite(id, null, null, false).catch(function(e){ alertModal(e.message, {ok:false}); });
 }
-function tlMembers(id) {
-  api('/api/todo/lists/' + id + '/members').then(function(d){
+function scMembers(id) {
+  api('/api/todo/shared-cats/' + id + '/members').then(function(d){
     var rows = d.members.map(function(m){
       var tag = m.role === 'owner'
         ? '<span class="todo-chip cat">创建者</span>'
         : '<span class="todo-chip" style="background:#f0f2f5;color:#666;">成员</span>';
       var kick = (m.role !== 'owner')
-        ? ' <button class="btn sm gray" onclick="tlKick(' + id + ',' + m.user_id + ')">移出</button>' : '';
+        ? ' <button class="btn sm gray" onclick="scKick(' + id + ',' + m.user_id + ')">移出</button>' : '';
       return '<div style="padding:8px 0;border-bottom:1px solid #eef0f4;display:flex;justify-content:space-between;align-items:center;">'
         + '<span>👤 ' + esc(m.nickname) + ' ' + tag + '</span>' + kick + '</div>';
     }).join('');
-    openModal('成员管理 · ' + d.title,
+    openModal('成员管理 · ' + d.name,
       rows + '<div style="text-align:right;margin-top:12px;"><button class="btn gray" onclick="closeModal()">关闭</button></div>');
   }).catch(function(e){ alertModal(e.message, {ok:false}); });
 }
-function tlKick(listId, uid) {
-  confirmModal('移出成员', '确定把该成员移出目录？移出后其将看不到该目录（不影响已录入的数据）。', async function(){
-    await api('/api/todo/lists/' + listId + '/members/' + uid, { method:'DELETE' });
-    openTodoListMembers(listId);
+function scKick(catId, uid) {
+  confirmModal('移出成员', '确定把该成员移出分类？移出后其将看不到该分类的待办（不影响已录入的数据）。', async function(){
+    await api('/api/todo/shared-cats/' + catId + '/members/' + uid, { method:'DELETE' });
+    await loadSharedCats();
+    openSharedCatPanel();
   });
   return false;
 }
-function tlLeave(id) {
-  confirmModal('退出共享目录', '退出后你将不再看到该目录的待办与日报内容（可凭邀请码重新加入）。确认？', async function(){
-    await api('/api/todo/lists/' + id + '/leave', { method:'POST' });
+function scLeave(id) {
+  confirmModal('退出共享分类', '退出后你将不再看到该分类的待办与日报内容（可凭邀请码重新加入）。确认？', async function(){
+    await api('/api/todo/shared-cats/' + id + '/leave', { method:'POST' });
     closeModal();
-    await loadTodos();
-    alertModal('已退出共享目录');
-    openTodoListPanel();
+    await loadSharedCats(); await loadTodos();
+    alertModal('已退出共享分类');
+    openSharedCatPanel();
   });
 }
-function tlDissolve(id) {
-  confirmModal('解散共享目录', '解散后目录内全部待办将被删除，所有成员失去访问权，操作不可撤销！确认解散？', async function(){
-    await api('/api/todo/' + id, { method:'DELETE' });
+function scDissolve(id) {
+  confirmModal('解散共享分类', '解散后分类下的任务保留为你的个人待办（摘掉共享标签），所有成员失去访问权。确认解散？', async function(){
+    await api('/api/todo/shared-cats/' + id, { method:'DELETE' });
     closeModal();
-    await loadTodos();
-    alertModal('共享目录已解散');
-    openTodoListPanel();
+    await loadSharedCats(); await loadTodos();
+    alertModal('共享分类已解散，任务已保留为个人待办');
+    openSharedCatPanel();
   });
 }
-bindClickBusy(document.getElementById('tListBtn'), function(){ openTodoListPanel(); return Promise.resolve(); });
+bindClickBusy(document.getElementById('tListBtn'), function(){ openSharedCatPanel(); return Promise.resolve(); });
 bindClickBusy(document.getElementById('tAdd'), function(){ openAddForm(null, '新建任务', false); return Promise.resolve(); });
 bindClickBusy(document.getElementById('tAddFs'), function(){ openAddForm(null, '新建任务', false); return Promise.resolve(); });
 // 视图三态循环: default → card → tree → default
@@ -6733,13 +6764,14 @@ bindClickBusy(document.getElementById('pushSend'), async function(){
     // 应用视图状态: localStorage 里可能已有 'card'/'tree', 首次进入直接全屏
     // （?root 已在加载前解析为 _todoDetailRootId, 首帧直接渲染详情, 不闪列表）
     applyTodoView(_todoGetRows, drawTree);
-    // ?join=<code>: 邀请链接落地, 确认后加入共享目录(加入成功会刷新列表, 目录带 👥 出现)
+    // ?join=<code>: 邀请链接落地, 确认后加入共享分类(加入成功会刷新列表, 抽屉出现该分类)
     var _joinCode = _q.get('join');
     if (_joinCode) {
       history.replaceState(null, '', location.pathname);
-      confirmModal('加入共享目录', '确认加入该共享目录？加入后，目录内待办会出现在你的待办页与每日日报中。', async function(){
+      confirmModal('加入共享分类', '确认加入该共享分类？加入后，分类下待办会出现在你的待办页（左侧抽屉「共享分类」）与每日日报中。', async function(){
         try {
-          var r = await api('/api/todo/lists/join', { method:'POST', body:{ code: _joinCode } });
+          var r = await api('/api/todo/shared-cats/join', { method:'POST', body:{ code: _joinCode } });
+          await loadSharedCats();
           await loadTodos();
           alertModal(r.message || '已加入');
         } catch(e) { alertModal(e.message, {ok:false}); }

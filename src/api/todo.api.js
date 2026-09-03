@@ -47,20 +47,20 @@ function normRecurWeekday(v) {
 const REC_LIST = ['daily', 'weekly', 'monthly', 'yearly', 'monthly_nth_weekday'];
 
 /**
- * 校验 dc.uid 对任务行的访问权限（共享目录成员身份实时查 todo_list_members）。
- * 个人任务(list_id NULL)：须归属 dc.uid；共享目录任务：dc.uid 须为该目录成员。
- * @returns {Promise<{ownerUid:number, listId:number|null, role:string}|null>}
- *   ownerUid = 行 user_id（数据归属人）；存储写调用统一传它，存储层 user_id 双校验依然成立。
- *   共享目录内任务 user_id 恒为目录 owner，成员的真实身份由调用方记 created_by/done_by。
+ * 校验 dc.uid 对任务行的访问权限（共享分类成员身份实时查 todo_shared_cat_members）。
+ * 个人任务(shared_cat_id NULL)：须归属 dc.uid；共享分类任务：dc.uid 须为该分类成员。
+ * @returns {Promise<{ownerUid:number, catId:number|null, role:string}|null>}
+ *   ownerUid = 行 user_id（数据归属人，共享分类下恒为分类 owner）；存储写调用统一传它，
+ *   存储层 user_id 双校验依然成立。成员真实身份由调用方记 created_by/done_by。
  */
 async function todoAccess(storage, dc, row) {
-  if (row.list_id != null) {
-    const m = await storage.todoList.findMember(row.list_id, dc.uid);
+  if (row.shared_cat_id != null) {
+    const m = await storage.sharedCat.findMember(row.shared_cat_id, dc.uid);
     if (!m) return null;
-    return { ownerUid: row.user_id, listId: row.list_id, role: m.role };
+    return { ownerUid: row.user_id, catId: row.shared_cat_id, role: m.role };
   }
   if (row.user_id !== dc.uid) return null;
-  return { ownerUid: row.user_id, listId: null, role: 'owner' };
+  return { ownerUid: row.user_id, catId: null, role: 'owner' };
 }
 
 /** 沿 parent 链找到顶层主任务行（用于判断该任务所在清单是否 child_due 新模式） */
@@ -103,7 +103,7 @@ function readRecurFields(body, allowRecur) {
 
 // ==================== 登录态 CRUD ====================
 
-/** GET /api/todo/list  当前用户可见全部待办（个人任务 + 我加入的共享目录，扁平行）+ 统计概览 */
+/** GET /api/todo/list  当前用户可见全部待办（个人任务 + 我加入的共享分类，扁平行）+ 统计概览 */
 async function listTodos({ request, env }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
@@ -134,7 +134,7 @@ async function createTodo({ request, env }) {
     parentId = parseInt(body.parent_id, 10);
     parentRow = await storage.todo.findById(parentId);
     if (!parentRow) return error('父任务不存在', 404);
-    // 个人父任务须归属本人; 共享目录父任务须是该目录成员(todoAccess 统一校验)
+    // 个人父任务须归属本人; 共享分类父任务须是该目录成员(todoAccess 统一校验)
     parentAcc = await todoAccess(storage, dc, parentRow);
     if (!parentAcc) return error('父任务不存在', 404);
     rootRow = await rootRowOf(storage, parentRow);
@@ -150,10 +150,21 @@ async function createTodo({ request, env }) {
   const recFields = readRecurFields(body, parentId == null ? !childDue : childDueMode);
   // 不变量: 新模式下重复任务必须是叶子; 若给带重复的叶子任务添加首个子任务, 先记录, 建后清其重复
   const parentWasLeaf = parentRow ? (await storage.todo.collectDescendantIds(parentId)).length === 0 : false;
-  // 共享目录内新建: 行归属 owner(ownerUid), list_id 为目录根 id, created_by 记真实操作人;
-  // 个人任务: 归属 dc.uid, list_id NULL, created_by=dc.uid
-  const listId = parentAcc ? parentAcc.listId : null;
-  const id = await storage.todo.create(parentAcc ? parentAcc.ownerUid : dc.uid, {
+  // 共享分类归属: 子任务继承父任务所在分类; 顶层任务可显式指定 shared_cat_id(在分类视图下新建)
+  // 行归属分类 owner(ownerUid), shared_cat_id 为分类 id, created_by 记真实操作人;
+  // 个人任务: 归属 dc.uid, shared_cat_id NULL, created_by=dc.uid
+  let catId = parentAcc ? parentAcc.catId : null;
+  let ownerUid = parentAcc ? parentAcc.ownerUid : dc.uid;
+  if (parentId == null && body.shared_cat_id) {
+    const cid = parseInt(body.shared_cat_id, 10);
+    const cat = await storage.sharedCat.findCatById(cid);
+    if (!cat) return error('共享分类不存在', 404);
+    const member = await storage.sharedCat.findMember(cid, dc.uid);
+    if (!member) return error('你不是该共享分类成员', 403);
+    catId = cid;
+    ownerUid = cat.owner_user_id;
+  }
+  const id = await storage.todo.create(ownerUid, {
     parent_id: parentId, title,
     priority: normPriority(body.priority),
     due_date: dueDate,
@@ -164,8 +175,8 @@ async function createTodo({ request, env }) {
     recur_interval: recFields.recur_interval,
     recur_nth: recFields.recur_nth,
     recur_weekday: recFields.recur_weekday,
-    list_id: listId,
-    created_by: listId != null ? auth.user_id : dc.uid
+    shared_cat_id: catId,
+    created_by: catId != null ? auth.user_id : dc.uid
   });
   if (childDueMode && parentWasLeaf && parentRow && parentRow.recurrence) {
     await storage.todo.clearRecur(parentId);
@@ -189,10 +200,7 @@ async function updateTodo({ request, env, params }) {
   if (!t) return error('任务不存在', 404);
   const acc = await todoAccess(storage, dc, t);
   if (!acc) return error('任务不存在', 404);
-  // 共享目录根任务(目录设置: 标题/child_due 模式等)仅 owner 可改
-  if (acc.listId != null && t.list_id === t.id && acc.role !== 'owner') {
-    return error('仅目录创建者可修改目录设置', 403);
-  }
+  // 共享分类下任务就是普通协作任务, 成员均可编辑(删除才收口给 owner, 见 removeTodo)
   const isRoot = t.parent_id == null;
   const rootRow = isRoot ? t : await rootRowOf(storage, t);
 
@@ -254,8 +262,8 @@ async function toggleTodo({ request, env, params }) {
   if (!t) return error('任务不存在', 404);
   const acc = await todoAccess(storage, dc, t);
   if (!acc) return error('任务不存在', 404);
-  // done_by: 共享目录记真实操作人(auth.user_id); 个人任务置 null
-  const doneBy = acc.listId != null ? auth.user_id : null;
+  // done_by: 共享分类记真实操作人(auth.user_id); 个人任务置 null
+  const doneBy = acc.catId != null ? auth.user_id : null;
   const r = await storage.todo.markDoneWithRecur(id, acc.ownerUid, done, jumpToCurrent, todayCN(), doneBy);
   return json({ success: true, message: done ? '已完成' : '已取消完成', cloned: !!r.cloned, next_id: r.next_id || null, next_due: r.next_due || null });
 }
@@ -274,8 +282,8 @@ async function reorderTodo({ request, env }) {
   const storage = getStorage(env);
   const dc = await requireDataContext(storage, auth, 'todo', request);
   if (dc instanceof Response) return dc;
-  // 逐个校验访问权限与同父，防越权/跨级；同次排序必须同属个人或同一共享目录
-  let listId = null;
+  // 逐个校验访问权限与同父，防越权/跨级；同次排序必须同属个人或同一共享分类
+  let catId = null;
   let ownerUid = dc.uid;
   for (const id of ids) {
     const t = await storage.todo.findById(id);
@@ -284,14 +292,14 @@ async function reorderTodo({ request, env }) {
     if (!acc) return error('任务不存在', 404);
     const tp = t.parent_id != null ? t.parent_id : null;
     if (tp !== parentId) return error('存在跨层级的任务，无法排序', 400);
-    if (listId === null) { listId = acc.listId; ownerUid = acc.ownerUid; }
-    else if (acc.listId !== listId) return error('存在跨目录的任务，无法排序', 400);
+    if (catId === null) { catId = acc.catId; ownerUid = acc.ownerUid; }
+    else if (acc.catId !== catId) return error('存在跨分类的任务，无法排序', 400);
   }
   await storage.todo.reorder(ownerUid, parentId, ids);
   return json({ success: true, message: '顺序已更新' });
 }
 
-/** DELETE /api/todo/:id  删除任务（级联删除全部子任务）；共享目录仅 owner 可删，删根=解散目录 */
+/** DELETE /api/todo/:id  删除任务（级联删除全部子任务）；共享分类中仅分类 owner 可删 */
 async function removeTodo({ request, env, params }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
@@ -303,16 +311,12 @@ async function removeTodo({ request, env, params }) {
   if (!t) return error('任务不存在', 404);
   const acc = await todoAccess(storage, dc, t);
   if (!acc) return error('任务不存在', 404);
-  // 共享目录内删除是破坏性操作, 收口给 owner(editor 可增改勾, 不能删)
-  if (acc.listId != null && acc.role !== 'owner') {
-    return error('共享目录中仅创建者可删除任务', 403);
+  // 共享分类内删除是破坏性操作, 收口给分类 owner(editor 可增改勾排, 不能删)
+  if (acc.catId != null && acc.role !== 'owner') {
+    return error('共享分类中仅创建者可删除任务', 403);
   }
   const descendants = await storage.todo.collectDescendantIds(id);
   await storage.todo.remove([id, ...descendants]);
-  // 删除的是共享目录根(自引用 list_id): 解散目录, 级联清理成员与邀请
-  if (acc.listId != null && t.list_id === t.id) {
-    await storage.todoList.deleteListCascade(acc.listId);
-  }
   return json({ success: true, message: '任务已删除' });
 }
 
@@ -409,8 +413,8 @@ async function publicAddTodo({ request, env, params }) {
     recur_interval: recFields.recur_interval,
     recur_nth: recFields.recur_nth,
     recur_weekday: recFields.recur_weekday,
-    // 该免密链接对应共享目录时, 匿名添加的任务同样归入目录(list_id); created_by 为 NULL(匿名)
-    list_id: root.list_id != null ? root.list_id : null,
+    // 该免密链接对应共享分类下任务时, 匿名添加同样归入分类(shared_cat_id); created_by 为 NULL(匿名)
+    shared_cat_id: root.shared_cat_id != null ? root.shared_cat_id : null,
     created_by: null
   });
   if (childDueMode && parentWasLeaf && parentRow && parentRow.recurrence) {
@@ -503,7 +507,7 @@ async function publicTodoReport({ env, params }) {
   if (userId == null) return error('链接无效或已失效', 404);
 
   await storage.users.updateLastPublic(userId);
-  // 免密报告为个人口径: 不含共享目录任务(匿名链接不泄露家庭共享数据)
+  // 免密报告为个人口径: 不含共享分类任务(匿名链接不泄露家庭共享数据)
   const rows = await storage.todo.listPersonalByUser(userId);
   const owner = await storage.users.findById(userId);
   return json({
@@ -537,7 +541,7 @@ async function publicTodoChart({ env, params, url }) {
 }
 
 /** 小组件响应体构造（鉴权方式由调用方决定）。scope/limit 解析与公开/登录两口径一致。
- *  scopePersonal=true(report_token 免密): 仅个人任务; false(登录态 Cookie): 含共享目录 */
+ *  scopePersonal=true(report_token 免密): 仅个人任务; false(登录态 Cookie): 含共享分类 */
 async function buildWidgetPayload(storage, userId, url, touchLastPublic, scopePersonal) {
   const scopeRaw = url.searchParams.get('scope');
   const scope = (scopeRaw === 'today' || scopeRaw === 'overdue' || scopeRaw === 'all') ? scopeRaw : 'cur';
@@ -608,7 +612,7 @@ async function publicAllAdd({ request, env, params }) {
     parentId = parseInt(body.parent_id, 10);
     parentRow = await storage.todo.findById(parentId);
     if (!parentRow || parentRow.user_id !== userId) return error('父任务不属于此清单', 400);
-    if (parentRow.list_id != null) return error('该任务属共享目录，请登录后在待办页操作', 400);
+    if (parentRow.shared_cat_id != null) return error('该任务属共享分类，请登录后在待办页操作', 400);
     rootRow = await rootRowOf(storage, parentRow);
   }
   const childDue = parentId == null ? !!body.child_due : false;
@@ -630,8 +634,8 @@ async function publicAllAdd({ request, env, params }) {
     recur_interval: recFields.recur_interval,
     recur_nth: recFields.recur_nth,
     recur_weekday: recFields.recur_weekday,
-    // 免密汇总页新建恒为个人任务(共享目录请登录后操作); 匿名 created_by 为 NULL
-    list_id: null,
+    // 免密汇总页新建恒为个人任务(共享分类请登录后操作); 匿名 created_by 为 NULL
+    shared_cat_id: null,
     created_by: null
   });
   if (childDueMode && parentWasLeaf && parentRow && parentRow.recurrence) {
@@ -653,7 +657,7 @@ async function publicAllToggle({ request, env, params }) {
   const id = parseInt(params.id, 10);
   const t = await storage.todo.findById(id);
   if (!t || t.user_id !== userId) return error('任务不存在', 404);
-  if (t.list_id != null) return error('该任务属共享目录，请登录后在待办页操作', 400);
+  if (t.shared_cat_id != null) return error('该任务属共享分类，请登录后在待办页操作', 400);
   // 免密汇总页永远用默认(旧+周期); done_by 为 NULL(匿名操作)
   const r = await storage.todo.markDoneWithRecur(id, userId, done, false, todayCN(), null);
   return json({ success: true, message: done ? '已完成' : '已取消完成', cloned: !!r.cloned, next_id: r.next_id || null, next_due: r.next_due || null });
@@ -675,7 +679,7 @@ async function publicAllUpdate({ request, env, params }) {
   const id = parseInt(params.id, 10);
   const t = await storage.todo.findById(id);
   if (!t || t.user_id !== userId) return error('任务不存在', 404);
-  if (t.list_id != null) return error('该任务属共享目录，请登录后在待办页操作', 400);
+  if (t.shared_cat_id != null) return error('该任务属共享分类，请登录后在待办页操作', 400);
   const isRoot = t.parent_id == null;
   const rootRow = isRoot ? t : await rootRowOf(storage, t);
 
@@ -758,7 +762,7 @@ async function publicAllReorder({ request, env, params }) {
   for (const id of ids) {
     const t = await storage.todo.findById(id);
     if (!t || t.user_id !== userId) return error('任务不存在', 404);
-    if (t.list_id != null) return error('该任务属共享目录，请登录后在待办页操作', 400);
+    if (t.shared_cat_id != null) return error('该任务属共享分类，请登录后在待办页操作', 400);
     const tp = t.parent_id != null ? t.parent_id : null;
     if (tp !== parentId) return error('存在跨层级的任务，无法排序', 400);
   }
