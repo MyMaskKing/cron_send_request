@@ -4873,6 +4873,13 @@ function renderTodoDrawer(rows, onSelect) {
   // key='sc:<catId>', 由 todoRowsByCategory 按 shared_cat_id 筛选; 计数为该分类下顶层任务数
   var scs = (typeof _sharedCats !== 'undefined' && _sharedCats) ? _sharedCats : [];
   if (scs.length) {
+    // 一次遍历统计各共享分类的顶层任务数, 避免每个分类都 filter 全量 rows
+    var scCount = {};
+    rows.forEach(function(r){
+      if (r.parent_id == null && r.shared_cat_id != null) {
+        scCount[r.shared_cat_id] = (scCount[r.shared_cat_id] || 0) + 1;
+      }
+    });
     var section4 = document.createElement('div');
     section4.className = 'todo-drawer__section';
     var title4 = document.createElement('div');
@@ -4886,10 +4893,9 @@ function renderTodoDrawer(rows, onSelect) {
       var l = document.createElement('span');
       l.className = 'todo-drawer__label';
       l.textContent = '👥 ' + c.name + (c.role === 'owner' ? '' : ' · ' + c.owner_name);
-      var cnt = rows.filter(function(r){ return r.parent_id == null && r.shared_cat_id === c.cat_id; }).length;
       var cc = document.createElement('span');
       cc.className = 'todo-drawer__count';
-      cc.textContent = '(' + cnt + ')';
+      cc.textContent = '(' + (scCount[c.cat_id] || 0) + ')';
       it.appendChild(l); it.appendChild(cc);
       it.addEventListener('click', function(){ if (onSelect) onSelect(key); });
       section4.appendChild(it);
@@ -6792,12 +6798,12 @@ bindClickBusy(document.getElementById('pushSend'), async function(){
     var _q = new URLSearchParams(location.search);
     var _deepRoot = _q.get('root');
     if (_deepRoot) { _todoDetailRootId = Number(_deepRoot); }
-    // 共享分类列表与待办并行加载(首帧抽屉需要), 后续操作不再重复请求
+    // 首屏请求全部并行发出(互不依赖, DOM 元素均在静态 HTML 中), 等待总时长取最慢者而非累加
     var _catsReady = loadSharedCats();
+    var _chartReady = loadChart();
+    var _pushReady = loadPush();
     await loadTodos();
-    await _catsReady;
-    await loadChart();
-    await loadPush();
+    await _catsReady; await _chartReady; await _pushReady;
     // 应用视图状态: localStorage 里可能已有 'card'/'tree', 首次进入直接全屏
     // （?root 已在加载前解析为 _todoDetailRootId, 首帧直接渲染详情, 不闪列表）
     applyTodoView(_todoGetRows, drawTree);
