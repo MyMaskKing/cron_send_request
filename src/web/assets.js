@@ -6552,11 +6552,24 @@ async function loadSharedCats() {
   try { var d = await api('/api/todo/shared-cats/mine'); _sharedCats = d.cats || []; }
   catch(e) { _sharedCats = []; }
 }
+// 复制到剪贴板: 优先 Clipboard API(需安全上下文), 降级 execCommand; 不依赖设置页的 dsFallbackCopy
 function scCopy(text, okMsg) {
-  function done(){ alertModal(okMsg || '已复制到剪贴板'); }
+  function ok(){ todoToast(okMsg || '已复制到剪贴板'); }
+  function fallback() {
+    var t = document.createElement('textarea');
+    t.value = text;
+    t.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+    document.body.appendChild(t);
+    t.focus(); t.select();
+    var copied = false;
+    try { copied = document.execCommand('copy'); } catch (e) { copied = false; }
+    document.body.removeChild(t);
+    if (copied) ok();
+    else alertModal('复制失败，请手动复制：' + text, { ok: false });
+  }
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(done, function(){ dsFallbackCopy(text, done); });
-  } else dsFallbackCopy(text, done);
+    navigator.clipboard.writeText(text).then(ok, fallback);
+  } else fallback();
 }
 // 共享分类主面板：新建/加入 + 我参与的分类列表
 function openSharedCatPanel() {
@@ -6614,7 +6627,7 @@ function scJoin() {
     var r = await api('/api/todo/shared-cats/join', { method:'POST', body:{ code: code } });
     closeModal();
     await loadSharedCats(); await loadTodos();
-    alertModal(r.message || '已加入');
+    todoToast(r.message || '已加入共享分类');
     openSharedCatPanel();
   });
 }
@@ -6634,6 +6647,7 @@ async function openCatInvite(id, code, link, justCreated) {
   document.getElementById('scInvReset').addEventListener('click', function(){
     confirmModal('重置邀请码', '重置后旧邀请码立即失效（已加入的成员不受影响）。确认？', async function(){
       var r = await api('/api/todo/shared-cats/' + id + '/invite/reset', { method:'POST' });
+      todoToast('邀请码已重置，旧码已失效');
       openCatInvite(id, r.code, null, false);
     });
   });
@@ -6660,6 +6674,7 @@ function scKick(catId, uid) {
   confirmModal('移出成员', '确定把该成员移出分类？移出后其将看不到该分类的待办（不影响已录入的数据）。', async function(){
     await api('/api/todo/shared-cats/' + catId + '/members/' + uid, { method:'DELETE' });
     await loadSharedCats();
+    todoToast('已移出该成员');
     openSharedCatPanel();
   });
   return false;
@@ -6669,7 +6684,7 @@ function scLeave(id) {
     await api('/api/todo/shared-cats/' + id + '/leave', { method:'POST' });
     closeModal();
     await loadSharedCats(); await loadTodos();
-    alertModal('已退出共享分类');
+    todoToast('已退出共享分类');
     openSharedCatPanel();
   });
 }
@@ -6678,7 +6693,7 @@ function scDissolve(id) {
     await api('/api/todo/shared-cats/' + id, { method:'DELETE' });
     closeModal();
     await loadSharedCats(); await loadTodos();
-    alertModal('共享分类已解散，任务已保留为个人待办');
+    todoToast('已解散，任务保留为个人待办');
     openSharedCatPanel();
   });
 }
