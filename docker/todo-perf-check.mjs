@@ -10,7 +10,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const DB_PATH = join(ROOT, 'docker-data', 'd1.sqlite');
+const DB_PATH = join(ROOT, 'data', 'd1.sqlite');
 
 if (!existsSync(DB_PATH)) {
   console.error('找不到数据库文件:', DB_PATH);
