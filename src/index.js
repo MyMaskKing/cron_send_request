@@ -61,6 +61,10 @@ import {
   createInvite, listInvites, resetInvite, revokeInvite,
   joinInvite, listMyShares, removeShareMember
 } from './api/share.api.js';
+import {
+  createSharedList, convertList, getListInvite, resetListInvite,
+  joinList, myLists, listMembers as listTodoListMembers, leaveList, kickMember
+} from './api/todoList.api.js';
 import { parseOffset, fmtShort } from './services/time.service.js';
 
 // Pages
@@ -201,6 +205,16 @@ router.get('/api/todo-widget', widgetTodoAuth);
 router.get('/api/todo/chart', todoChart);
 router.put('/api/todo/reorder', reorderTodo);
 router.post('/api/todo', createTodo);
+// 待办共享目录（字面量段须在 /api/todo/:id/* 参数路由前注册）
+router.post('/api/todo/lists', createSharedList);
+router.get('/api/todo/lists/mine', myLists);
+router.post('/api/todo/lists/join', joinList);
+router.post('/api/todo/lists/:id/convert', convertList);
+router.get('/api/todo/lists/:id/invite', getListInvite);
+router.post('/api/todo/lists/:id/invite/reset', resetListInvite);
+router.get('/api/todo/lists/:id/members', listTodoListMembers);
+router.post('/api/todo/lists/:id/leave', leaveList);
+router.delete('/api/todo/lists/:id/members/:userId', kickMember);
 router.get('/api/todo/:id/share-link', getTodoShareLink);
 router.put('/api/todo/:id/done', toggleTodo);
 router.put('/api/todo/:id', updateTodo);
@@ -727,7 +741,8 @@ async function buildModuleMessage(env, storage, module, userId, format, tzOffset
     return buildAssetReport(data, format, chartLink, target, walletLinkMap);
   }
   if (module === 'todo') {
-    const rows = await storage.todo.listByUser(userId);
+    // 日报含本人个人任务 + 我加入的共享目录任务(成员各推各的, 共享目录带 👥 标记)
+    const rows = await storage.todo.listVisibleForUser(userId);
     const today = nowCN(Date.now(), tzOffset).dateStr;
     const pendingTrees = flattenPending(buildTree(rows));
     // 仅当存在"截止今天或已逾期"的未完成任务时才推送，否则跳过（不发空日报）

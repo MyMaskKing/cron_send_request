@@ -207,6 +207,7 @@ async function removeShareMember({ request, env, params }) {
 export {
   SHARE_MODULES,
   requireDataContext,
+  genInviteCode,
   createInvite, listInvites, resetInvite, revokeInvite,
   joinInvite, listMyShares, removeShareMember
 };

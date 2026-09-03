@@ -602,6 +602,32 @@ function createD1Adapter(env) {
         ).bind(userId).all();
         return results || [];
       },
+      // 登录态可见全集: 本人个人任务(list_id IS NULL) ∪ 我作为成员的共享目录全部任务
+      // (共享目录根自引用 list_id, 成员表 JOIN 一条 SQL 同时覆盖根与子孙)
+      async listVisibleForUser(userId) {
+        const { results } = await db.prepare(
+          `SELECT t.* FROM todos t
+           WHERE (t.user_id = ? AND t.list_id IS NULL)
+              OR t.list_id IN (SELECT m.list_id FROM todo_list_members m WHERE m.user_id = ?)
+           ORDER BY t.sort_order, t.id`
+        ).bind(userId, userId).all();
+        return results || [];
+      },
+      // 个人口径: 仅本人且非共享目录任务(report_token 免密上下文用, 匿名链接不泄露共享数据)
+      async listPersonalByUser(userId) {
+        const { results } = await db.prepare(
+          'SELECT * FROM todos WHERE user_id=? AND list_id IS NULL ORDER BY sort_order, id'
+        ).bind(userId).all();
+        return results || [];
+      },
+      // 共享目录回填: 把根(自引用)及其整棵子树的 list_id 统一置为根 id(新建目录/转共享用)
+      async attachList(listId, idList) {
+        if (!idList || idList.length === 0) return;
+        const placeholders = idList.map(() => '?').join(',');
+        await db.prepare(
+          `UPDATE todos SET list_id=? WHERE id IN (${placeholders})`
+        ).bind(listId, ...idList).run();
+      },
       async findById(id) {
         return await db.prepare('SELECT * FROM todos WHERE id=?').bind(id).first();
       },
@@ -620,16 +646,20 @@ function createD1Adapter(env) {
         // 追加到同层末尾(= 创建时间顺序); 否则默认 0 会在拖拽排序(reorder 写 0..n)后把新任务插到序列中间.
         // parent_id IS ? 绑 NULL 即 IS NULL, 绑 id 即等价 = id(SQLite IS 语义).
         const parentId = t.parent_id != null ? t.parent_id : null;
+        // 共享目录: list_id 为根任务 id(个人任务 NULL); created_by 记实际创建者,
+        // 未显式传入时兜底为归属人 userId(免密匿名添加显式传 NULL)
+        const listId = t.list_id != null ? t.list_id : null;
+        const createdBy = t.created_by !== undefined ? (t.created_by || null) : userId;
         const res = await db.prepare(
-          'INSERT INTO todos (user_id, parent_id, title, priority, due_date, category, note, sort_order, child_due, recurrence, recur_interval, recur_nth, recur_weekday) ' +
-          'VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM todos WHERE user_id = ? AND parent_id IS ?)), ?, ?, ?, ?, ?)'
+          'INSERT INTO todos (user_id, parent_id, title, priority, due_date, category, note, sort_order, child_due, recurrence, recur_interval, recur_nth, recur_weekday, list_id, created_by) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM todos WHERE user_id = ? AND parent_id IS ?)), ?, ?, ?, ?, ?, ?, ?)'
         ).bind(
           userId, parentId, t.title,
           t.priority != null ? t.priority : 1,
           t.due_date || null, t.category || null, t.note || null,
           t.sort_order != null ? t.sort_order : null,
           userId, parentId,
-          childDue, rec, iv, nth, wd
+          childDue, rec, iv, nth, wd, listId, createdBy
         ).run();
         return res.meta.last_row_id;
       },
@@ -690,11 +720,11 @@ function createD1Adapter(env) {
         });
         await db.batch(stmts);
       },
-      // 仅修改当前任务状态；done=1 写完成日期，done=0 清空
-      async setDone(id, done, doneAt) {
+      // 仅修改当前任务状态；done=1 写完成日期与完成人(doneBy)，done=0 一并清空
+      async setDone(id, done, doneAt, doneBy) {
         await db.prepare(
-          'UPDATE todos SET done=?, done_at=? WHERE id=?'
-        ).bind(done ? 1 : 0, done ? (doneAt || null) : null, id).run();
+          'UPDATE todos SET done=?, done_at=?, done_by=? WHERE id=?'
+        ).bind(done ? 1 : 0, done ? (doneAt || null) : null, done ? (doneBy || null) : null, id).run();
       },
       // 完成/取消完成当前任务；若命中“重复任务且 done=1”，自动 clone 下一条实例
       // 返回 { cloned: boolean, next_id?, next_due? }
@@ -703,10 +733,11 @@ function createD1Adapter(env) {
       //   1. 旧模式顶层重复任务且有子任务: 整棵子树克隆(子任务日期原样, 旧模式下本就为空)
       //   2. 叶子重复任务(新模式子任务 / 无子女顶层): 单行克隆, parent_id 保持同级
       // userId 双校验用：目标不属该用户视为无效，cloned=false 且不写任何数据
-      async markDoneWithRecur(id, userId, done, jumpToCurrent, todayStr) {
+      // doneBy: 本次完成操作人 uid(共享目录记真实成员; 个人/免密匿名传 null, 克隆行沿用原实例 created_by)
+      async markDoneWithRecur(id, userId, done, jumpToCurrent, todayStr, doneBy) {
         const self = await db.prepare('SELECT * FROM todos WHERE id=? AND user_id=?').bind(id, userId).first();
         if (!self) return { cloned: false };
-        await this.setDone(id, !!done, todayStr);
+        await this.setDone(id, !!done, todayStr, doneBy);
         // 判断是否需要 clone: 必须 done=1, 有 recurrence, 有 due_date（层级不限）
         if (!done) return { cloned: false };
         if (!self.recurrence) return { cloned: false };
@@ -716,11 +747,12 @@ function createD1Adapter(env) {
         const hasKids = self.parent_id == null &&
           !!(await db.prepare('SELECT 1 AS x FROM todos WHERE parent_id=? LIMIT 1').bind(id).first());
         if (hasKids) {
-          const newRootId = await this._cloneSubtreeForRecur(self, nextDue, userId, todayStr);
+          const newRootId = await this._cloneSubtreeForRecur(self, nextDue, userId, todayStr, doneBy);
           return { cloned: true, next_id: newRootId, next_due: nextDue };
         }
+        // 单行克隆(叶子重复任务): 继承 list_id; created_by 取本次操作人, 匿名/个人场景沿用原实例
         const ins = await db.prepare(
-          'INSERT INTO todos (user_id, parent_id, title, done, priority, due_date, category, sort_order, share_token, note, done_at, recurrence, recur_interval, recur_nth, recur_weekday, recur_from_id) VALUES (?, ?, ?, 0, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?)'
+          'INSERT INTO todos (user_id, parent_id, title, done, priority, due_date, category, sort_order, share_token, note, done_at, recurrence, recur_interval, recur_nth, recur_weekday, recur_from_id, list_id, created_by) VALUES (?, ?, ?, 0, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?)'
         ).bind(
           userId, self.parent_id != null ? self.parent_id : null, self.title,
           self.priority != null ? self.priority : 1,
@@ -732,17 +764,22 @@ function createD1Adapter(env) {
           self.recur_interval != null ? self.recur_interval : null,
           self.recur_nth != null ? self.recur_nth : null,
           self.recur_weekday != null ? self.recur_weekday : null,
-          self.id
+          self.id,
+          self.list_id != null ? self.list_id : null,
+          doneBy != null ? doneBy : (self.created_by != null ? self.created_by : null)
         ).run();
         return { cloned: true, next_id: ins.meta.last_row_id, next_due: nextDue };
       },
       // 内部: 递归克隆 rootOld 及其全部后代, 返回新 root id
       // 新任务全部 done=0, done_at=null, share_token=null, recur_from_id 指向原 id
       // rootOld 是完整行对象(含 recurrence 等), 需 SELECT * 后再传入
-      async _cloneSubtreeForRecur(rootOld, nextDue, userId, todayStr) {
+      // doneBy: 触发克隆的操作人(共享目录记真实成员); null 时新根沿用原实例 created_by
+      async _cloneSubtreeForRecur(rootOld, nextDue, userId, todayStr, doneBy) {
         // 1. 插入新 root; 保留 recurrence/recur_interval/recur_nth/recur_weekday, 保证下次循环仍按同规则
+        //    继承 list_id(共享目录内克隆不脱离目录); created_by 取操作人, 匿名/个人沿用原实例
+        const rootCreatedBy = doneBy != null ? doneBy : (rootOld.created_by != null ? rootOld.created_by : null);
         const rootRes = await db.prepare(
-          'INSERT INTO todos (user_id, parent_id, title, done, priority, due_date, category, sort_order, share_token, note, done_at, recurrence, recur_interval, recur_nth, recur_weekday, recur_from_id) VALUES (?, NULL, ?, 0, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?)'
+          'INSERT INTO todos (user_id, parent_id, title, done, priority, due_date, category, sort_order, share_token, note, done_at, recurrence, recur_interval, recur_nth, recur_weekday, recur_from_id, list_id, created_by) VALUES (?, NULL, ?, 0, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?)'
         ).bind(
           userId, rootOld.title,
           rootOld.priority != null ? rootOld.priority : 1,
@@ -754,7 +791,9 @@ function createD1Adapter(env) {
           rootOld.recur_interval != null ? rootOld.recur_interval : null,
           rootOld.recur_nth != null ? rootOld.recur_nth : null,
           rootOld.recur_weekday != null ? rootOld.recur_weekday : null,
-          rootOld.id
+          rootOld.id,
+          rootOld.list_id != null ? rootOld.list_id : null,
+          rootCreatedBy
         ).run();
         const newRootId = rootRes.meta.last_row_id;
         // 2. 递归子孙: 读原子树(不含 root 本身), 按 sort_order+id 顺序 clone
@@ -772,14 +811,16 @@ function createD1Adapter(env) {
             const newParent = idMap.get(r.parent_id);
             if (newParent == null) { next.push(r); continue; }
             const res = await db.prepare(
-              'INSERT INTO todos (user_id, parent_id, title, done, priority, due_date, category, sort_order, share_token, note, done_at, recurrence, recur_interval, recur_nth, recur_weekday, recur_from_id) VALUES (?, ?, ?, 0, ?, NULL, ?, ?, NULL, ?, NULL, NULL, NULL, NULL, NULL, ?)'
+              'INSERT INTO todos (user_id, parent_id, title, done, priority, due_date, category, sort_order, share_token, note, done_at, recurrence, recur_interval, recur_nth, recur_weekday, recur_from_id, list_id, created_by) VALUES (?, ?, ?, 0, ?, NULL, ?, ?, NULL, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?)'
             ).bind(
               userId, newParent, r.title,
               r.priority != null ? r.priority : 1,
               r.category || null,
               r.sort_order != null ? r.sort_order : 0,
               r.note || null,
-              r.id
+              r.id,
+              rootOld.list_id != null ? rootOld.list_id : null,
+              r.created_by != null ? r.created_by : null
             ).run();
             idMap.set(r.id, res.meta.last_row_id);
           }
@@ -836,7 +877,9 @@ function createD1Adapter(env) {
       // offsetHours 保留兼容调用签名，此口径下不再使用（due_date 本就是北京日期串）
       // 返回 { created: [{d, c}], done: [{d, c}] }，d 为 YYYY-MM-DD
       async chartRaw(userId, offsetHours = 8, idList = null) {
-        let scope = 'user_id=?', args = [userId];
+        // 个人口径仅统计非共享任务(list_id IS NULL), 共享目录完成量不进个人趋势;
+        // idList 子树分支(单清单 /t/:token 图表)不限定, 整棵子树照常统计
+        let scope = 'user_id=? AND list_id IS NULL', args = [userId];
         if (idList && idList.length) {
           scope = `id IN (${idList.map(() => '?').join(',')})`;
           args = idList;
@@ -850,6 +893,79 @@ function createD1Adapter(env) {
            FROM todos WHERE ${scope} AND due_date IS NOT NULL AND done=1 GROUP BY due_date`
         ).bind(...args).all();
         return { created: createdQ.results || [], done: doneQ.results || [] };
+      }
+    },
+
+    // ==================== Todo 共享目录 ====================
+    // 目录 = 一个自引用 list_id 的根任务; 成员/邀请各一表, 物理删除模型(退出=DELETE 行)
+    todoList: {
+      // 建目录: owner 成员行 + 邀请码行(根任务已由 storage.todo 建好并回填 list_id)
+      async createList(rootId, ownerUserId, code) {
+        await db.prepare(
+          `INSERT INTO todo_list_members (list_id, user_id, role) VALUES (?, ?, 'owner')`
+        ).bind(rootId, ownerUserId).run();
+        await db.prepare(
+          'INSERT INTO todo_list_invites (list_id, code) VALUES (?, ?)'
+        ).bind(rootId, code).run();
+      },
+      async findInviteByList(listId) {
+        return await db.prepare('SELECT * FROM todo_list_invites WHERE list_id=?').bind(listId).first();
+      },
+      async findInviteByCode(code) {
+        return await db.prepare('SELECT * FROM todo_list_invites WHERE code=?').bind(code).first();
+      },
+      async updateInviteCode(listId, code) {
+        await db.prepare('UPDATE todo_list_invites SET code=? WHERE list_id=?').bind(code, listId).run();
+      },
+      // 成员校验: 返回成员行(含 role), 非成员 null
+      async findMember(listId, userId) {
+        return await db.prepare(
+          'SELECT * FROM todo_list_members WHERE list_id=? AND user_id=?'
+        ).bind(listId, userId).first();
+      },
+      // 加入: 幂等, 退出后再加入直接插入(UNIQUE(list_id,user_id) 防并发重复)
+      async addMember(listId, guestUserId) {
+        await db.prepare(
+          `INSERT OR IGNORE INTO todo_list_members (list_id, user_id, role) VALUES (?, ?, 'editor')`
+        ).bind(listId, guestUserId).run();
+      },
+      // 目录成员(附用户名/昵称), owner 排最前
+      async listMembers(listId) {
+        const { results } = await db.prepare(
+          `SELECT m.id, m.list_id, m.user_id, m.role, m.joined_at,
+                  u.username, u.nickname
+           FROM todo_list_members m JOIN users u ON u.id = m.user_id
+           WHERE m.list_id = ? ORDER BY m.role = 'owner' DESC, m.id`
+        ).bind(listId).all();
+        return results || [];
+      },
+      // 踢人 / 退出: 物理删除成员行(任务数据保留, 归属 owner)
+      async removeMember(listId, userId) {
+        await db.prepare(
+          'DELETE FROM todo_list_members WHERE list_id=? AND user_id=?'
+        ).bind(listId, userId).run();
+      },
+      // 我参与的目录: 根标题、owner 昵称、我的角色、成员数; owner 视角附带邀请码
+      async listMyLists(userId) {
+        const { results } = await db.prepare(
+          `SELECT m.list_id, m.role, m.joined_at,
+                  t.title AS list_title,
+                  u.username AS owner_username, u.nickname AS owner_nickname,
+                  (SELECT COUNT(*) FROM todo_list_members WHERE list_id = m.list_id) AS member_count,
+                  i.code AS invite_code
+           FROM todo_list_members m
+           JOIN todos t ON t.id = m.list_id
+           JOIN users u ON u.id = t.user_id
+           LEFT JOIN todo_list_invites i ON i.list_id = m.list_id
+           WHERE m.user_id = ?
+           ORDER BY m.joined_at DESC`
+        ).bind(userId).all();
+        return results || [];
+      },
+      // 解散目录: 清理成员与邀请(任务行由 storage.todo.remove 级联删除)
+      async deleteListCascade(listId) {
+        await db.prepare('DELETE FROM todo_list_members WHERE list_id=?').bind(listId).run();
+        await db.prepare('DELETE FROM todo_list_invites WHERE list_id=?').bind(listId).run();
       }
     },
 
