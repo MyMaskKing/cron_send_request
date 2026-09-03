@@ -6769,9 +6769,10 @@ bindTodoRange(function(r){
 // 推送配置（待办日报）
 var tPushHourPick = null, tPushChannelPick = null;
 async function loadPush() {
-  var chs = await api('/api/notify/channels');
+  // 两个请求互不依赖, 并行发出省一个往返(高 RTT 环境明显)
+  var _rs = await Promise.all([api('/api/notify/channels'), api('/api/push/todo')]);
+  var chs = _rs[0], d = _rs[1];
   var items = chs.channels.map(function(c){ return { value: c.id, label: c.name + ' [' + c.type + ']' }; });
-  var d = await api('/api/push/todo');
   tPushChannelPick = initListPick(document.getElementById('pushCh'), items, d.config.channel_ids || []);
   document.getElementById('pushFmt').value = d.config.format || 'text';
   tPushHourPick = initMultiPick(document.getElementById('pushHour'), 0, 23, d.config.hours || [9], function(n){ return n + '点'; });
