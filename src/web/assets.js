@@ -4838,19 +4838,41 @@ function renderTodoDrawer(rows, onSelect) {
   section3.className = 'todo-drawer__section';
   var title3 = document.createElement('div'); title3.className = 'todo-drawer__section-title'; title3.textContent = '📂 分类';
   section3.appendChild(title3);
-  function addItem(key, label, icon) {
+  // renameFn(key)/delFn(key): 传入时该项尾部渲染 ✎ 改名 / ✕ 删除按钮
+  //   (仅登录态页面定义了全局 onTodoRenameCat/onTodoDeleteCat; 免密页无此函数即无入口)
+  function addItem(key, label, icon, delFn, renameFn) {
     var it = document.createElement('div');
     it.className = 'todo-drawer__item' + (cur === key ? ' active' : '');
     it.setAttribute('data-key', key);
     var l = document.createElement('span'); l.className = 'todo-drawer__label'; l.textContent = (icon ? icon + ' ' : '') + label;
     var c = document.createElement('span'); c.className = 'todo-drawer__count'; c.textContent = '(' + (counts[key] || 0) + ')';
     it.appendChild(l); it.appendChild(c);
+    if (renameFn) {
+      var e = document.createElement('button');
+      e.className = 'todo-drawer__edit';
+      e.type = 'button';
+      e.textContent = '✎';
+      e.title = '重命名分类';
+      e.addEventListener('click', function(ev){ ev.stopPropagation(); renameFn(key); });
+      it.appendChild(e);
+    }
+    if (delFn) {
+      var d = document.createElement('button');
+      d.className = 'todo-drawer__del';
+      d.type = 'button';
+      d.textContent = '✕';
+      d.title = '删除分类（任务转为未分类）';
+      d.addEventListener('click', function(ev){ ev.stopPropagation(); delFn(key); });
+      it.appendChild(d);
+    }
     it.addEventListener('click', function(){ if (onSelect) onSelect(key); });
     section3.appendChild(it);
   }
   addItem('__all__', '全部', '📋');
   addItem('__none__', '未分类', '📌');
-  cats.forEach(function(c){ addItem(c, c); });
+  var catDelFn = (typeof onTodoDeleteCat === 'function') ? onTodoDeleteCat : null;
+  var catRenameFn = (typeof onTodoRenameCat === 'function') ? onTodoRenameCat : null;
+  cats.forEach(function(c){ addItem(c, c, null, catDelFn, catRenameFn); });
   box.appendChild(section3);
 
   // 共享分类段(仅登录态页面有 _sharedCats 数据; 免密页为空数组即不渲染)
@@ -6684,6 +6706,42 @@ function scDissolve(id) {
     await loadSharedCats(); await loadTodos();
     todoToast('已解散，任务保留为个人待办');
     openSharedCatPanel();
+  });
+}
+// 删除个人文本分类(抽屉「📂 分类」段 ✕): 仅摘掉分类标签, 任务全部保留为未分类;
+// 免密页(public/report/collab)未定义此函数, 抽屉自动不渲染删除按钮
+function onTodoDeleteCat(name) {
+  var n = 0;
+  _rows.forEach(function(r){ if (r.parent_id == null && r.shared_cat_id == null && r.category === name) n++; });
+  confirmModal('删除分类', '删除后分类「' + name + '」下的 ' + n + ' 个顶层任务将转为「未分类」，任务本身不会被删除。确认删除？', async function(){
+    await api('/api/todo/categories?name=' + encodeURIComponent(name), { method: 'DELETE' });
+    if (_todoCategory === name) _todoCategory = null;
+    await loadTodos();
+    if (_todoView !== 'default') applyTodoView(_todoGetRows, drawTree);
+    todoToast('分类已删除，任务已转为未分类');
+  });
+}
+// 重命名个人文本分类(抽屉「📂 分类」段 ✎): 弹窗输入新名, 该分类下任务批量改挂; 重名由后端拒绝
+function onTodoRenameCat(name) {
+  openModal('重命名分类',
+    '<p class="muted" style="margin:0 0 8px;">输入新的分类名称，该分类下所有任务将同步改挂新名称。</p>' +
+    '<input id="catRenameInput" value="' + esc(name) + '" placeholder="分类名称" style="width:100%;padding:8px;border:1px solid #d4d8e0;border-radius:6px;box-sizing:border-box;">' +
+    '<div style="text-align:right;margin-top:14px;"><button class="btn gray" onclick="closeModal()">取消</button> <button class="btn" id="catRenameOk">保存</button></div>');
+  var input = document.getElementById('catRenameInput');
+  if (input) {
+    input.focus(); input.select();
+    input.addEventListener('keydown', function(e){ if (e.key === 'Enter') document.getElementById('catRenameOk').click(); });
+  }
+  bindClickBusy(document.getElementById('catRenameOk'), async function(){
+    var newName = (input.value || '').trim();
+    if (!newName) { alertModal('请填写分类名称', {ok:false}); return; }
+    if (newName === name) { closeModal(); return; }
+    await api('/api/todo/categories', { method: 'PUT', body: { old: name, name: newName } });
+    closeModal();
+    if (_todoCategory === name) _todoCategory = newName;
+    await loadTodos();
+    if (_todoView !== 'default') applyTodoView(_todoGetRows, drawTree);
+    todoToast('分类已重命名');
   });
 }
 bindClickBusy(document.getElementById('tListBtn'), function(){ openSharedCatPanel(); return Promise.resolve(); });

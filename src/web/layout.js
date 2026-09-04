@@ -888,6 +888,14 @@ body { padding-bottom: var(--kb-inset, 0px); }
 .todo-drawer__section-title { padding: 8px 14px 4px; font-size: 12px; color: #8890b8; font-weight: 600; letter-spacing: .5px; }
 .todo-drawer__item--hide { cursor: pointer; }
 .todo-drawer__foot { padding: 8px 14px; font-size: 12px; color: #8890b8; border-top: 1px solid #f0f2f8; text-align: center; }
+/* 个人分类项的改名 ✎ / 删除 ✕: 默认低调, hover 分别转主题紫 / 红; 点击 stopPropagation 不触发分类过滤 */
+.todo-drawer__del, .todo-drawer__edit {
+  border: none; background: none; cursor: pointer; flex-shrink: 0;
+  color: #b0b6c8; font-size: 12px; line-height: 1;
+  padding: 3px 6px; border-radius: 5px;
+}
+.todo-drawer__edit:hover { background: #eef1ff; color: #A855F7; }
+.todo-drawer__del:hover { background: #fdecec; color: #e5484d; }
 /* 抽屉收起：主区域独占 */
 .todo-drawer.closed { display: none; }
 /* 抽屉遮罩（仅手机使用）; touch-action:none 阻止遮罩上的触摸手势穿透/连锁滚动 */

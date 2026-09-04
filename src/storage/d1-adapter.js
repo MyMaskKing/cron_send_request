@@ -681,6 +681,26 @@ function createD1Adapter(env) {
           childDue, rec, iv, nth, wd, id, userId
         ).run();
       },
+      // 删除个人文本分类: 该用户下同分类名的任务(含父子任务)一律摘为未分类;
+      // shared_cat_id IS NULL 保险, 不触碰共享分类任务(共享分类解散走 sharedCat.deleteCatCascade)
+      async clearCategory(userId, name) {
+        await db.prepare(
+          'UPDATE todos SET category=NULL WHERE user_id=? AND category=? AND shared_cat_id IS NULL'
+        ).bind(userId, name).run();
+      },
+      // 重命名个人文本分类: 同分类名的任务(含父子)批量改挂新名; 同样不碰共享分类任务
+      async renameCategory(userId, oldName, newName) {
+        await db.prepare(
+          'UPDATE todos SET category=? WHERE user_id=? AND category=? AND shared_cat_id IS NULL'
+        ).bind(newName, userId, oldName).run();
+      },
+      // 个人文本分类名是否已存在(重命名重名校验, 防止意外合并两个分类)
+      async categoryExists(userId, name) {
+        const row = await db.prepare(
+          'SELECT 1 AS x FROM todos WHERE user_id=? AND category=? AND shared_cat_id IS NULL LIMIT 1'
+        ).bind(userId, name).first();
+        return !!row;
+      },
       // 清空单个任务的重复设置（叶子重复任务被添加子任务、不再是叶子时调用）
       async clearRecur(id) {
         await db.prepare(

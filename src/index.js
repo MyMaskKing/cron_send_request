@@ -52,7 +52,7 @@ import { shouldRun, nowCN } from './services/schedule.service.js';
 import { buildFundReport, buildAssetReport, buildWeightReport, buildTodoReport, filterTodayOverdue } from './services/report.service.js';
 import { buildTree, flattenPending } from './services/todo.service.js';
 import {
-  listTodos, createTodo, updateTodo, toggleTodo, removeTodo, getShareLink as getTodoShareLink, todoChart, reorderTodo,
+  listTodos, createTodo, updateTodo, toggleTodo, removeTodo, deleteCategory, renameCategory, getShareLink as getTodoShareLink, todoChart, reorderTodo,
   publicTodoInfo, publicAddTodo, publicToggleTodo, publicUpdateTodo, publicReorder, publicTodoReport, publicTodoChart,
   widgetTodo, widgetTodoAuth,
   publicAllAdd, publicAllToggle, publicAllUpdate, publicAllReorder
@@ -222,6 +222,9 @@ router.get('/api/todo/shared-cats/:id/members', listCatMembers);
 router.post('/api/todo/shared-cats/:id/leave', leaveSharedCat);
 router.delete('/api/todo/shared-cats/:id/members/:userId', kickCatMember);
 router.delete('/api/todo/shared-cats/:id', deleteSharedCat);
+// 个人文本分类删除/重命名(字面量段 categories, 须在 /api/todo/:id 参数路由前注册)
+router.delete('/api/todo/categories', deleteCategory);
+router.put('/api/todo/categories', renameCategory);
 router.get('/api/todo/:id/share-link', getTodoShareLink);
 router.put('/api/todo/:id/done', toggleTodo);
 router.put('/api/todo/:id', updateTodo);

@@ -320,6 +320,39 @@ async function removeTodo({ request, env, params }) {
   return json({ success: true, message: '任务已删除' });
 }
 
+/** DELETE /api/todo/categories?name=xx  删除个人文本分类：分类下任务保留，统一摘为「未分类」 */
+async function deleteCategory({ request, env, url }) {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+  const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'todo', request);
+  if (dc instanceof Response) return dc;
+  const name = (url.searchParams.get('name') || '').trim();
+  if (!name) return error('缺少分类名', 400);
+  await storage.todo.clearCategory(dc.uid, name);
+  return json({ success: true, message: '分类已删除，任务已转为未分类' });
+}
+
+/** PUT /api/todo/categories  重命名个人文本分类：body { old, name }，分类下任务批量改挂新名 */
+async function renameCategory({ request, env }) {
+  const auth = await requireAuth(request, env);
+  if (auth instanceof Response) return auth;
+  const storage = getStorage(env);
+  const dc = await requireDataContext(storage, auth, 'todo', request);
+  if (dc instanceof Response) return dc;
+  const body = await request.json().catch(() => ({}));
+  const oldName = (body.old || '').trim();
+  const newName = (body.name || '').trim();
+  if (!oldName || !newName) return error('分类名不能为空', 400);
+  if (oldName === newName) return json({ success: true, message: '名称未变化' });
+  // 新名已被占用时拒绝: 否则 UPDATE 会把两个分类的任务合并到一起且无法拆分
+  if (await storage.todo.categoryExists(dc.uid, newName)) {
+    return error('已存在同名分类，请换一个名称', 400);
+  }
+  await storage.todo.renameCategory(dc.uid, oldName, newName);
+  return json({ success: true, message: '分类已重命名' });
+}
+
 /** GET /api/todo/:id/share-link  获取/生成顶层任务免密协作链接 */
 async function getShareLink({ request, env, params, url }) {
   const auth = await requireAuth(request, env);
@@ -771,7 +804,7 @@ async function publicAllReorder({ request, env, params }) {
 }
 
 export {
-  listTodos, createTodo, updateTodo, toggleTodo, removeTodo, getShareLink, todoChart, reorderTodo,
+  listTodos, createTodo, updateTodo, toggleTodo, removeTodo, deleteCategory, renameCategory, getShareLink, todoChart, reorderTodo,
   publicTodoInfo, publicAddTodo, publicToggleTodo, publicUpdateTodo, publicReorder, publicTodoReport, publicTodoChart,
   widgetTodo, widgetTodoAuth,
   publicAllAdd, publicAllToggle, publicAllUpdate, publicAllReorder
