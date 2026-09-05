@@ -48,9 +48,9 @@ try {
   line(`[共享] 共享表不存在 ❌: ${e.message}`);
 }
 
-// 5. 迁移记录
-line('[迁移] 0015 相关记录:');
-db.prepare("SELECT name FROM _migrations WHERE name LIKE '%0015%'").all().forEach(r => line('   - ' + r.name));
+// 5. 迁移记录（合并后只有单个全量建库脚本, 显示最近应用记录）
+line('[迁移] 最近应用记录:');
+db.prepare('SELECT name FROM _migrations ORDER BY name DESC LIMIT 5').all().forEach(r => line('   - ' + r.name));
 
 // 6. 实测列表查询（对每个有任务的用户）
 const VIS = `SELECT t.* FROM todos t
