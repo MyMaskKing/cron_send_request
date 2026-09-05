@@ -12,7 +12,9 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
@@ -65,6 +67,28 @@ class RefreshWorker(
                 ExistingWorkPolicy.REPLACE,
                 request
             )
+        }
+
+        /**
+         * 进程内直接拉取所有桌面小组件数据并刷新（登录成功 / App 内网页待办变更后调用）：
+         * WorkManager 一次性任务可能被系统延迟，这里在调用进程内直连拉取保证即时上屏
+         * （成功写入缓存会顺带清掉旧 failed 标志，见 Prefs.setCache）。
+         * 本函数立即返回，拉取在 IO 线程进行；高频调用方（网页连续变更）需自行防抖。
+         */
+        fun refreshAllNow(context: Context) {
+            CoroutineScope(Dispatchers.IO).launch {
+                val ids = runCatching {
+                    GlanceAppWidgetManager(context)
+                        .getGlanceIds(TodoAppWidget::class.java)
+                        .map { it.resolveAppWidgetId(context) }
+                        .filter { it >= 0 }
+                }.getOrDefault(emptyList())
+                ids.forEach { id -> WidgetRepo.refresh(context, id) }
+                // updateAll 必须在主线程（Glance 组合需要主线程推进）
+                withContext(Dispatchers.Main) {
+                    runCatching { TodoAppWidget().updateAll(context) }
+                }
+            }
         }
     }
 }

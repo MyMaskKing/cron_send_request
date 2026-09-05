@@ -45,7 +45,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.updateAll
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import kotlinx.coroutines.Dispatchers
@@ -261,16 +260,9 @@ private fun AppShell(initialUrl: String?) {
                                             targetUrl = currentBaseUrl + "/todo"
                                         }
                                         // 立即直接拉取所有桌面小组件数据并刷新（WorkManager 一次性任务可能被系统延迟，
-                                        // 这里同步拉取保证登录后马上出数据；成功会清掉旧的 failed 标志）
-                                        kotlinx.coroutines.MainScope().launch(Dispatchers.IO) {
-                                            val ids = GlanceAppWidgetManager(context)
-                                                .getGlanceIds(TodoAppWidget::class.java)
-                                                .map { it.resolveAppWidgetId(context) }
-                                                .filter { it >= 0 }
-                                            ids.forEach { id -> WidgetRepo.refresh(context, id) }
-                                            // updateAll 必须在主线程（Glance 组合需要主线程推进）
-                                            withContext(Dispatchers.Main) { TodoAppWidget().updateAll(context) }
-                                        }
+                                        // 这里进程内直连拉取保证登录后马上出数据；成功会清掉旧的 failed 标志）。
+                                        // 与网页内待办变更后的 todoChanged 桥回调走同一入口（RefreshWorker.refreshAllNow）。
+                                        RefreshWorker.refreshAllNow(context)
                                     }
                                     sid.isNullOrBlank() && oldSid.isNotBlank() -> {
                                         // 登出/会话失效：清除并刷新小组件
@@ -290,6 +282,17 @@ private fun AppShell(initialUrl: String?) {
                             @JavascriptInterface
                             fun setPullRefresh(enable: Boolean) {
                                 Handler(Looper.getMainLooper()).post { swipe.isEnabled = enable }
+                            }
+
+                            // 网页内待办增删改/勾选/排序后，网页 loadTodos 收尾经桥回调：
+                            // 主线程防抖 800ms（拖拽排序等连续变更合并为一次）后直连刷新所有桌面
+                            // 小组件，不等 15 分钟周期 Worker（WorkManager 一次性任务可能被系统延迟）。
+                            private val widgetHandler = Handler(Looper.getMainLooper())
+                            private val widgetRefresh = Runnable { RefreshWorker.refreshAllNow(ctx) }
+                            @JavascriptInterface
+                            fun todoChanged() {
+                                widgetHandler.removeCallbacks(widgetRefresh)
+                                widgetHandler.postDelayed(widgetRefresh, 800L)
                             }
                         }, "AppShell")
                         // 长按任务行拖拽排序的下拉刷新冲突, 在原生主线程同步处理:

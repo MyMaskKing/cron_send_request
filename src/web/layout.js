@@ -854,6 +854,15 @@ body { padding-bottom: var(--kb-inset, 0px); }
 .todo-fs-hide { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: #666; font-weight: normal; cursor: pointer; white-space: nowrap; }
 .todo-fs-hide input[type="checkbox"] { width: auto; margin: 0; }
 
+/* 默认视图"待办清单"卡片头: flex 替代旧 float——窄屏(App WebView)下三个操作按钮整组换到
+   第二行也不被拆散(卡片视图/共享分类/新建任务始终同行), 宽屏视觉与旧 float 一致(标题左、控件右) */
+.todo-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.todo-card-head__title { flex: 1 1 auto; min-width: 0; }
+.todo-card-head__hide { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: normal; color: #666; white-space: nowrap; cursor: pointer; }
+.todo-card-head__hide input[type="checkbox"] { width: auto; margin: 0; }
+.todo-card-head__actions { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.todo-card-head__actions .btn.sm { white-space: nowrap; margin-bottom: 0; }
+
 /* ============ 侧边抽屉（分类目录） ============ */
 .todo-drawer {
   width: 240px; flex-shrink: 0;
@@ -1158,7 +1167,7 @@ function renderTopbar(user, active = '') {
   }
   const links = [
     { key: 'dashboard', href: '/dashboard', text: '仪表盘' },
-    { key: 'todo', href: '/todo', text: '待办' },
+    { key: 'todo', href: '/todo', text: '待办清单' },
     { key: 'monitor', href: '/monitor', text: '定时任务' },
     { key: 'channels', href: '/channels', text: '通知渠道' },
     { key: 'fund', href: '/fund', text: '基金追踪' },

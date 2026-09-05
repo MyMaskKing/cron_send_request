@@ -1337,6 +1337,11 @@ if (document.readyState === 'loading') {
     _last = '0';
     try { api.setPullRefresh(false); } catch (e) {}
   };
+  // 待办数据变更通知: 待办页 loadTodos 成功收尾时调用, 原生壳防抖后直连刷新桌面小组件
+  // (App 内网页增删改不经过小组件动作, 否则只能等 15 分钟周期 Worker); 普通浏览器无此接口 no-op.
+  window._appShellTodoChanged = function() {
+    try { if (typeof api.todoChanged === 'function') api.todoChanged(); } catch (e) {}
+  };
   report();
 })();
 
@@ -6392,6 +6397,9 @@ async function loadTodos() {
   document.getElementById('stDone').textContent = todoDoneByFilter(_rows, _filter, todayStr(), _curRange);
   updateStatsHint(_filter, _curRange);
   drawTree();
+  // App 原生壳: 列表已与服务端同步(增删改/勾选/排序/共享分类变动的统一收尾),
+  // 通知立即刷新桌面小组件, 不等 15 分钟周期 Worker; 普通浏览器无此函数, no-op.
+  if (typeof window._appShellTodoChanged === 'function') window._appShellTodoChanged();
 }
 var _filter = 'planned'; // all | planned | cur | today | overdue | future | memo | done ; 默认计划中(有截止日期)
 // 程序化切换时间筛选 tab: 触发对应按钮 click, 复用现有 handler(active 态/统计/图表联动/drawTree 全套)
