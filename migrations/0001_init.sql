@@ -375,8 +375,10 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 INSERT OR IGNORE INTO app_settings (key, value) VALUES ('tz_offset', '8');
 
--- ==================== 增量升级区（已部署库升级用） ====================
--- 新表/新列请同时: ① 写进上方对应 CREATE TABLE(新库生效); ② 在本区追加幂等语句(老库升级)。
--- 新表/新索引用 CREATE ... IF NOT EXISTS(重跑静默跳过);
--- 新列用 ALTER TABLE ... ADD COLUMN(D1/SQLite 无 ADD COLUMN IF NOT EXISTS,
--- 重跑报 "duplicate column" 可忽略——Docker migrate.mjs 自动跳过, D1 控制台手动跳过该条)。
+-- ==================== 以后如何升级 ====================
+-- 本文件是"全新部署的全量基线", 已部署环境按文件名记录在 _migrations, 改本文件内容不会重跑。
+-- 老库升级请【新建】 migrations/0002_xxx.sql(编号紧接递增), 写幂等语句:
+--   新表/新索引: CREATE ... IF NOT EXISTS(重跑静默跳过);
+--   新列:       ALTER TABLE ... ADD COLUMN(无 IF NOT EXISTS, 重跑报 "duplicate column"
+--               可忽略——Docker migrate.mjs 自动跳过, D1 控制台手动跳过该条)。
+-- 同时可把新表/列同步写进上方对应 CREATE TABLE, 方便全新部署一次建全与阅读(非必须)。
