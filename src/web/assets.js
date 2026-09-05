@@ -490,6 +490,12 @@ async function mountDataSwitcher(mod){
   try { shares = (await api('/api/share/mine')).shares || []; } catch(e){ return; }
   var sources = shares.filter(function(s){ return (s.modules||[]).indexOf(mod) >= 0; });
   var cur = dataShareGet(mod);
+  // 没有共享来源时不展示切换条(全是自己的数据); 若本地残留 dataAs(共享已撤销/退出后),
+  // 清掉并刷新回自己的数据, 否则会一直带着失效的 X-Data-As 请求
+  if (!sources.length) {
+    if (cur) { dataShareSet(mod, ''); location.reload(); }
+    return;
+  }
   var btn = function(uid, label){
     var active = String(uid||'') === String(cur||'');
     return '<button type="button" class="btn sm ' + (active?'':'gray') + '" data-uid="'+(uid||'')+'">'+label+'</button>';
@@ -499,7 +505,7 @@ async function mountDataSwitcher(mod){
     (cur ? '<div class="muted" style="width:100%;margin-top:4px;">你正在查看/编辑共享数据，推送设置、免密链接等个人功能不可用。</div>' : '') +
     '</div>';
   var bar = document.createElement('div');
-  bar.style.cssText = 'margin:0 0 12px;padding:9px 12px;background:var(--hover-brand);border:1px solid #dfe4ff;border-radius:8px;';
+  bar.style.cssText = 'margin:0 0 12px;padding:9px 12px;background:var(--hover-brand);border:1px solid var(--brand-border);border-radius:8px;';
   bar.innerHTML = html;
   bar.querySelectorAll('button').forEach(function(b){
     b.addEventListener('click', function(){
@@ -2169,6 +2175,7 @@ loadPushLogs();
 // 定时任务管理 JS
 const MONITOR_JS = `
 bindLogout();
+bindModal();
 var channels = [];
 
 function channelName(id) {
@@ -2211,20 +2218,47 @@ async function loadTasks() {
   }).join('') || '<tr><td colspan="6" class="muted">暂无任务</td></tr>';
   window._tasks = data.tasks;
 }
+// 新建/编辑任务弹窗(t 有 id=编辑); 表单元素在弹窗内动态创建, 保存/取消绑定也在此处
 function taskForm(t) {
   t = t || {};
-  document.getElementById('tId').value = t.id || '';
-  document.getElementById('tName').value = t.name || '';
-  document.getElementById('tUrl').value = t.url || '';
+  var isEdit = !!t.id;
+  var enabled = t.enabled !== 0 && t.enabled !== false;
+  var standalone = t.standalone === 1 || t.standalone === true;
+  var html =
+    '<input type="hidden" id="tId" value="' + (t.id || '') + '">' +
+    '<label>任务名称</label><input id="tName" value="' + esc(t.name || '') + '">' +
+    '<label>URL</label><input id="tUrl" placeholder="https://..." value="' + esc(t.url || '') + '">' +
+    '<div class="row"><div><label>返回格式</label>' +
+      '<select id="tType"><option value="text">text</option><option value="html">html</option></select></div>' +
+    '<div><label>通知渠道</label><select id="tChannel">' + channelOptions(t.channel_id || '') + '</select></div></div>' +
+    '<label><input type="checkbox" id="tEnabled" style="width:auto;"' + (enabled ? ' checked' : '') + '> 启用</label>' +
+    '<label><input type="checkbox" id="tStandalone" style="width:auto;"' + (standalone ? ' checked' : '') + '> 独立发送（该任务结果单独一条消息；不勾则与同渠道其他任务合并）</label>' +
+    '<div style="margin-top:12px;"><button class="btn" id="tSave">保存</button> <button class="btn gray" id="tCancel">取消</button></div>';
+  openModal(isEdit ? '编辑任务' : '新建任务', html);
   document.getElementById('tType').value = t.return_type || 'text';
-  document.getElementById('tChannel').innerHTML = channelOptions(t.channel_id || '');
-  document.getElementById('tEnabled').checked = t.enabled !== 0 && t.enabled !== false;
-  document.getElementById('tStandalone').checked = t.standalone === 1 || t.standalone === true;
-  document.getElementById('taskFormWrap').style.display = 'block';
+  document.getElementById('tSave').addEventListener('click', async function(){
+    var id = document.getElementById('tId').value;
+    var payload = {
+      name: document.getElementById('tName').value,
+      url: document.getElementById('tUrl').value,
+      return_type: document.getElementById('tType').value,
+      channel_id: document.getElementById('tChannel').value || null,
+      enabled: document.getElementById('tEnabled').checked,
+      standalone: document.getElementById('tStandalone').checked
+    };
+    try {
+      if (id) await api('/api/monitor/tasks/' + id, { method:'PUT', body: payload });
+      else await api('/api/monitor/tasks', { method:'POST', body: payload });
+      closeModal(); await loadTasks();
+    } catch(e){ alertModal(e.message, {ok:false}); }
+  });
+  document.getElementById('tCancel').addEventListener('click', function(){ closeModal(); });
 }
 window.editTask = function(id){ taskForm((window._tasks||[]).filter(function(x){return x.id===id;})[0]); };
 window.delTask = async function(id){
-  confirmModal('删除任务', '确认删除该任务?', async function(){
+  var t = (window._tasks||[]).filter(function(x){return x.id===id;})[0];
+  var info = t ? ('任务：' + t.name + '\\nURL：' + t.url) : '';
+  confirmModal('删除任务', '确定删除该监控任务吗？删除后不再定时检查与推送。\\n' + info, async function(){
     try { await api('/api/monitor/tasks/' + id, { method:'DELETE' }); await loadTasks(); }
     catch(e){ alertModal(e.message, {ok:false}); }
   });
@@ -2245,25 +2279,8 @@ window.viewLogs = async function(id, name){
     box.scrollIntoView({ behavior:'smooth' });
   } catch(e){ alertModal(e.message, {ok:false}); }
 };
-document.getElementById('tSave').addEventListener('click', async function(){
-  var id = document.getElementById('tId').value;
-  var payload = {
-    name: document.getElementById('tName').value,
-    url: document.getElementById('tUrl').value,
-    return_type: document.getElementById('tType').value,
-    channel_id: document.getElementById('tChannel').value || null,
-    enabled: document.getElementById('tEnabled').checked,
-    standalone: document.getElementById('tStandalone').checked
-  };
-  try {
-    if (id) await api('/api/monitor/tasks/' + id, { method:'PUT', body: payload });
-    else await api('/api/monitor/tasks', { method:'POST', body: payload });
-    document.getElementById('taskFormWrap').style.display = 'none';
-    await loadTasks();
-  } catch(e){ alertModal(e.message, {ok:false}); }
-});
+// 新建/编辑走 taskForm() 弹窗; tNew 按钮在 h2, 点击打开空白表单
 document.getElementById('tNew').addEventListener('click', function(){ taskForm({}); });
-document.getElementById('tCancel').addEventListener('click', function(){ document.getElementById('taskFormWrap').style.display='none'; });
 document.getElementById('runNow').addEventListener('click', async function(){
   var btn = this; btn.disabled = true; btn.textContent = '执行中...';
   try {

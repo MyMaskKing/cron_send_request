@@ -262,25 +262,6 @@ function monitorPage(user) {
       </table>
     </div>
 
-    <div class="card" id="taskFormWrap" style="display:none;">
-      <h2>任务编辑</h2>
-      <input type="hidden" id="tId">
-      <label>任务名称</label><input id="tName">
-      <label>URL</label><input id="tUrl" placeholder="https://...">
-      <div class="row">
-        <div><label>返回格式</label>
-          <select id="tType"><option value="text">text</option><option value="html">html</option></select>
-        </div>
-        <div><label>通知渠道</label><select id="tChannel"></select></div>
-      </div>
-      <label><input type="checkbox" id="tEnabled" style="width:auto;" checked> 启用</label>
-      <label><input type="checkbox" id="tStandalone" style="width:auto;"> 独立发送（该任务结果单独一条消息；不勾则与同渠道其他任务合并）</label>
-      <div style="margin-top:12px;">
-        <button class="btn" id="tSave">保存</button>
-        <button class="btn gray" id="tCancel">取消</button>
-      </div>
-    </div>
-
     <div class="card">
       <h2>定时执行</h2>
       <div class="row">

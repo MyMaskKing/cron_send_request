@@ -59,7 +59,7 @@ src/
     ├── layout.js         renderPage 外壳 + BASE_CSS（含移动端表格转卡片、.multi-pick）
     ├── pages.js          每页一个函数 → renderPage({body, script})
     └── assets.js         页面 JS 常量；COMMON_JS 公共头(api()/openModal/initMultiPick/时区辅助)
-migrations/               手动逐个执行的 SQL，000N 递增编号
+migrations/               单个全量建库脚本 0001_init.sql（IF NOT EXISTS 幂等，新库执行一次）
 ```
 
 ## 4. 请求生命周期
@@ -128,7 +128,7 @@ token 长期有效，缺失时代码自动 `generateToken()` 生成并持久化�
 | `push_config` | ★ 统一推送配置 | (user_id,module) 主键、channel_id、format、enabled、hours、days、report_token |
 | `app_settings` | 全局键值 | 目前存 `tz_offset` |
 
-迁移**无自动机制**，逐个手动执行；新增改动在 `migrations/000N_描述.sql` 递增建文件，**注释必须独立成行**（不用行内注释）以兼容 D1 控制台逐条执行。
+迁移基线是单个全量脚本 `migrations/0001_init.sql`（全部 `CREATE ... IF NOT EXISTS` + `INSERT OR IGNORE`，新库执行一次、可安全重跑）。D1 手动执行、Docker 启动自动跑（`_migrations` 按**文件名**去重，跑过的文件名不再执行）。**以后给老库升级要新建 `migrations/000N_描述.sql`（编号递增，如 0002）**——0001 已部署后改内容不会重跑；新文件里新表/索引用 `CREATE ... IF NOT EXISTS`、新列用 `ALTER TABLE ADD COLUMN`（重跑"列已存在"自动忽略）。可同步把新表/列写进 0001 的 CREATE 方便全新部署。**注释必须独立成行**（不用行内注释）以兼容 D1 控制台逐条执行。
 
 ## 10. 时区处理（易踩坑）
 
