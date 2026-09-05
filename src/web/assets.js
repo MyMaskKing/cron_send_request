@@ -4080,10 +4080,15 @@ function openRecModal(id, type, month, preset, editId) {
       '<label>持有收益(元)</label><input id="fProfit" type="number" step="0.01" value="' + (preset.profit != null ? preset.profit : '') + '">' +
       '<p class="muted" id="principalHint">本金将自动计算 = 总资产 − 收益</p>'
     : '<label>本月余额(元)</label><input id="fBalance" type="number" step="0.01" value="' + (preset.balance != null ? preset.balance : '') + '">';
+  // 新增模式三按钮: 保存(提交并关闭) / 连续录入(提交后弹窗保留继续录下一条) / 取消;
+  // 修改模式只需 保存 / 取消(修改单条不存在"连续录入"语义)
+  var actions = editId
+    ? '<div style="margin-top:12px;"><button class="btn" id="recConfirm">保存</button> <button class="btn gray" onclick="closeModal()">取消</button></div>'
+    : '<div style="margin-top:12px;"><button class="btn" id="recConfirm">保存</button> <button class="btn gray" id="recContinue">连续录入</button> <button class="btn gray" onclick="closeModal()">取消</button></div>';
   openModal(editId ? '修改 · ' + w.name + ' (' + month + ')' : '录入 · ' + w.name,
     monthField + fields +
     '<p class="msg ok" id="recSavedHint" style="display:none;margin:8px 0 0;">已保存，可继续录入下一条</p>' +
-    '<div style="margin-top:12px;"><button class="btn" id="recConfirm">保存</button> <button class="btn gray" onclick="closeModal()">' + (editId ? '取消' : '完成') + '</button></div>');
+    actions);
   if (type === 'investment') {
     var calc = function(){
       var t = parseFloat(document.getElementById('fTotal').value)||0;
@@ -4093,35 +4098,44 @@ function openRecModal(id, type, month, preset, editId) {
     document.getElementById('fTotal').addEventListener('input', calc);
     document.getElementById('fProfit').addEventListener('input', calc);
   }
-  document.getElementById('recConfirm').addEventListener('click', async function(){
+  // 提交表单: 校验 + POST(新增)/PUT(修改); 成功返回 true, 失败弹窗提示并返回 false
+  async function submitRec() {
     var mm = document.getElementById('fMonth').value;
-    if (!mm) { alertModal('请选择月份', {ok:false}); return; }
+    if (!mm) { alertModal('请选择月份', {ok:false}); return false; }
     var payload = { month: mm };
     if (type === 'investment') { payload.total = document.getElementById('fTotal').value; payload.profit = document.getElementById('fProfit').value; }
     else payload.balance = document.getElementById('fBalance').value;
     try {
       if (editId) {
         await api('/api/asset/records/' + editId, { method:'PUT', body: payload });
-        closeModal(); await loadAll();
       } else {
         payload.wallet_id = id;
         await api('/api/asset/records', { method:'POST', body: payload });
-        // 连续录入：弹窗保留、月份不动，清空金额并聚焦，后台刷新数据
-        var hint = document.getElementById('recSavedHint');
-        if (hint) hint.style.display = '';
-        if (type === 'investment') {
-          document.getElementById('fTotal').value = '';
-          document.getElementById('fProfit').value = '';
-          document.getElementById('principalHint').textContent = '本金将自动计算 = 总资产 − 收益';
-          document.getElementById('fTotal').focus();
-        } else {
-          document.getElementById('fBalance').value = '';
-          document.getElementById('fBalance').focus();
-        }
-        await loadAll();
       }
+      return true;
     }
-    catch(e){ alertModal(e.message, {ok:false}); }
+    catch(e){ alertModal(e.message, {ok:false}); return false; }
+  }
+  // 保存: 提交成功后关闭弹窗并刷新
+  document.getElementById('recConfirm').addEventListener('click', async function(){
+    if (await submitRec()) { closeModal(); await loadAll(); }
+  });
+  // 连续录入(仅新增模式): 提交成功后弹窗保留、月份不动, 清空金额并聚焦, 后台刷新数据
+  var btnContinue = document.getElementById('recContinue');
+  if (btnContinue) btnContinue.addEventListener('click', async function(){
+    if (!(await submitRec())) return;
+    var hint = document.getElementById('recSavedHint');
+    if (hint) hint.style.display = '';
+    if (type === 'investment') {
+      document.getElementById('fTotal').value = '';
+      document.getElementById('fProfit').value = '';
+      document.getElementById('principalHint').textContent = '本金将自动计算 = 总资产 − 收益';
+      document.getElementById('fTotal').focus();
+    } else {
+      document.getElementById('fBalance').value = '';
+      document.getElementById('fBalance').focus();
+    }
+    await loadAll();
   });
 }
 // 查看某钱包最新数据月份的记录明细（同月可能多条；创建时间倒序）
