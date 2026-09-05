@@ -93,6 +93,9 @@ function createD1Adapter(env) {
       async updateWeightUnit(id, unit) {
         await db.prepare('UPDATE users SET weight_unit = ? WHERE id = ?').bind(unit, id).run();
       },
+      async updateTheme(id, theme) {
+        await db.prepare('UPDATE users SET theme = ? WHERE id = ?').bind(theme, id).run();
+      },
       async updateQuickloginRestrict(id, v) {
         await db.prepare('UPDATE users SET restrict_quicklogin = ? WHERE id = ?').bind(v ? 1 : 0, id).run();
       },

@@ -35,6 +35,7 @@ fun MeScreen(
     onOpenPath: (String) -> Unit,
     onChangeBaseUrl: (String) -> Unit,
     onOpenInBrowser: () -> Unit,
+    onThemeClick: () -> Unit,
     onLogout: () -> Unit
 ) {
     var showUrlDialog by remember { mutableStateOf(false) }
@@ -57,6 +58,7 @@ fun MeScreen(
         MeItem("⚙️", "推送与设置", "日报推送、账号与系统设置") { onOpenPath("/settings") }
         MeItem("👑", "用户管理", "管理员可用，切换身份/管理用户") { onOpenPath("/admin") }
         HorizontalDivider()
+        MeItem("🎨", "主题外观", "浅色 / 暗色 / 护眼，随账号同步") { onThemeClick() }
         MeItem("🌐", "在浏览器中打开", "用系统浏览器查看当前页面") { onOpenInBrowser() }
         MeItem("🔗", "服务器地址", baseUrl) {
             pendingUrl = baseUrl

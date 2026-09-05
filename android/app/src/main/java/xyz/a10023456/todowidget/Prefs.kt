@@ -21,6 +21,13 @@ object Prefs {
     /** 已在 App 内登录（存在会话 Cookie）。 */
     fun isLoggedIn(context: Context): Boolean = getSid(context).isNotBlank()
 
+    // ── 界面主题（light|dark|eye）：权威值在账号（网页 __applyTheme 会 PUT 同步），
+    //    这里仅记录本机最近选择，供「我的」页对话框标记当前项 ──
+    fun getTheme(context: Context): String = sp(context).getString("app_theme", "light") ?: "light"
+
+    fun setTheme(context: Context, theme: String) =
+        sp(context).edit().putString("app_theme", theme).apply()
+
     fun getToken(context: Context, widgetId: Int): String =
         sp(context).getString("token_$widgetId", "") ?: ""
 

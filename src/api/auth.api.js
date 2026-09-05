@@ -21,6 +21,9 @@ function validateCredentials(username, password) {
   return null;
 }
 
+// 界面主题合法值（与前端 data-theme 取值一致）；非法值回退 light
+const THEMES = ['light', 'dark', 'eye'];
+
 // 注册人数上限相关 app_settings 键
 const SETTING_REG_LIMIT = 'register_limit';
 const SETTING_REG_LIMIT_MSG = 'register_limit_msg';
@@ -132,7 +135,27 @@ async function getProfile({ request, env }) {
   const storage = getStorage(env);
   const u = await storage.users.findById(session.user_id);
   if (!u) return error('用户不存在', 404);
-  return json({ success: true, profile: { username: u.username, nickname: u.nickname || u.username, restrict_quicklogin: u.restrict_quicklogin != null ? u.restrict_quicklogin : 1 } });
+  return json({ success: true, profile: {
+    username: u.username,
+    nickname: u.nickname || u.username,
+    restrict_quicklogin: u.restrict_quicklogin != null ? u.restrict_quicklogin : 1,
+    theme: THEMES.includes(u.theme) ? u.theme : 'light'
+  } });
+}
+
+/**
+ * PUT /api/auth/theme  保存自己的界面主题  body: { theme: 'light'|'dark'|'eye' }
+ */
+async function updateTheme({ request, env }) {
+  const token = getTokenFromRequest(request);
+  const session = await getSession(env, token);
+  if (!session) return error('未登录', 401);
+  const body = await request.json().catch(() => ({}));
+  const theme = body.theme;
+  if (!THEMES.includes(theme)) return error('主题值非法', 400);
+  const storage = getStorage(env);
+  await storage.users.updateTheme(session.user_id, theme);
+  return json({ success: true, message: '主题已保存' });
 }
 
 /**
@@ -306,5 +329,6 @@ async function updateQuickloginRestrict({ request, env }) {
 
 export {
   register, login, logout, me, bootstrap, setupStatus, registerStatus,
-  getProfile, updateProfile, changePassword, quickLoginByToken, updateQuickloginRestrict
+  getProfile, updateProfile, changePassword, quickLoginByToken, updateQuickloginRestrict,
+  updateTheme
 };

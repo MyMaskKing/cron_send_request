@@ -15,7 +15,7 @@ import { batchAccessUrls, formatResults } from './services/monitor.service.js';
 import { sendNotification } from './services/notify.service.js';
 
 // API handlers
-import { register, registerStatus, login, logout, me, bootstrap, setupStatus, getProfile, updateProfile, changePassword, quickLoginByToken, updateQuickloginRestrict } from './api/auth.api.js';
+import { register, registerStatus, login, logout, me, bootstrap, setupStatus, getProfile, updateProfile, changePassword, quickLoginByToken, updateQuickloginRestrict, updateTheme } from './api/auth.api.js';
 import {
   listUsers, getUserDetail, updateUserRole, updateUserStatus,
   createUser, resetPassword, impersonateUser, stopImpersonateUser, updateUserNickname,
@@ -93,6 +93,7 @@ router.post('/api/auth/logout', logout);
 router.get('/api/auth/me', me);
 router.get('/api/auth/profile', getProfile);
 router.put('/api/auth/profile', updateProfile);
+router.put('/api/auth/theme', updateTheme);
 router.put('/api/auth/password', changePassword);
 router.put('/api/auth/quicklogin-restrict', updateQuickloginRestrict);
 router.get('/api/auth/setup-status', setupStatus);
@@ -360,7 +361,11 @@ async function handlePages(request, env) {
         /(?:^|;\s*)app_shell=1/.test(request.headers.get('Cookie') || '')
     };
     // 顶栏时钟按配置时区显示：读全局 app_settings.tz_offset（默认 8），注入页面供前端使用
-    user.tzOffset = parseOffset(await getStorage(env).settings.get('tz_offset'));
+    const _storage = getStorage(env);
+    user.tzOffset = parseOffset(await _storage.settings.get('tz_offset'));
+    // 界面主题（账号级偏好）：服务端直出 data-theme 防首屏闪白；非法/缺失回退 light
+    const _me = await _storage.users.findById(session.user_id);
+    user.theme = (_me && ['light', 'dark', 'eye'].includes(_me.theme)) ? _me.theme : 'light';
 
     switch (pageMap[path]) {
       case 'dashboard':

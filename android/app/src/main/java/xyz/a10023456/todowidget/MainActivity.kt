@@ -388,6 +388,25 @@ private fun AppShell(initialUrl: String?) {
                         }
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                     },
+                    onThemeClick = {
+                        // 主题三选一：网页 __applyTheme 统一切 data-theme 并 PUT 同步到账号；
+                        // 原生 Prefs 仅记录本机最近选择，供对话框勾选
+                        val keys = arrayOf("light", "dark", "eye")
+                        val labels = arrayOf("浅色", "暗色", "护眼")
+                        val checked = keys.indexOf(Prefs.getTheme(context)).coerceAtLeast(0)
+                        android.app.AlertDialog.Builder(context)
+                            .setTitle("主题外观")
+                            .setSingleChoiceItems(labels, checked) { dlg, which ->
+                                val t = keys[which]
+                                Prefs.setTheme(context, t)
+                                webViewRef?.evaluateJavascript(
+                                    "window.__applyTheme && window.__applyTheme('$t', true);", null
+                                )
+                                dlg.dismiss()
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    },
                     onLogout = {
                         CookieManager.getInstance().removeAllCookies(null)
                         Prefs.clearSid(context)

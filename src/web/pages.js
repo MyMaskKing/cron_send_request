@@ -134,7 +134,7 @@ function dashboardPage(user) {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '仪表盘', body, scripts: ['page-dashboard.js'] });
+  return renderPage({ title: '仪表盘', body, scripts: ['page-dashboard.js'], theme: user.theme });
 }
 
 /** 超管用户管理页 */
@@ -178,7 +178,7 @@ function adminPage(user) {
         </div>
       </div>
       <hr style="margin:14px 0;border:none;border-top:1px solid #E4E1D8;">
-      <p style="color:#CF1322;font-size:13px;margin-bottom:10px;">⚠ 导入将<strong>清空当前全部数据</strong>并替换为备份内容，操作不可撤销；完成后需重新登录。</p>
+      <p style="color:var(--danger);font-size:13px;margin-bottom:10px;">⚠ 导入将<strong>清空当前全部数据</strong>并替换为备份内容，操作不可撤销；完成后需重新登录。</p>
       <div class="row">
         <div style="flex:1;">
           <label>选择备份文件（.json）</label>
@@ -245,7 +245,7 @@ function adminPage(user) {
     </div>
     <div class="card" id="detail" style="display:none;"></div>
   </div>`;
-  return renderPage({ title: '用户管理', body, scripts: ['page-admin.js'] });
+  return renderPage({ title: '用户管理', body, scripts: ['page-admin.js'], theme: user.theme });
 }
 
 /** 定时任务管理页 */
@@ -294,7 +294,7 @@ function monitorPage(user) {
 
     <div class="card" id="logBox" style="display:none;"></div>
   </div>`;
-  return renderPage({ title: '定时任务', body, scripts: ['page-monitor.js'] });
+  return renderPage({ title: '定时任务', body, scripts: ['page-monitor.js'], theme: user.theme });
 }
 
 /** 通知渠道管理页 */
@@ -313,7 +313,7 @@ function channelsPage(user) {
       <p class="muted" style="margin-top:8px;">渠道用于监控任务、基金/资产/体重日报的消息推送。三种类型：企业微信机器人、通用 Webhook、邮件转发。</p>
     </div>
   </div>`;
-  return renderPage({ title: '通知渠道', body, scripts: ['page-channels.js'] });
+  return renderPage({ title: '通知渠道', body, scripts: ['page-channels.js'], theme: user.theme });
 }
 
 /** 基金追踪页 */
@@ -345,7 +345,7 @@ function fundPage(user) {
       <div id="profitChartWrap" style="max-width:720px;margin:20px auto 0;"><canvas id="profitChart"></canvas></div>
       <h3 style="margin:24px 0 8px;font-size:16px;">每日明细</h3>
       <div class="scroll-box">
-        <table><thead><tr style="background:#f8f9fa;"><th>日期</th><th>总收益(元)</th><th>较前一天增长(元)</th></tr></thead><tbody id="profitTbody"></tbody></table>
+        <table><thead><tr style="background:var(--surface-2);"><th>日期</th><th>总收益(元)</th><th>较前一天增长(元)</th></tr></thead><tbody id="profitTbody"></tbody></table>
       </div>
     </div>
 
@@ -421,14 +421,14 @@ function fundPage(user) {
     </div>
   </div>
   <button id="stratSetup" class="btn" style="position:fixed;right:24px;bottom:24px;z-index:998;box-shadow:0 4px 12px rgba(74,108,247,.35);">📝 记录我的投资策略</button>`;
-  return renderPage({ title: '基金追踪', body, scripts: ['page-fund.js'] });
+  return renderPage({ title: '基金追踪', body, scripts: ['page-fund.js'], theme: user.theme });
 }
 
 /** 免密快速加仓公开页（无需登录） */
 function publicBuyPage() {
   const body = `<div class="login-wrap" style="max-width:420px;">
     <div class="card">
-      <h1 style="text-align:center;color:#A855F7;font-size:20px;margin-bottom:16px;">${ICO_PLUS}快速加仓</h1>
+      <h1 style="text-align:center;color:var(--brand);font-size:20px;margin-bottom:16px;">${ICO_PLUS}快速加仓</h1>
       <div style="text-align:center;margin-bottom:12px;"><button class="btn sm gray" id="quickLoginBtn">${ICO_KEY}用本人账号登录</button></div>
       <div id="msg" class="msg"></div>
       <div id="content" style="display:none;">
@@ -449,7 +449,7 @@ function publicBuyPage() {
         </form>
         <p class="muted" style="font-size:12px;margin-top:10px;">选择今天=实时估算净值；选择历史日=该日单位净值（周末/节假日无数据请手填）。按金额买入：份额=金额/净值，系统自动累计并重算持仓成本净值。</p>
         <div id="chartBox" style="display:none;margin-top:16px;">
-          <h2 style="font-size:14px;color:#666;">近30天持仓收益</h2>
+          <h2 style="font-size:14px;color:var(--muted);">近30天持仓收益</h2>
           <canvas id="profitChart" style="max-height:220px;"></canvas>
           <table style="margin-top:12px;">
             <thead><tr><th>日期</th><th>持仓收益</th><th>较前一天</th></tr></thead>
@@ -540,7 +540,7 @@ function weightPage(user) {
       <canvas id="compareChart" style="max-height:340px;margin-top:14px;"></canvas>
     </div>
   </div>`;
-  return renderPage({ title: '体重曲线', body, scripts: ['page-weight.js'] });
+  return renderPage({ title: '体重曲线', body, scripts: ['page-weight.js'], theme: user.theme });
 }
 
 /** 体重免密快速填写公开页 */
@@ -550,24 +550,24 @@ function publicWeightPage() {
     .wk-flame{display:inline-block;animation:wkFlame 1s ease-in-out infinite;}
     @keyframes wkPop { 0%{transform:scale(.3);opacity:0;} 60%{transform:scale(1.18);opacity:1;} 100%{transform:scale(1);} }
     .wk-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
-    .wk-cal-head{font-size:11px;color:#aaa;text-align:center;padding:2px 0;}
-    .wk-cal-cell{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;font-size:12px;border-radius:6px;color:#bbb;background:#f5f5f7;}
-    .wk-cal-done{background:#d9f7be;color:#389e0d;font-weight:700;}
-    .wk-cal-today{outline:2px solid #A855F7;color:#A855F7;}
+    .wk-cal-head{font-size:11px;color:var(--muted);text-align:center;padding:2px 0;}
+    .wk-cal-cell{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;font-size:12px;border-radius:6px;color:var(--muted);background:var(--surface-2);}
+    .wk-cal-done{background:var(--ok-bg);color:var(--ok);font-weight:700;}
+    .wk-cal-today{outline:2px solid #A855F7;color:var(--brand);}
     .wk-cal-pop{animation:wkPop .5s ease;}
   </style>
   <div class="login-wrap" style="max-width:420px;">
     <div class="card">
-      <h1 style="text-align:center;color:#A855F7;font-size:20px;margin-bottom:6px;">⚖️ <span id="memberName"></span></h1>
+      <h1 style="text-align:center;color:var(--brand);font-size:20px;margin-bottom:6px;">⚖️ <span id="memberName"></span></h1>
       <div id="streakLine" style="text-align:center;font-size:22px;font-weight:700;margin-bottom:4px;display:none;"></div>
-      <p id="streakTitle" style="text-align:center;color:#389e0d;font-weight:600;margin-bottom:2px;"></p>
-      <p id="monthDays" style="text-align:center;color:#888;font-size:13px;margin-bottom:16px;"></p>
+      <p id="streakTitle" style="text-align:center;color:var(--ok);font-weight:600;margin-bottom:2px;"></p>
+      <p id="monthDays" style="text-align:center;color:var(--muted);font-size:13px;margin-bottom:16px;"></p>
       <div style="text-align:center;margin-bottom:12px;"><button class="btn sm gray" id="quickLoginBtn">${ICO_KEY}用本人账号登录</button></div>
       <div id="msg" class="msg"></div>
       <div id="content" style="display:none;">
         <form id="wForm">
           <label>日期（今日，不可修改）</label>
-          <input id="todayDate" readonly disabled style="background:#f5f5f5;text-align:center;">
+          <input id="todayDate" readonly disabled style="background:var(--surface-2);text-align:center;">
           <label id="weightLabel">今日体重(斤)</label>
           <input id="weight" type="number" step="0.1" required placeholder="如 130">
           <button class="btn" style="width:100%;" type="submit">提交今日体重</button>
@@ -590,7 +590,7 @@ function settingsPage(user) {
       <div id="msg" class="msg"></div>
       <form id="nickForm">
         <label>用户名（登录用，不可修改）</label>
-        <input id="pfUsername" readonly disabled style="background:#f5f5f5;">
+        <input id="pfUsername" readonly disabled style="background:var(--surface-2);">
         <label>昵称</label>
         <input id="pfNick" maxlength="32">
         <button class="btn" type="submit">保存昵称</button>
@@ -629,7 +629,7 @@ function settingsPage(user) {
       <div id="dataShareBox" style="margin-top:10px;"><p class="muted" style="font-size:12px;">加载中…</p></div>
     </div>
   </div>`;
-  return renderPage({ title: '个人设置', body, scripts: ['page-settings.js'] });
+  return renderPage({ title: '个人设置', body, scripts: ['page-settings.js'], theme: user.theme });
 }
 
 /** 资产报表页 */
@@ -643,7 +643,7 @@ function assetPage(user) {
         <div class="stat"><div class="num" id="sNet">0</div><div class="lbl">净资产</div></div>
         <div class="stat"><div class="num" id="sMonth" style="font-size:18px;">—</div><div class="lbl">最新月份</div></div>
       </div>
-      <div id="goalBox" style="margin-top:14px;padding:10px;background:#f8f9ff;border-radius:6px;font-size:14px;"></div>
+      <div id="goalBox" style="margin-top:14px;padding:10px;background:var(--surface-3);border-radius:6px;font-size:14px;"></div>
       <div id="typeTotalBox" style="margin-top:14px;"></div>
       <div class="row" style="margin-top:12px;">
         <div style="flex:none;width:100%;">
@@ -724,15 +724,15 @@ function assetPage(user) {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '资产报表', body, scripts: ['page-asset.js'] });
+  return renderPage({ title: '资产报表', body, scripts: ['page-asset.js'], theme: user.theme });
 }
 
 /** 资产免密录入公开页 */
 function publicAssetPage() {
   const body = `<div class="login-wrap" style="max-width:420px;">
     <div class="card">
-      <h1 style="text-align:center;color:#A855F7;font-size:20px;margin-bottom:6px;">💰 <span id="walletName"></span></h1>
-      <p style="text-align:center;color:#888;font-size:13px;margin-bottom:16px;">录入 <span id="monthLabel"></span>金额</p>
+      <h1 style="text-align:center;color:var(--brand);font-size:20px;margin-bottom:6px;">💰 <span id="walletName"></span></h1>
+      <p style="text-align:center;color:var(--muted);font-size:13px;margin-bottom:16px;">录入 <span id="monthLabel"></span>金额</p>
       <div style="text-align:center;margin-bottom:12px;"><button class="btn sm gray" id="quickLoginBtn">${ICO_KEY}用本人账号登录</button></div>
       <div id="msg" class="msg"></div>
       <div id="content" style="display:none;">
@@ -741,7 +741,7 @@ function publicAssetPage() {
           <button class="btn" style="width:100%;" type="submit">提交本月记录</button>
         </form>
         <div id="chartBox" style="display:none;margin-top:18px;">
-          <h2 style="font-size:14px;color:#666;">本年余额趋势（<span id="chartYear"></span>）</h2>
+          <h2 style="font-size:14px;color:var(--muted);">本年余额趋势（<span id="chartYear"></span>）</h2>
           <canvas id="walletChart" style="max-height:240px;"></canvas>
         </div>
       </div>
@@ -802,7 +802,7 @@ function fundReportPage() {
       <canvas id="profitChart" style="max-height:300px;"></canvas>
       <h3 style="margin:20px 0 8px;font-size:16px;">每日明细</h3>
       <div class="scroll-box">
-        <table><thead><tr style="background:#f8f9fa;"><th>日期</th><th>总收益(元)</th><th>较前一天增长(元)</th></tr></thead><tbody id="profitTbody"></tbody></table>
+        <table><thead><tr style="background:var(--surface-2);"><th>日期</th><th>总收益(元)</th><th>较前一天增长(元)</th></tr></thead><tbody id="profitTbody"></tbody></table>
       </div>
     </div>
   </div>`;
@@ -897,7 +897,7 @@ function todoPage(user) {
       </div>
     </div>
   </div>`;
-  return renderPage({ title: '待办清单', body, scripts: ['todo-core.js','page-todo.js'] });
+  return renderPage({ title: '待办清单', body, scripts: ['todo-core.js','page-todo.js'], theme: user.theme });
 }
 
 /** 待办免密协作公开页 */
@@ -917,7 +917,7 @@ function publicTodoPage() {
         <div style="margin-bottom:12px;">
           <button class="btn sm" id="tAddRoot">+ 添加任务</button>
           <button class="btn sm gray" id="viewToggle" style="margin-left:8px;">${ICO_CARDS}卡片视图</button>
-          <label style="float:right;font-weight:normal;color:#666;font-size:13px;"><input type="checkbox" id="hideDone" style="width:auto;" checked> 隐藏已完成</label>
+          <label style="float:right;font-weight:normal;color:var(--muted);font-size:13px;"><input type="checkbox" id="hideDone" style="width:auto;" checked> 隐藏已完成</label>
         </div>
         <div id="todoTreeHome">
           <div id="todoCrumb" class="todo-crumb" style="display:none;"></div>
@@ -977,7 +977,7 @@ function todoReportPage() {
             <button data-filter="memo">备忘录</button>
             <button data-filter="done">已完成</button>
           </div>
-          <label style="font-weight:normal;color:#666;font-size:13px;white-space:nowrap;"><input type="checkbox" id="hideDone" style="width:auto;" checked> 隐藏已完成</label>
+          <label style="font-weight:normal;color:var(--muted);font-size:13px;white-space:nowrap;"><input type="checkbox" id="hideDone" style="width:auto;" checked> 隐藏已完成</label>
         </div>
         <div style="margin:0 0 12px;"><button class="btn sm" id="tAddRoot">+ 添加任务</button></div>
         <div id="todoTreeHome">
@@ -1040,7 +1040,7 @@ function todoCollabPage() {
         <div style="margin-bottom:12px;">
           <button class="btn sm" id="tAddRoot">+ 添加任务</button>
           <button class="btn sm gray" id="viewToggle" style="margin-left:8px;">${ICO_CARDS}卡片视图</button>
-          <label style="float:right;font-weight:normal;color:#666;font-size:13px;"><input type="checkbox" id="hideDone" style="width:auto;" checked> 隐藏已完成</label>
+          <label style="float:right;font-weight:normal;color:var(--muted);font-size:13px;"><input type="checkbox" id="hideDone" style="width:auto;" checked> 隐藏已完成</label>
         </div>
         <div class="todo-range todo-filter" id="todoFilter">
           <button data-filter="cur" class="active">今日+逾期</button>

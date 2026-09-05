@@ -499,7 +499,7 @@ async function mountDataSwitcher(mod){
     (cur ? '<div class="muted" style="width:100%;margin-top:4px;">你正在查看/编辑共享数据，推送设置、免密链接等个人功能不可用。</div>' : '') +
     '</div>';
   var bar = document.createElement('div');
-  bar.style.cssText = 'margin:0 0 12px;padding:9px 12px;background:#eef1ff;border:1px solid #dfe4ff;border-radius:8px;';
+  bar.style.cssText = 'margin:0 0 12px;padding:9px 12px;background:var(--hover-brand);border:1px solid #dfe4ff;border-radius:8px;';
   bar.innerHTML = html;
   bar.querySelectorAll('button').forEach(function(b){
     b.addEventListener('click', function(){
@@ -1345,6 +1345,57 @@ if (document.readyState === 'loading') {
   report();
 })();
 
+// ============ 主题切换（浅色/暗色/护眼，账号级同步） ============
+// 服务端已按用户偏好把 data-theme 直出在 <html>（首屏无闪白）；这里负责顶栏按钮渲染、
+// 点击循环切换与持久化。window.__applyTheme(theme, persist) 同时供 Android 原生壳
+//（"我的"页主题项）经 evaluateJavascript 调用。
+(function initThemeSwitcher(){
+  var THEME_ORDER = ['light', 'dark', 'eye'];
+  var SVG_SUN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+  var SVG_MOON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+  var SVG_EYE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var THEME_META = {
+    light: { label: '浅色', icon: SVG_SUN },
+    dark:  { label: '暗色', icon: SVG_MOON },
+    eye:   { label: '护眼', icon: SVG_EYE }
+  };
+  function currentTheme() {
+    var t = document.documentElement.getAttribute('data-theme');
+    return THEME_META[t] ? t : 'light';
+  }
+  function renderToggle() {
+    var m = THEME_META[currentTheme()];
+    var icon = document.getElementById('themeToggleIcon');
+    var label = document.getElementById('themeToggleLabel');
+    if (icon) icon.innerHTML = m.icon;
+    if (label) label.textContent = m.label;
+  }
+  // 应用主题: 切 <html data-theme> + 刷新按钮; persist=true 时 PUT 到账号(失败静默, 本地已生效)
+  window.__applyTheme = function(theme, persist) {
+    if (!THEME_META[theme]) theme = 'light';
+    document.documentElement.setAttribute('data-theme', theme);
+    renderToggle();
+    if (persist) {
+      try { api('/api/auth/theme', { method: 'PUT', body: { theme: theme } }).catch(function(){}); } catch(e) {}
+    }
+  };
+  function cycle() {
+    var t = currentTheme();
+    var next = THEME_ORDER[(THEME_ORDER.indexOf(t) + 1) % THEME_ORDER.length];
+    window.__applyTheme(next, true);
+  }
+  function bind() {
+    var btn = document.getElementById('themeToggle');
+    if (btn && !btn.__themeBound) {
+      btn.__themeBound = 1;
+      btn.addEventListener('click', function(e){ e.preventDefault(); cycle(); });
+    }
+    renderToggle();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
+  else bind();
+})();
+
 // ========= 数字/金额格式化 =========
 // fmtMoney(v)         => 千分位, 保留原有小数位, 如 100000.12 => "100,000.12"; 100000 => "100,000"
 // fmtMoney(v, {frac:2})=> 强制 2 位小数, 100000 => "100,000.00"
@@ -1499,7 +1550,7 @@ async function loadShareTokens(){
       var meta = SHARE_META[m];
       var inputId = 'st_' + m;
       var linkId = 'sl_' + m;
-      return '<div style="margin-bottom:12px;padding:10px;background:#faf9f5;border-radius:6px;">'
+      return '<div style="margin-bottom:12px;padding:10px;background:var(--surface-2);border-radius:6px;">'
         + '<label style="font-weight:600;margin-bottom:4px;display:block;">' + meta.name + ' report_token</label>'
         + '<div class="row" style="align-items:center;">'
         + '<input id="' + inputId + '" readonly value="' + t + '" style="flex:1;font-family:monospace;font-size:12px;">'
@@ -1510,7 +1561,7 @@ async function loadShareTokens(){
         + '<button class="btn sm gray" type="button" onclick="copyInput(\\'' + linkId + '\\')">复制链接</button>'
         + '</div></div>';
     }).join('');
-  } catch(e){ box.innerHTML = '<p class="muted" style="font-size:12px;color:#c00;">加载失败：' + (e.message||'') + '</p>'; }
+  } catch(e){ box.innerHTML = '<p class="muted" style="font-size:12px;color:var(--danger);">加载失败：' + (e.message||'') + '</p>'; }
 }
 loadShareTokens();
 // 模块级重置免密链接
@@ -1552,10 +1603,10 @@ async function loadDataShare(){
   try {
     mine = (await api('/api/share/mine')).shares || [];
     invites = (await api('/api/share/invites')).invites || [];
-  } catch(e){ box.innerHTML = '<p class="muted" style="font-size:12px;color:#c00;">加载失败：' + esc(e.message) + '</p>'; return; }
+  } catch(e){ box.innerHTML = '<p class="muted" style="font-size:12px;color:var(--danger);">加载失败：' + esc(e.message) + '</p>'; return; }
   var h = '';
   // 我发起的共享
-  h += '<div style="padding:10px;background:#faf9f5;border-radius:6px;margin-bottom:12px;">';
+  h += '<div style="padding:10px;background:var(--surface-2);border-radius:6px;margin-bottom:12px;">';
   h += '<div style="font-weight:600;margin-bottom:6px;">我发起的共享</div>';
   h += '<div style="margin-bottom:8px;">';
   DS_MODS.forEach(function(m){
@@ -1589,7 +1640,7 @@ async function loadDataShare(){
   });
   h += '</div>';
   // 加入共享
-  h += '<div style="padding:10px;background:#faf9f5;border-radius:6px;">';
+  h += '<div style="padding:10px;background:var(--surface-2);border-radius:6px;">';
   h += '<div style="font-weight:600;margin-bottom:6px;">加入共享</div>';
   h += '<div class="row" style="align-items:center;"><input id="dsJoinCode" placeholder="输入家人给的共享码" style="flex:1;letter-spacing:1px;text-transform:uppercase;"> <button class="btn sm" id="dsJoin">加入</button></div>';
   if (mine.length) {
@@ -1916,7 +1967,7 @@ if (regLimitMsgBtn) regLimitMsgBtn.addEventListener('click', function(){
     '<div style="margin-bottom:10px;"><label>提示词内容（留空则使用默认文案）</label>' +
     '<textarea id="rlmText" data-autogrow style="width:100%;min-height:160px;padding:8px;" placeholder="支持 **粗体**、*斜体*、[文字](链接)、- 列表、# 标题"></textarea></div>' +
     '<div style="margin-bottom:10px;"><label>预览</label>' +
-    '<div id="rlmPreview" style="border:1px solid #E4E1D8;border-radius:8px;padding:10px 12px;min-height:60px;background:#fafafa;"></div></div>' +
+    '<div id="rlmPreview" style="border:1px solid #E4E1D8;border-radius:8px;padding:10px 12px;min-height:60px;background:var(--surface-2);"></div></div>' +
     '<div style="text-align:right;"><button class="btn gray" id="rlmCancel">取消</button> ' +
     '<button class="btn" id="rlmSave">保存提示词</button></div>');
   var ta = document.getElementById('rlmText');
@@ -2263,7 +2314,7 @@ bindModal();
 var CH_HELP = {
   wechat: '<b>📢 企业微信群机器人</b><br>• <b>URL</b>：群机器人 Webhook 地址<br>&nbsp;&nbsp;<code>https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的key</code><br>• <b>请求头 JSON</b>、<b>Body 模板</b>：留空',
   webhook: '<b>🔗 通用 Webhook</b><br>• <b>URL</b>：接收消息的接口地址<br>• <b>请求头 JSON</b>（可选）：<code>{"Authorization":"Bearer xxx"}</code><br>• <b>Body 模板</b>（可选）：用 <code>{{content}}</code> 代表正文，例 <code>{"text":"{{content}}"}</code>',
-  email: '<b>📧 邮件（中转服务转发）</b><br>• <b>URL</b>：邮件中转服务地址<br>• <b>请求头 JSON</b>：<span style="color:#cf1322;">填收件人和主题</span> <code>{"mailto":"x@qq.com","subject":"标题"}</code><br>• <b>Body 模板</b>：留空'
+  email: '<b>📧 邮件（中转服务转发）</b><br>• <b>URL</b>：邮件中转服务地址<br>• <b>请求头 JSON</b>：<span style="color:var(--danger);">填收件人和主题</span> <code>{"mailto":"x@qq.com","subject":"标题"}</code><br>• <b>Body 模板</b>：留空'
 };
 async function loadChannels() {
   var data = await api('/api/notify/channels');
@@ -2283,7 +2334,7 @@ async function loadChannels() {
 }
 function chModal(c) {
   c = c || {};
-  var help = '<div id="chHelp" style="background:#f8f9ff;border:1px solid #e6e8f0;border-radius:6px;padding:12px;margin-bottom:12px;font-size:13px;line-height:1.7;"></div>';
+  var help = '<div id="chHelp" style="background:var(--surface-3);border:1px solid #e6e8f0;border-radius:6px;padding:12px;margin-bottom:12px;font-size:13px;line-height:1.7;"></div>';
   openModal(c.id ? '编辑渠道' : '新建渠道',
     '<input type="hidden" id="chId" value="' + (c.id||'') + '">' +
     '<label>渠道名称</label><input id="chName" value="' + esc(c.name||'') + '">' +
@@ -2497,7 +2548,7 @@ window.viewNavHistory = async function(btn){
     '<p class="muted">近 30 个交易日单位净值走势（数据源：天天基金 F10 历史接口）。</p>' +
     '<div id="navChartWrap" style="max-width:640px;margin:0 auto;"><canvas id="navChart"></canvas></div>' +
     '<h3 style="margin:16px 0 8px;font-size:15px;">每日明细</h3>' +
-    '<div class="scroll-box"><table><thead><tr style="background:#f8f9fa;"><th>日期</th><th>单位净值</th><th>较前一日</th></tr></thead><tbody id="navTbody"></tbody></table></div>';
+    '<div class="scroll-box"><table><thead><tr style="background:var(--surface-2);"><th>日期</th><th>单位净值</th><th>较前一日</th></tr></thead><tbody id="navTbody"></tbody></table></div>';
   openModal('近30净值 · ' + name + ' (' + code + ')', html);
   try {
     var d = await api('/api/fund/' + id + '/nav-history', { loadingText: '正在加载近30日净值…' });
@@ -2693,7 +2744,7 @@ document.getElementById('anRun').addEventListener('click', async function(){
       var sig = it.signals.map(function(s){
         return '<div style="color:' + (SIGNAL_COLOR[s.level]||'#666') + ';font-size:14px;">• ' + esc(s.text) + '</div>';
       }).join('');
-      return '<div style="background:#f8f9fa;border-radius:6px;padding:12px;margin-bottom:10px;">' +
+      return '<div style="background:var(--surface-2);border-radius:6px;padding:12px;margin-bottom:10px;">' +
         '<div><b>' + esc(it.name) + ' (' + it.code + ')</b> · 占比 ' + it.weight + '%</div>' +
         sig +
         '<div class="muted" style="font-size:13px;margin-top:6px;">' +
@@ -2726,7 +2777,7 @@ document.getElementById('scRun').addEventListener('click', async function(){
     box.innerHTML =
       '<p>投入 <b>' + d.amount + '</b> 元 · 买入净值 <b>' + d.buyNav + '</b> · 可得约 <b>' + d.shares + '</b> 份</p>' +
       '<table><thead><tr><th>假设涨幅</th><th>对应净值</th><th>持仓现值</th><th>盈亏</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-      '<div style="margin-top:10px;background:#f8f9ff;border-radius:6px;padding:10px;font-size:14px;">' +
+      '<div style="margin-top:10px;background:var(--surface-3);border-radius:6px;padding:10px;font-size:14px;">' +
         '🎯 止盈 ' + sign(d.targets.takeProfitPct) + '% → 净值 ' + d.targets.takeProfitNav + '，盈利约 ' + d.targets.takeProfitProfit + ' 元<br>' +
         '🛑 止损 ' + sign(d.targets.stopLossPct) + '% → 净值 ' + d.targets.stopLossNav + '，亏损约 ' + d.targets.stopLossProfit + ' 元' +
       '</div>' +
@@ -3204,11 +3255,11 @@ function renderMembers(list) {
   var box = document.getElementById('memberList');
   box.innerHTML = list.map(function(m){
     var sharedTag = m.shared ? ' <span class="tag" style="background:#F5EBFE;color:#A855F7;padding:0 6px;border-radius:8px;font-size:11px;">共享</span>' : '';
-    var offTag = m.disabled ? ' <span class="tag" style="background:#eee;color:#999;padding:0 6px;border-radius:8px;font-size:11px;">已停用</span>' : '';
-    var nameStyle = m.disabled ? 'color:#aaa;text-decoration:line-through;' : 'color:inherit;';
+    var offTag = m.disabled ? ' <span class="tag" style="background:var(--surface-2);color:var(--muted);padding:0 6px;border-radius:8px;font-size:11px;">已停用</span>' : '';
+    var nameStyle = m.disabled ? 'color:var(--muted);text-decoration:line-through;' : 'color:inherit;';
     return '<span class="tag user" style="margin:2px 4px;padding:4px 10px;' + (m.disabled ? 'opacity:.75;' : '') + '">' +
       '<a href="#" onclick="selMember(' + m.id + ');return false;" style="' + nameStyle + 'text-decoration:none;">' + esc(m.name) + '</a>' + sharedTag + offTag +
-      ' <a href="#" title="更多操作" onclick="mMenu(' + m.id + ');return false;" style="margin-left:4px;color:#888;font-weight:bold;text-decoration:none;">⋯</a></span>';
+      ' <a href="#" title="更多操作" onclick="mMenu(' + m.id + ');return false;" style="margin-left:4px;color:var(--muted);font-weight:bold;text-decoration:none;">⋯</a></span>';
   }).join('') || '<span class="muted">暂无成员</span>';
 }
 function selMember(id) {
@@ -3261,8 +3312,8 @@ function renderRecordTable(mlist, records) {
 function deltaCell(deltaKg) {
   if (deltaKg == null) return '<span class="muted">—</span>';
   var d = toDisplay(Math.abs(deltaKg));
-  if (deltaKg > 0) return '<span style="color:#cf1322;font-weight:700;">↑ +' + d + ' ' + unitLabel() + '</span>';
-  if (deltaKg < 0) return '<span style="color:#389e0d;">↓ -' + d + ' ' + unitLabel() + '</span>';
+  if (deltaKg > 0) return '<span style="color:var(--danger);font-weight:700;">↑ +' + d + ' ' + unitLabel() + '</span>';
+  if (deltaKg < 0) return '<span style="color:var(--ok);">↓ -' + d + ' ' + unitLabel() + '</span>';
   return '<span class="muted">0</span>';
 }
 
@@ -3590,7 +3641,7 @@ function renderCalendar(records, today, justDay){
   var startWd = first.getUTCDay(); // 0=周日
   var daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
   var heads = ['日','一','二','三','四','五','六'];
-  var html = '<div style="color:#888;font-size:13px;margin-bottom:6px;">' + mo + ' 月打卡</div><div class="wk-cal-grid">';
+  var html = '<div style="color:var(--muted);font-size:13px;margin-bottom:6px;">' + mo + ' 月打卡</div><div class="wk-cal-grid">';
   heads.forEach(function(h){ html += '<div class="wk-cal-head">' + h + '</div>'; });
   for (var i=0;i<startWd;i++) html += '<div></div>';
   for (var d=1;d<=daysInMonth;d++){
@@ -3699,20 +3750,20 @@ function renderHist(records) {
   var asc = records.slice().sort(function(a,b){ return (a.record_date||'').localeCompare(b.record_date||''); });
   var recent = asc.slice(-7);
   var rows = recent.map(function(r, i){
-    var cell = '<span style="color:#888;">—</span>';
+    var cell = '<span style="color:var(--muted);">—</span>';
     if (i > 0) {
       var delta = r.weight - recent[i-1].weight;
       var v = pDisplay(Math.abs(delta));
-      if (delta > 0) cell = '<span style="color:#cf1322;font-weight:700;">↑ +' + v + ' ' + pLabel() + '</span>';
-      else if (delta < 0) cell = '<span style="color:#389e0d;">↓ -' + v + ' ' + pLabel() + '</span>';
-      else cell = '<span style="color:#888;">0</span>';
+      if (delta > 0) cell = '<span style="color:var(--danger);font-weight:700;">↑ +' + v + ' ' + pLabel() + '</span>';
+      else if (delta < 0) cell = '<span style="color:var(--ok);">↓ -' + v + ' ' + pLabel() + '</span>';
+      else cell = '<span style="color:var(--muted);">0</span>';
     }
     return '<tr><td data-label="日期" style="padding:4px 0;text-align:left;">' + esc(r.record_date) + '</td>' +
       '<td data-label="体重" style="padding:4px 0;text-align:right;">' + pDisplay(r.weight) + ' ' + pLabel() + '</td>' +
       '<td data-label="较上次" style="padding:4px 0;text-align:right;">' + cell + '</td></tr>';
   }).reverse().join('');
-  box.innerHTML = '<div style="color:#888;font-size:13px;margin-bottom:4px;">最近记录</div>' +
-    '<table style="width:100%;border-collapse:collapse;font-size:13px;color:#666;">' +
+  box.innerHTML = '<div style="color:var(--muted);font-size:13px;margin-bottom:4px;">最近记录</div>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:13px;color:var(--muted);">' +
     '<thead><tr><th style="text-align:left;font-weight:600;">日期</th><th style="text-align:right;font-weight:600;">体重</th><th style="text-align:right;font-weight:600;">较上次</th></tr></thead>' +
     '<tbody>' + rows + '</tbody></table>';
 }
@@ -3789,13 +3840,13 @@ function renderRptHist(members, records, disp, uLabel) {
   });
   var sorted = records.slice().sort(function(a,b){ return (b.record_date||'').localeCompare(a.record_date||''); });
   var rows = sorted.map(function(r){
-    var cell = '<span style="color:#888;">—</span>';
+    var cell = '<span style="color:var(--muted);">—</span>';
     var delta = deltaOf[r.id];
     if (delta != null) {
       var v = disp(Math.abs(delta));
-      if (delta > 0) cell = '<span style="color:#cf1322;font-weight:700;">↑ +' + v + ' ' + uLabel + '</span>';
-      else if (delta < 0) cell = '<span style="color:#389e0d;">↓ -' + v + ' ' + uLabel + '</span>';
-      else cell = '<span style="color:#888;">0</span>';
+      if (delta > 0) cell = '<span style="color:var(--danger);font-weight:700;">↑ +' + v + ' ' + uLabel + '</span>';
+      else if (delta < 0) cell = '<span style="color:var(--ok);">↓ -' + v + ' ' + uLabel + '</span>';
+      else cell = '<span style="color:var(--muted);">0</span>';
     }
     return '<tr><td data-label="日期">' + esc(r.record_date) + '</td>' +
       '<td data-label="成员">' + esc(nameOf[r.member_id]||'') + '</td>' +
@@ -3997,7 +4048,7 @@ function renderSummary(report, goal, year) {
   var gbox = document.getElementById('goalBox');
   if (goal) {
     gbox.innerHTML = '<b>' + year + ' 年度目标：</b>' + fmtMoney(goal.target, {frac:2}) +
-      ' 元 · 当前 ' + fmtMoney(goal.current, {frac:2}) + ' · 还差 <b style="color:#cf1322;">' + fmtMoney(goal.remaining, {frac:2}) + '</b>' +
+      ' 元 · 当前 ' + fmtMoney(goal.current, {frac:2}) + ' · 还差 <b style="color:var(--danger);">' + fmtMoney(goal.remaining, {frac:2}) + '</b>' +
       ' · 进度 ' + goal.progress + '%';
   } else {
     gbox.innerHTML = '<span class="muted">未设置 ' + year + ' 年度目标</span>';
@@ -4032,7 +4083,7 @@ function renderMonthlyTypeTotals(mtt) {
       var v = row.totals[t];
       return '<td data-label="' + (TYPE_LABEL[t]||t) + '">' + (v != null ? fmtMoney(v, {frac:2}) : '—') + '</td>';
     }).join('');
-    var netColor = row.net < 0 ? ' style="color:#cf1322;font-weight:bold;"' : '';
+    var netColor = row.net < 0 ? ' style="color:var(--danger);font-weight:bold;"' : '';
     return '<tr><td data-label="月份">' + row.month + '</td>' + tds +
       '<td data-label="净资产"' + netColor + '>' + fmtMoney(row.net, {frac:2}) + '</td></tr>';
   }).join('') || '<tr><td colspan="' + (types.length + 2) + '" class="muted">暂无记录</td></tr>';
@@ -5592,11 +5643,11 @@ function todoAttachDoneLinkToTip(container, root, opts) {
   });
   if (tipEl) {
     // 命中提示文: 追加到文字流末尾, 与提示同段同行
-    link.style.cssText = 'background:none;border:0;padding:2px 6px;margin-left:8px;color:#999;font-size:12px;text-decoration:underline;cursor:pointer;';
+    link.style.cssText = 'background:none;border:0;padding:2px 6px;margin-left:8px;color:var(--muted);font-size:12px;text-decoration:underline;cursor:pointer;';
     tipEl.appendChild(link);
   } else {
     // 无提示文兜底: 独立一行, 靠右轻量文字链(免密页/报告页/全屏视图)
-    link.style.cssText = 'background:none;border:0;padding:6px 8px;color:#999;font-size:12px;text-decoration:underline;cursor:pointer;';
+    link.style.cssText = 'background:none;border:0;padding:6px 8px;color:var(--muted);font-size:12px;text-decoration:underline;cursor:pointer;';
     var wrap = document.createElement('div');
     wrap.className = 'todo-detail-done-wrap';
     wrap.style.cssText = 'text-align:right;margin:12px 0 4px;';
@@ -5729,7 +5780,7 @@ function todoBuildRecurControl() {
     var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; sel.appendChild(op);
   });
   var nBox = document.createElement('span');
-  nBox.style.cssText = 'display:none;align-items:center;gap:4px;color:#5a6b9a;font-size:13px;';
+  nBox.style.cssText = 'display:none;align-items:center;gap:4px;color:var(--muted);font-size:13px;';
   var nInput = document.createElement('input');
   nInput.type = 'number'; nInput.min = '1'; nInput.max = '99'; nInput.value = '1';
   nInput.style.cssText = 'width:58px;padding:4px 6px;text-align:center;';
@@ -6170,7 +6221,7 @@ function todoFormHtml(t, isNew, isChild, fopts) {
           '<option value="monthly_nth_weekday"' + (t.recurrence === 'monthly_nth_weekday' ? ' selected' : '') + '>每月第 N 个星期 X</option>' +
           '<option value="yearly"' + (t.recurrence === 'yearly' ? ' selected' : '') + '>每年</option>' +
         '</select>' +
-        '<span id="tfRecurNBox" style="display:' + (t.recurrence ? 'inline-flex' : 'none') + ';align-items:center;gap:4px;color:#5a6b9a;font-size:13px;">' +
+        '<span id="tfRecurNBox" style="display:' + (t.recurrence ? 'inline-flex' : 'none') + ';align-items:center;gap:4px;color:var(--muted);font-size:13px;">' +
           '每' +
           '<input id="tfRecurN" type="number" min="1" max="99" value="' + (t.recur_interval && t.recur_interval >= 1 ? t.recur_interval : 1) + '" style="width:58px;padding:4px 6px;text-align:center;">' +
           '<span id="tfRecurUnit">' + (({ daily:'天', weekly:'周', monthly:'月', monthly_nth_weekday:'月', yearly:'年' })[t.recurrence] || '天') + '</span>' +
@@ -6178,7 +6229,7 @@ function todoFormHtml(t, isNew, isChild, fopts) {
       '</div>' +
       // monthly_nth_weekday 专属两下拉: 位置(第 N 个) + 星期几; 仅在选中该重复时显示
       '<div id="tfNthWrap" style="display:' + (t.recurrence === 'monthly_nth_weekday' ? 'flex' : 'none') + ';gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;">' +
-        '<span style="color:#5a6b9a;font-size:13px;">的</span>' +
+        '<span style="color:var(--muted);font-size:13px;">的</span>' +
         '<select id="tfRecurNth" style="flex:1;min-width:110px;">' +
           '<option value="1"' + (t.recur_nth === 1 ? ' selected' : '') + '>第一个</option>' +
           '<option value="2"' + (t.recur_nth === 2 ? ' selected' : '') + '>第二个</option>' +
@@ -6488,11 +6539,11 @@ function drawTree() {
       var _t = todayStr();
       var html =
         '<p style="margin:6px 0;">📝 ' + esc(node.title) + '（' + todoRecurLabel(node.recurrence, node.recur_interval, node.recur_nth, node.recur_weekday) + '）</p>' +
-        '<p class="muted" style="margin:4px 0 14px;">本次截止：' + esc(todoDateLabel(dueDate, _t)) + ' <span style="color:#b0b6c8;">(' + dueDate + ')</span></p>' +
+        '<p class="muted" style="margin:4px 0 14px;">本次截止：' + esc(todoDateLabel(dueDate, _t)) + ' <span style="color:var(--faint);">(' + dueDate + ')</span></p>' +
         '<p style="margin:6px 0;">完成后自动生成下一条任务，日期：</p>' +
-        '<label style="display:block;padding:8px 4px;"><input type="radio" name="rjump" value="0" checked style="width:auto;margin-right:8px;"> ' + todoDateLabel(defaultNext, _t) + ' <span style="color:#b0b6c8;font-size:12px;">(' + defaultNext + ')</span>（下一周期，默认）</label>' +
+        '<label style="display:block;padding:8px 4px;"><input type="radio" name="rjump" value="0" checked style="width:auto;margin-right:8px;"> ' + todoDateLabel(defaultNext, _t) + ' <span style="color:var(--faint);font-size:12px;">(' + defaultNext + ')</span>（下一周期，默认）</label>' +
         (sameDate ? '' :
-          '<label style="display:block;padding:8px 4px;"><input type="radio" name="rjump" value="1" style="width:auto;margin-right:8px;"> ' + todoDateLabel(jumpNext, _t) + ' <span style="color:#b0b6c8;font-size:12px;">(' + jumpNext + ')</span>（跳到当前周期）</label>') +
+          '<label style="display:block;padding:8px 4px;"><input type="radio" name="rjump" value="1" style="width:auto;margin-right:8px;"> ' + todoDateLabel(jumpNext, _t) + ' <span style="color:var(--faint);font-size:12px;">(' + jumpNext + ')</span>（跳到当前周期）</label>') +
         '<div style="text-align:right;margin-top:14px;"><button type="button" class="btn gray" onclick="closeModal()">取消</button> <button type="button" class="btn" id="rrConfirm">完成并生成</button></div>';
       openModal('✅ 完成重复任务', html);
       bindClickBusy(document.getElementById('rrConfirm'), async function(){
@@ -6611,7 +6662,7 @@ function openSharedCatPanel() {
     var rows = _sharedCats.map(function(c){
       var roleTag = c.role === 'owner'
         ? '<span class="todo-chip cat">创建者</span>'
-        : '<span class="todo-chip" style="background:#f0f2f5;color:#666;">成员</span>';
+        : '<span class="todo-chip" style="background:var(--surface-2);color:var(--muted);">成员</span>';
       var ops;
       if (c.role === 'owner') {
         ops = '<button class="btn sm gray" onclick="scInvite(' + c.cat_id + ')">邀请</button> '
@@ -6672,7 +6723,7 @@ async function openCatInvite(id, code, link, justCreated) {
   }
   openModal(justCreated ? '共享分类已创建' : '邀请家人',
     '<p style="margin:0 0 8px;">把邀请链接发给家人，家人登录后打开链接即可加入；也可在「加入分类」中手动输入 8 位邀请码。</p>' +
-    '<div style="background:#f5f7fa;border-radius:6px;padding:10px;margin-bottom:10px;">' +
+    '<div style="background:var(--surface-2);border-radius:6px;padding:10px;margin-bottom:10px;">' +
       '<div style="font-size:22px;font-weight:700;letter-spacing:3px;text-align:center;">' + esc(code) + '</div></div>' +
     '<input readonly value="' + esc(link || '') + '" onfocus="this.select()" style="width:100%;padding:8px;border:1px solid #d4d8e0;border-radius:6px;box-sizing:border-box;margin-bottom:10px;">' +
     '<div style="text-align:right;"><button class="btn gray" id="scInvReset">重置邀请码</button> <button class="btn gray" id="scInvCopy">复制链接</button> <button class="btn" onclick="closeModal()">完成</button></div>');
@@ -6693,7 +6744,7 @@ function scMembers(id) {
     var rows = d.members.map(function(m){
       var tag = m.role === 'owner'
         ? '<span class="todo-chip cat">创建者</span>'
-        : '<span class="todo-chip" style="background:#f0f2f5;color:#666;">成员</span>';
+        : '<span class="todo-chip" style="background:var(--surface-2);color:var(--muted);">成员</span>';
       var kick = (m.role !== 'owner')
         ? ' <button class="btn sm gray" onclick="scKick(' + id + ',' + m.user_id + ')">移出</button>' : '';
       return '<div style="padding:8px 0;border-bottom:1px solid #eef0f4;display:flex;justify-content:space-between;align-items:center;">'
@@ -7136,11 +7187,11 @@ function drawTree() {
       var sameDate = defaultNext === jumpNext;
       var html =
         '<p style="margin:6px 0;">📝 ' + esc(node.title) + '（' + todoRecurLabel(node.recurrence, node.recur_interval, node.recur_nth, node.recur_weekday) + '）</p>' +
-        '<p class="muted" style="margin:4px 0 14px;">本次截止：' + esc(todoDateLabel(dueDate, _today)) + ' <span style="color:#b0b6c8;">(' + dueDate + ')</span></p>' +
+        '<p class="muted" style="margin:4px 0 14px;">本次截止：' + esc(todoDateLabel(dueDate, _today)) + ' <span style="color:var(--faint);">(' + dueDate + ')</span></p>' +
         '<p style="margin:6px 0;">完成后自动生成下一条任务，日期：</p>' +
-        '<label style="display:block;padding:8px 4px;"><input type="radio" name="rjump" value="0" checked style="width:auto;margin-right:8px;"> ' + todoDateLabel(defaultNext, _today) + ' <span style="color:#b0b6c8;font-size:12px;">(' + defaultNext + ')</span>（下一周期，默认）</label>' +
+        '<label style="display:block;padding:8px 4px;"><input type="radio" name="rjump" value="0" checked style="width:auto;margin-right:8px;"> ' + todoDateLabel(defaultNext, _today) + ' <span style="color:var(--faint);font-size:12px;">(' + defaultNext + ')</span>（下一周期，默认）</label>' +
         (sameDate ? '' :
-          '<label style="display:block;padding:8px 4px;"><input type="radio" name="rjump" value="1" style="width:auto;margin-right:8px;"> ' + todoDateLabel(jumpNext, _today) + ' <span style="color:#b0b6c8;font-size:12px;">(' + jumpNext + ')</span>（跳到当前周期）</label>') +
+          '<label style="display:block;padding:8px 4px;"><input type="radio" name="rjump" value="1" style="width:auto;margin-right:8px;"> ' + todoDateLabel(jumpNext, _today) + ' <span style="color:var(--faint);font-size:12px;">(' + jumpNext + ')</span>（跳到当前周期）</label>') +
         '<div style="text-align:right;margin-top:14px;"><button type="button" class="btn gray" onclick="closeModal()">取消</button> <button type="button" class="btn" id="rrConfirm">完成并生成</button></div>';
       openModal('✅ 完成重复任务', html);
       bindClickBusy(document.getElementById('rrConfirm'), async function(){
@@ -7402,11 +7453,11 @@ function drawTree(trees) {
       var sameDate = defaultNext === jumpNext;
       var html =
         '<p style="margin:6px 0;">📝 ' + esc(node.title) + '（' + todoRecurLabel(node.recurrence, node.recur_interval, node.recur_nth, node.recur_weekday) + '）</p>' +
-        '<p class="muted" style="margin:4px 0 14px;">本次截止：' + esc(todoDateLabel(dueDate, _today)) + ' <span style="color:#b0b6c8;">(' + dueDate + ')</span></p>' +
+        '<p class="muted" style="margin:4px 0 14px;">本次截止：' + esc(todoDateLabel(dueDate, _today)) + ' <span style="color:var(--faint);">(' + dueDate + ')</span></p>' +
         '<p style="margin:6px 0;">完成后自动生成下一条任务，日期：</p>' +
-        '<label style="display:block;padding:8px 4px;"><input type="radio" name="rjump" value="0" checked style="width:auto;margin-right:8px;"> ' + todoDateLabel(defaultNext, _today) + ' <span style="color:#b0b6c8;font-size:12px;">(' + defaultNext + ')</span>（下一周期，默认）</label>' +
+        '<label style="display:block;padding:8px 4px;"><input type="radio" name="rjump" value="0" checked style="width:auto;margin-right:8px;"> ' + todoDateLabel(defaultNext, _today) + ' <span style="color:var(--faint);font-size:12px;">(' + defaultNext + ')</span>（下一周期，默认）</label>' +
         (sameDate ? '' :
-          '<label style="display:block;padding:8px 4px;"><input type="radio" name="rjump" value="1" style="width:auto;margin-right:8px;"> ' + todoDateLabel(jumpNext, _today) + ' <span style="color:#b0b6c8;font-size:12px;">(' + jumpNext + ')</span>（跳到当前周期）</label>') +
+          '<label style="display:block;padding:8px 4px;"><input type="radio" name="rjump" value="1" style="width:auto;margin-right:8px;"> ' + todoDateLabel(jumpNext, _today) + ' <span style="color:var(--faint);font-size:12px;">(' + jumpNext + ')</span>（跳到当前周期）</label>') +
         '<div style="text-align:right;margin-top:14px;"><button type="button" class="btn gray" onclick="closeModal()">取消</button> <button type="button" class="btn" id="rrConfirm">完成并生成</button></div>';
       openModal('✅ 完成重复任务', html);
       bindClickBusy(document.getElementById('rrConfirm'), async function(){
