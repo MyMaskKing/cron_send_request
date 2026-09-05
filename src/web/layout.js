@@ -968,14 +968,41 @@ body { padding-bottom: var(--kb-inset, 0px); }
 .todo-fs-hide { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); font-weight: normal; cursor: pointer; white-space: nowrap; }
 .todo-fs-hide input[type="checkbox"] { width: auto; margin: 0; }
 
-/* 默认视图"待办清单"卡片头: flex 替代旧 float——窄屏(App WebView)下三个操作按钮整组换到
-   第二行也不被拆散(卡片视图/共享分类/新建任务始终同行), 宽屏视觉与旧 float 一致(标题左、控件右) */
-.todo-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+/* 默认视图"待办清单"卡片头: 始终一行。宽屏标题 flex:1 占满左侧、控件靠右;
+   窄屏(≤640px, App/手机浏览器)标题固定在左、"隐藏已完成"固定在右, 中间"卡片视图/新建任务/
+   共享分类"为一条横向滑动区(共享分类在最后, 默认被裁), 两端有内容裁切时出现箭头滑出 */
+.todo-card-head { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; }
 .todo-card-head__title { flex: 1 1 auto; min-width: 0; }
-.todo-card-head__hide { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: normal; color: var(--muted); white-space: nowrap; cursor: pointer; }
+.todo-card-head__hide { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: normal; color: var(--muted); white-space: nowrap; cursor: pointer; flex-shrink: 0; }
 .todo-card-head__hide input[type="checkbox"] { width: auto; margin: 0; }
-.todo-card-head__actions { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
-.todo-card-head__actions .btn.sm { white-space: nowrap; margin-bottom: 0; }
+.todo-card-head__bar { position: relative; display: inline-flex; align-items: center; min-width: 0; flex-shrink: 0; }
+.todo-card-head__bar-scroll { display: inline-flex; align-items: center; gap: 8px; }
+.todo-card-head__bar-scroll .btn.sm { white-space: nowrap; margin-bottom: 0; flex-shrink: 0; }
+/* 箭头默认不显示(宽屏无需), 仅窄屏且有内容被裁切时由 JS 按滚动位置显示 */
+.head-arrow { display: none; }
+@media (max-width: 640px) {
+  .todo-card-head { gap: 6px; }
+  /* 标题固定不缩(内容宽), 把剩余空间让给右侧滑动区 */
+  .todo-card-head__title { flex: 0 0 auto; }
+  .todo-card-head__bar { flex: 1 1 auto; }
+  .todo-card-head__bar-scroll {
+    width: 100%; flex-wrap: nowrap; overflow-x: auto;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    padding: 3px 2px;
+  }
+  .todo-card-head__bar-scroll::-webkit-scrollbar { display: none; }
+  .todo-card-head__bar-scroll > * { flex-shrink: 0; }
+  .head-arrow {
+    position: absolute; top: 50%; transform: translateY(-50%); z-index: 3;
+    width: 26px; height: 26px; padding: 0; border: none; border-radius: 50%;
+    background: var(--surface); color: var(--muted);
+    box-shadow: 0 1px 6px rgba(0,0,0,.18);
+    font-size: 18px; line-height: 1; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .head-arrow--left { left: -8px; }
+  .head-arrow--right { right: -8px; }
+}
 
 /* ============ 侧边抽屉（分类目录） ============ */
 .todo-drawer {

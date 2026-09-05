@@ -826,12 +826,16 @@ function todoPage(user) {
     <div class="card">
       <h2 class="todo-card-head">
         <span class="todo-card-head__title">待办清单</span>
-        <label class="todo-card-head__hide"><input type="checkbox" id="hideDone" style="width:auto;" checked> 隐藏已完成</label>
-        <span class="todo-card-head__actions">
-          <button class="btn sm gray" id="viewToggle">${ICO_CARDS}卡片视图</button>
-          <button class="btn sm gray" id="tListBtn">👥 共享分类</button>
-          <button class="btn sm" id="tAdd">+ 新建任务</button>
+        <span class="todo-card-head__bar">
+          <span class="todo-card-head__bar-scroll" id="todoHeadBar">
+            <button class="btn sm gray" id="viewToggle">${ICO_CARDS}卡片视图</button>
+            <button class="btn sm" id="tAdd">+ 新建任务</button>
+            <button class="btn sm gray" id="tListBtn">👥 共享分类</button>
+          </span>
+          <button type="button" class="head-arrow head-arrow--left" id="headArrowL" aria-label="向左滑动">‹</button>
+          <button type="button" class="head-arrow head-arrow--right" id="headArrowR" aria-label="向右滑动">›</button>
         </span>
+        <label class="todo-card-head__hide"><input type="checkbox" id="hideDone" style="width:auto;" checked> 隐藏已完成</label>
       </h2>
       <div class="todo-range todo-filter" id="todoFilter">
         <button data-filter="all">全部</button>

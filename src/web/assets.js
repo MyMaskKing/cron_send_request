@@ -6447,6 +6447,26 @@ const TODO_JS = `
 bindLogout();
 bindModal();
 mountDataSwitcher('todo');
+// 窄屏卡片头控件条: 隐藏已完成/卡片视图/共享分类/新建任务 横排可滑, 两端箭头按是否有裁切显隐
+(function initTodoHeadScroll(){
+  var bar = document.getElementById('todoHeadBar');
+  if (!bar) return;
+  var btnL = document.getElementById('headArrowL');
+  var btnR = document.getElementById('headArrowR');
+  function update(){
+    var max = bar.scrollWidth - bar.clientWidth;
+    if (btnL) btnL.style.display = bar.scrollLeft > 4 ? 'inline-flex' : 'none';
+    if (btnR) btnR.style.display = bar.scrollLeft < max - 4 ? 'inline-flex' : 'none';
+  }
+  function step(dir){ bar.scrollBy({ left: dir * Math.max(120, bar.clientWidth * 0.7), behavior: 'smooth' }); }
+  if (btnL) btnL.addEventListener('click', function(){ step(-1); });
+  if (btnR) btnR.addEventListener('click', function(){ step(1); });
+  bar.addEventListener('scroll', update, { passive: true });
+  window.addEventListener('resize', update);
+  // 退出/进入全屏会让该 h2 在 display:none 与显示间切换, ResizeObserver 在尺寸 0↔实际 变化时重算箭头
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(update).observe(bar);
+  update();
+})();
 var _rows = [];
 var _stats = { pending:0, overdue:0, done:0, total:0 };
 function todayStr(){ var d = new Date(Date.now() + 8*3600*1000); return d.toISOString().slice(0,10); }
