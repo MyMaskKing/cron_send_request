@@ -113,6 +113,8 @@ token 缺失时代码自动 `generateToken()` 并持久化。
 
 `android/` 是独立的 Gradle/Compose 项目（`xyz.a10023456.todowidget`，minSdk 26，JVM 17），实现待办清单的 **App Widget + Glance**，通过 `src/api/todo.api.js` 的公开/widget 端点与 Worker 通信。改 todo 模块的公开接口时记得核对 Android 端调用。版本号由 CI 环境变量 `VERSION_CODE` / `VERSION_NAME` 注入，本地构建回退默认值。
 
+Android 端二次开发先读 **`android/DEV_GUIDE.md`**：构建环境（JDK 17–22）、模块地图、服务器域名配置（AppConfig/「我的」页）、密钥与 token 体系（sid 自动同步 / report_token 免密 / release 签名）、小组件 UI 尺寸调整（`CARD_GAP`/`CARD_RADIUS` 等）、StateFlow 重组与刷新机制。
+
 ## 关键约定与坑
 
 1. **存储抽象不能破**：新增数据操作 → 加在 `d1-adapter.js` 对应域分组的方法上，再在 api 层调用；禁止业务层裸 SQL。
