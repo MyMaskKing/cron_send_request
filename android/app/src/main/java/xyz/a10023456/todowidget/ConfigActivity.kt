@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -43,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -96,9 +98,13 @@ class ConfigActivity : ComponentActivity() {
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                         ) { finish() }
                 ) {
+                    // 底部弹窗：最高占屏 80%，内容少时 wrap 变矮、内容多时在面板内 verticalScroll
+                    // 滚动，顶部始终留出桌面 + scrim（否则设置项变多后会撑满全屏，失去弹窗形态）
+                    val sheetMaxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.8f
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(max = sheetMaxHeight)
                             .align(Alignment.BottomCenter)
                             .clickable(
                                 indication = null,

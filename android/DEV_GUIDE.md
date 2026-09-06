@@ -119,7 +119,7 @@ private val CARD_RADIUS = 12.dp // 卡片圆角半径
 | 勾选圆大小 | `CheckCircle` 的 `.size(22.dp)` / 内圆 `.size(18.dp)` | 22 / 18 |
 | 字号档位 | `fontFactor()`（0=小 0.88、1=中 1、2=大 1.15）；各 `fs(fontScale, N)` 的 N 是基准 sp | — |
 | 卡片底色 | `cardBgColor(opacity, dark)`（浅色=纯白 `#FFFFFF` / 深色=`#38383A`，alpha 随不透明度） | — |
-| 面板底色（卡片外灰底） | `panelBgColor(opacity, dark)`（浅=`#EDEDED` / 深=`#1C1C1E`） | — |
+| 面板底色（卡片外灰底） | `panelBgColor(opacity, dark)`（浅=`#EDEDED` / 深=`#1C1C1E`）；灰底比卡片更透，alpha = `(不透明度/100) × PANEL_ALPHA_SCALE`（常量默认 0.6f，调小更透、调 1f 全实） | — |
 | 标题栏底色 | `headerBgColor(opacity, dark)`（浅=`#F5F5F5` / 深=`#2C2C2E`） | — |
 | 文字/图标色 | `W(dark).text / .sub / .overdue / .brand`（配色对象 `WLight` / `WDark`） | — |
 | 勾选环内心色 | drawable **双套**：`bg_circle_surface`（浅 `#FFFFFF`）/ `bg_circle_surface_dark`（深 `#38383A`），`CheckCircle` 按 `dark` 选 resId；**必须与卡片底色一致**才呈空心环 | — |
