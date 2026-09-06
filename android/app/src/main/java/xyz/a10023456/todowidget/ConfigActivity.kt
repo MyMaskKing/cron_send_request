@@ -98,9 +98,9 @@ class ConfigActivity : ComponentActivity() {
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                         ) { finish() }
                 ) {
-                    // 底部弹窗：最高占屏 80%，内容少时 wrap 变矮、内容多时在面板内 verticalScroll
+                    // 底部弹窗：最高占屏 50%，内容少时 wrap 变矮、内容多时在面板内 verticalScroll
                     // 滚动，顶部始终留出桌面 + scrim（否则设置项变多后会撑满全屏，失去弹窗形态）
-                    val sheetMaxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.8f
+                    val sheetMaxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.5f
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -148,11 +148,23 @@ class ConfigActivity : ComponentActivity() {
         if (id != AppWidgetManager.INVALID_APPWIDGET_ID) appWidgetId = id
     }
 
-    /** 实时预览：写 SP 后发布到状态流，驱动桌面小组件即时重组。 */
+    // 透明度滑块高频拖动：publish 即时驱动重组；但背景色（background modifier）变化在存活
+    // session 的增量重组里不一定刷新 RemoteViews 背景，防抖 200ms 补一次全量重绘兜底
+    // （拖动停顿即生效，避免每帧全量重绘卡顿）。字号/换行等 Text 属性增量重组即可生效，无需此处理。
+    private val opacityHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val opacityUpdate = Runnable {
+        kotlinx.coroutines.MainScope().launch {
+            runCatching { TodoAppWidget().updateAll(this@ConfigActivity) }
+        }
+    }
+
+    /** 实时预览：写 SP 后发布到状态流驱动即时重组；背景色防抖 200ms 全量重绘兜底。 */
     private fun previewOpacity(value: Int) {
         if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
         Prefs.setOpacity(this, appWidgetId, value)
         WidgetStateStore.publish(this, appWidgetId)
+        opacityHandler.removeCallbacks(opacityUpdate)
+        opacityHandler.postDelayed(opacityUpdate, 200L)
     }
 
     private fun previewFontScale(value: Int) {

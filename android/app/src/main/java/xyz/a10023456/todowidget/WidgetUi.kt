@@ -163,15 +163,13 @@ private fun fs(scale: Int, baseSp: Int) = (baseSp * fontFactor(scale)).sp
 
 /**
  * 内容区底色（中性浅灰，对齐微软 To Do 风格：灰底衬白卡片）：标题栏之下、卡片之外的
- * 区域，卡片间缝隙也露出这个颜色。alpha 即用户设置的背景不透明度。
- * 纯色 background（setBackgroundColor）全版本稳定；cornerRadius 仅 API31+ 生效（低版本直角降级）。
+ * 区域，卡片间缝隙也露出这个颜色。纯色 background（setBackgroundColor）全版本稳定；
+ * cornerRadius 仅 API31+ 生效（低版本直角降级）。
+ *
+ * 灰底比卡片/标题栏更透：最终 alpha = (不透明度/100) × PANEL_ALPHA_SCALE。
+ * 倍率调小=更透（卡片缝隙透出更多壁纸），调到 1f=与卡片一样全实；卡片仍跟随滑块实底。
  */
-/**
- * 内容区灰底相对卡片/标题栏的额外透明度倍率：灰底比卡片更透（卡片间缝隙、边缘可透出
- * 桌面壁纸），卡片仍保持「不透明度」滑块的实底。调小=更透（透出更多壁纸），调到 1f=
- * 与卡片一样全实。最终灰底 alpha = (不透明度/100) × 此倍率。
- */
-private const val PANEL_ALPHA_SCALE = 0.6f
+private const val PANEL_ALPHA_SCALE = 0.9f
 
 private fun panelBgColor(opacity: Int, dark: Boolean): ColorProvider =
     ColorProvider(
