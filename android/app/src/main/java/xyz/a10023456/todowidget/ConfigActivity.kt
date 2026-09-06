@@ -164,6 +164,11 @@ class ConfigActivity : ComponentActivity() {
         if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
         Prefs.setSimpleMode(this, appWidgetId, value)
         WidgetStateStore.publish(this, appWidgetId)
+        // 模式切换会改变 LazyColumn 数据集结构（item 数量与 stable id 集合变化），存活 session
+        // 的增量重组对 collection 刷新不可靠，补一次全量重绘兜底（与 Worker 的 publish+update 双保险一致）
+        kotlinx.coroutines.MainScope().launch {
+            runCatching { TodoAppWidget().updateAll(this@ConfigActivity) }
+        }
     }
 
     private fun isNight(): Boolean =

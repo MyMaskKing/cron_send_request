@@ -102,6 +102,7 @@ object Prefs {
             .putString("cache_$widgetId", json)
             .putLong("updated_$widgetId", System.currentTimeMillis())
             .putBoolean("failed_$widgetId", false)
+            .remove("failed_msg_$widgetId")
             .apply()
     }
 
@@ -111,11 +112,18 @@ object Prefs {
     fun getLastUpdated(context: Context, widgetId: Int): Long =
         sp(context).getLong("updated_$widgetId", 0L)
 
-    fun setFailed(context: Context, widgetId: Int, failed: Boolean) =
-        sp(context).edit().putBoolean("failed_$widgetId", failed).apply()
+    /** 失败时同时记录原始错误信息（异常 message），供界面映射为友好文案；恢复成功由 setCache 清除。 */
+    fun setFailed(context: Context, widgetId: Int, failed: Boolean, msg: String? = null) {
+        val e = sp(context).edit().putBoolean("failed_$widgetId", failed)
+        if (failed) e.putString("failed_msg_$widgetId", msg ?: "") else e.remove("failed_msg_$widgetId")
+        e.apply()
+    }
 
     fun isFailed(context: Context, widgetId: Int): Boolean =
         sp(context).getBoolean("failed_$widgetId", false)
+
+    fun getFailedMsg(context: Context, widgetId: Int): String =
+        sp(context).getString("failed_msg_$widgetId", "") ?: ""
 
     // ── 瞬时操作状态（点击遮罩/结果提示）：idle | loading | done | error ──
     // 带过期时间，进程被杀来不及清除时也能自动回落到 idle，避免遮罩常驻

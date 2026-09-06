@@ -94,7 +94,8 @@ class WidgetActionWorker(
                     if (!silent) WidgetStateStore.setUiState(
                         applicationContext, widgetId,
                         if (ok) "done" else "error",
-                        if (ok) "已刷新" else "刷新失败，请检查登录/网络"
+                        // 失败时带上真实原因（登录失效/服务器异常/网络不通），refresh 已写入 failed_msg
+                        if (ok) "已刷新" else friendlyErrorMsg(Prefs.getFailedMsg(applicationContext, widgetId))
                     )
                 }
             }
@@ -104,7 +105,8 @@ class WidgetActionWorker(
         } catch (e: Exception) {
             Log.e(TAG, "doWork action failed, widget=$widgetId", e)
             if (!silent) WidgetStateStore.setUiState(
-                applicationContext, widgetId, "error", e.message ?: "操作失败"
+                applicationContext, widgetId, "error",
+                e.message?.let { friendlyErrorMsg(it) } ?: "操作失败"
             )
         }
         // 业务成败均已落到遮罩状态，统一 success：不触发 WorkManager 重试，避免遮罩复位后又弹结果

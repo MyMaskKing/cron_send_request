@@ -107,7 +107,8 @@ class TodoAppWidget : GlanceAppWidget() {
                 opacity = frame.opacity,
                 fontScale = frame.fontScale,
                 wrapChild = frame.wrapChild,
-                simpleMode = frame.simpleMode
+                simpleMode = frame.simpleMode,
+                failedMsg = frame.failedMsg
             )
         }
     }
@@ -200,7 +201,8 @@ private fun WidgetRoot(
     opacity: Int,
     fontScale: Int,
     wrapChild: Boolean,
-    simpleMode: Boolean
+    simpleMode: Boolean,
+    failedMsg: String
 ) {
     Box(
         modifier = GlanceModifier
@@ -214,7 +216,7 @@ private fun WidgetRoot(
         if (!ready) {
             NotReady(fontScale)
         } else {
-            WidgetBody(data, failed, widgetId, collapsed, opacity, fontScale, wrapChild, simpleMode)
+            WidgetBody(data, failed, widgetId, collapsed, opacity, fontScale, wrapChild, simpleMode, failedMsg)
         }
         if (overlayState != "idle") WidgetOverlay(overlayState, overlayMsg, fontScale)
     }
@@ -278,7 +280,8 @@ private fun WidgetBody(
     opacity: Int,
     fontScale: Int,
     wrapChild: Boolean,
-    simpleMode: Boolean
+    simpleMode: Boolean,
+    failedMsg: String
 ) {
     Column(modifier = GlanceModifier.fillMaxSize()) {
         // 标题行：自带深灰白条背景，贴面板顶部满宽（S+ 被面板圆角裁剪顶边两角）
@@ -289,10 +292,12 @@ private fun WidgetBody(
                 .padding(start = 10.dp, end = 10.dp, top = 8.dp)
         ) {
             if (failed) {
+                // 差异化失败原因：登录失效/服务器异常/网络不通等（friendlyErrorMsg 映射），
+                // 有缓存时由下方列表继续展示上次数据
                 Text(
-                    "⚠️ 连接失败，显示上次数据",
+                    "⚠️ ${friendlyErrorMsg(failedMsg)}",
                     style = TextStyle(color = W.overdue, fontSize = fs(fontScale, 11)),
-                    maxLines = 1
+                    maxLines = 2
                 )
                 Spacer(GlanceModifier.height(2.dp))
             }
@@ -303,19 +308,31 @@ private fun WidgetBody(
                         modifier = GlanceModifier.fillMaxWidth().padding(vertical = 14.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("🎉 当前范围没有待办", style = TextStyle(color = W.sub, fontSize = fs(fontScale, 13)))
+                        // 从未拉取成功（无缓存）时失败不能伪装成"没有待办"
+                        Text(
+                            if (failed) "⚠️ 连接失败，暂无缓存数据，将自动重试" else "🎉 当前范围没有待办",
+                            style = TextStyle(
+                                color = if (failed) W.overdue else W.sub,
+                                fontSize = fs(fontScale, 13)
+                            )
+                        )
                     }
                 }
             } else {
                 LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
                     if (simpleMode) {
-                        // 简洁模式：不按任务组分组，所有子任务（含无子任务主任务的回退行）
-                        // 平铺到一张卡片，无分组标题/折叠/＋按钮
-                        item {
-                            CardScaffold(opacity) {
-                                groups.forEach { g ->
-                                    g.children.forEach { child ->
-                                        ChildRow(child, widgetId, fontScale, wrapChild, g.id)
+                        // 简洁模式：不按任务组分组，每个子任务（含无子任务主任务的回退行）
+                        // 一张独立卡片、卡片间 8dp 缝隙（与分组模式一致），无分组标题/折叠/＋按钮。
+                        // 每项带稳定 itemId（todo 全局 id），保证模式切换时 ListView 数据集可靠刷新。
+                        groups.forEach { g ->
+                            g.children.forEach { child ->
+                                item(itemId = child.id) {
+                                    // 卡片外的透明 Spacer 才是真缝隙（padding 会被卡片背景铺满）
+                                    Column {
+                                        CardScaffold(opacity) {
+                                            ChildRow(child, widgetId, fontScale, wrapChild, g.id)
+                                        }
+                                        Spacer(GlanceModifier.height(8.dp))
                                     }
                                 }
                             }
