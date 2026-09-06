@@ -317,8 +317,11 @@ function fundPage(user) {
       <h2>每日总收益曲线
         <select id="profitRange" class="btn sm gray" style="float:right;">
           <option value="7d">近7天</option>
+          <option value="30d">近30天</option>
           <option value="month">本月</option>
           <option value="year">本年</option>
+          <option value="2y">近2年</option>
+          <option value="3y">近3年</option>
           <option value="all">全部</option>
         </select>
       </h2>

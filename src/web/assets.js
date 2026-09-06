@@ -2509,16 +2509,26 @@ function applyProfitFilter() {
   var labels = [], vals = [];
   var now = new Date(Date.now()+8*3600*1000);
   var cutoff = '';
-  // 近 7 天 = 含今日往前 6 天, 共 7 天 (与 todo 的 todoRangeWindow 保持一致)
-  //   原 (now - 7天) 会把 today-7 也放行, 实际渲染 8 天; 应用 6*86400000
-  if (rng==='7d') { cutoff = new Date(now.getTime()-6*86400000).toISOString().slice(0,10); }
+  var isDateWin = false;  // 日期窗口类: cutoff 为 YYYY-MM-DD, 早于 cutoff 的数据跳过
+  // 近 N 天 = 含今日往前 N-1 天, 共 N 天 (与 todo 的 todoRangeWindow 保持一致)
+  //   直接 (now - N天) 会把 today-N 也放行, 实际渲染 N+1 天; 应用 (N-1)*86400000
+  var dayBack = { '7d': 6, '30d': 29 }[rng];
+  if (dayBack != null) {
+    isDateWin = true;
+    cutoff = new Date(now.getTime()-dayBack*86400000).toISOString().slice(0,10);
+  }
+  else if (rng==='2y' || rng==='3y') {
+    isDateWin = true;
+    var yrs = rng==='2y' ? 2 : 3;  // 同日同月回退 N 年(闰年 2/29 由 Date 自动归一到 3/1)
+    cutoff = new Date(Date.UTC(now.getUTCFullYear()-yrs, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0,10);
+  }
   else if (rng==='month') { cutoff = now.toISOString().slice(0,7); } // YYYY-MM
   else if (rng==='year') { cutoff = now.toISOString().slice(0,4); }  // YYYY
 
   for (var i=0;i<window._profitSeries.length;i++) {
     var s = window._profitSeries[i];
-    if (rng==='7d' && s.date < cutoff) continue;
-    if (rng!=='all' && rng!=='7d' && s.date.slice(0,cutoff.length)!==cutoff) continue;
+    if (isDateWin && s.date < cutoff) continue;
+    if (rng!=='all' && !isDateWin && s.date.slice(0,cutoff.length)!==cutoff) continue;
     labels.push(s.date.slice(5)); // MM-DD
     vals.push(s.profit);
   }
@@ -2543,8 +2553,8 @@ function applyProfitFilter() {
   var rows = [];
   for (var i=window._profitSeries.length-1;i>=0;i--) {
     var s = window._profitSeries[i];
-    if (rng==='7d' && s.date < cutoff) continue;
-    if (rng!=='all' && rng!=='7d' && s.date.slice(0,cutoff.length)!==cutoff) continue;
+    if (isDateWin && s.date < cutoff) continue;
+    if (rng!=='all' && !isDateWin && s.date.slice(0,cutoff.length)!==cutoff) continue;
     var dc = s.delta != null ? (s.delta>=0?'#cf1322':'#389e0d') : '#999';
     var dt = s.delta != null ? sign(s.delta) : '—';
     rows.push('<tr><td data-label="日期">'+s.date+'</td><td data-label="总收益" style="color:'+colorOf(s.profit)+'">'+sign(s.profit)+' 元</td><td data-label="较前一天增长" style="color:'+dc+'">'+dt+' 元</td></tr>');
