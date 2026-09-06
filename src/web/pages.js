@@ -588,13 +588,13 @@ function settingsPage(user) {
       <hr style="margin:20px 0;border:none;border-top:1px solid #eee;">
       <h2 style="font-size:15px;">免密登录安全</h2>
       <label style="display:flex;align-items:center;gap:8px;font-weight:normal;">
-        <input type="checkbox" id="qlRestrict" style="width:auto;"> 免密链接「用本人账号登录」后仅能访问对应模块页
+        <input type="checkbox" id="qlRestrict" style="width:auto;margin:0;"> 免密链接「用本人账号登录」后仅能访问对应模块页
       </label>
       <p class="muted" style="font-size:12px;">开启后，从免密页登录只能看到对应模块，其他页面不可访问；关闭则为完整登录。</p>
       <hr style="margin:20px 0;border:none;border-top:1px solid #eee;">
       <h2 style="font-size:15px;">待办偏好</h2>
       <label style="display:flex;align-items:center;gap:8px;font-weight:normal;">
-        <input type="checkbox" id="todoAutoParent" style="width:auto;"> 子任务全部完成后，自动完成父任务
+        <input type="checkbox" id="todoAutoParent" style="width:auto;margin:0;"> 子任务全部完成后，自动完成父任务
       </label>
       <p class="muted" style="font-size:12px;">开启后（默认），当一个任务的所有子任务都勾选完成时，其父任务会自动标记完成并逐级向上；反之取消勾选某个子任务时，已完成的父任务会自动恢复为未完成。关闭则父子勾选完全独立，互不影响。</p>
       <hr style="margin:20px 0;border:none;border-top:1px solid #eee;">
