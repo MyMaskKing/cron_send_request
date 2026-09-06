@@ -808,6 +808,22 @@ function createD1Adapter(env) {
           parentId = parent.parent_id;
         }
       },
+      // 取消勾选后的反向联动：沿父链向上，把已完成的祖先恢复为未完成（清空完成日期/完成人）。
+      // 不变量「父完成 ⇒ 其直接子任务全部完成」被本次取消破坏，故父若完成就恢复；
+      // 未完成的祖先本身不破坏不变量，但其已完成祖先同样破坏（其子任务现未完成），故一路到顶不停止。
+      // 重复任务已克隆出的下一周期实例不受影响；userId 双校验防越权
+      async reopenAncestors(startId, userId) {
+        const self = await db.prepare('SELECT parent_id FROM todos WHERE id=? AND user_id=?').bind(startId, userId).first();
+        if (!self) return;
+        let parentId = self.parent_id;
+        let guard = 0;
+        while (parentId != null && guard++ < 50) {
+          const parent = await db.prepare('SELECT id, parent_id, done FROM todos WHERE id=? AND user_id=?').bind(parentId, userId).first();
+          if (!parent) return;
+          if (parent.done) await this.setDone(parent.id, false, null, null);
+          parentId = parent.parent_id;
+        }
+      },
       // 内部: 递归克隆 rootOld 及其全部后代, 返回新 root id
       // 新任务全部 done=0, done_at=null, share_token=null, recur_from_id 指向原 id
       // rootOld 是完整行对象(含 recurrence 等), 需 SELECT * 后再传入

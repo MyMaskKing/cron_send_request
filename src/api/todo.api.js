@@ -271,9 +271,12 @@ async function toggleTodo({ request, env, params }) {
   // done_by: 共享分类记真实操作人(auth.user_id); 个人任务置 null
   const doneBy = acc.catId != null ? auth.user_id : null;
   const r = await storage.todo.markDoneWithRecur(id, acc.ownerUid, done, jumpToCurrent, todayCN(), doneBy);
-  // 偏好开启时: 全部兄弟子任务均已完成则逐级自动完成父任务(偏好跟随数据 owner)
-  if (done && await autoParentOn(storage, acc.ownerUid)) {
-    await storage.todo.autoCompleteAncestors(id, acc.ownerUid, todayCN(), doneBy);
+  // 偏好开启时(偏好跟随数据 owner):
+  //   勾选 → 全部兄弟子任务均完成则逐级自动完成父任务;
+  //   取消 → 沿父链把已完成的祖先恢复为未完成(父完成⇒子任务应全完成的不变量被破坏)
+  if (await autoParentOn(storage, acc.ownerUid)) {
+    if (done) await storage.todo.autoCompleteAncestors(id, acc.ownerUid, todayCN(), doneBy);
+    else await storage.todo.reopenAncestors(id, acc.ownerUid);
   }
   return json({ success: true, message: done ? '已完成' : '已取消完成', cloned: !!r.cloned, next_id: r.next_id || null, next_due: r.next_due || null });
 }
@@ -482,9 +485,10 @@ async function publicToggleTodo({ request, env, params }) {
   if (!allowIds.has(id)) return error('任务不属于此清单', 400);
   // 免密页永远用默认(旧+周期); 不接受 jumpToCurrent 参数; done_by 为 NULL(匿名操作)
   const r = await storage.todo.markDoneWithRecur(id, root.user_id, done, false, todayCN(), null);
-  // 偏好开启时: 全部兄弟子任务均已完成则逐级自动完成父任务(偏好跟随链接 owner)
-  if (done && await autoParentOn(storage, root.user_id)) {
-    await storage.todo.autoCompleteAncestors(id, root.user_id, todayCN(), null);
+  // 偏好开启时(偏好跟随链接 owner): 勾选则逐级自动完成父任务; 取消则恢复已完成的祖先
+  if (await autoParentOn(storage, root.user_id)) {
+    if (done) await storage.todo.autoCompleteAncestors(id, root.user_id, todayCN(), null);
+    else await storage.todo.reopenAncestors(id, root.user_id);
   }
   return json({ success: true, message: done ? '已完成' : '已取消完成', cloned: !!r.cloned, next_id: r.next_id || null, next_due: r.next_due || null });
 }
@@ -707,9 +711,10 @@ async function publicAllToggle({ request, env, params }) {
   if (t.shared_cat_id != null) return error('该任务属共享分类，请登录后在待办页操作', 400);
   // 免密汇总页永远用默认(旧+周期); done_by 为 NULL(匿名操作)
   const r = await storage.todo.markDoneWithRecur(id, userId, done, false, todayCN(), null);
-  // 偏好开启时: 全部兄弟子任务均已完成则逐级自动完成父任务(偏好跟随数据 owner)
-  if (done && await autoParentOn(storage, userId)) {
-    await storage.todo.autoCompleteAncestors(id, userId, todayCN(), null);
+  // 偏好开启时(偏好跟随数据 owner): 勾选则逐级自动完成父任务; 取消则恢复已完成的祖先
+  if (await autoParentOn(storage, userId)) {
+    if (done) await storage.todo.autoCompleteAncestors(id, userId, todayCN(), null);
+    else await storage.todo.reopenAncestors(id, userId);
   }
   return json({ success: true, message: done ? '已完成' : '已取消完成', cloned: !!r.cloned, next_id: r.next_id || null, next_due: r.next_due || null });
 }
