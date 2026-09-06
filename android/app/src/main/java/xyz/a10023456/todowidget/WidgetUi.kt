@@ -171,6 +171,12 @@ private fun cardBgColor(opacity: Int): ColorProvider =
         night = Color(0xFF383447).copy(alpha = opacity / 100f)
     )
 
+/** 卡片之间的垂直间距（dp）：调大更疏朗、调小更紧凑；分组卡片与简洁列表共用。 */
+private val CARD_GAP = 4.dp
+
+/** 卡片圆角半径（dp）。 */
+private val CARD_RADIUS = 16.dp
+
 /**
  * 一张圆角分组卡片的容器：卡片列自带底色/圆角/内边距。
  * 注意：Glance 的 padding 翻译成 View.setPadding，背景会铺满 padding 区，
@@ -183,7 +189,7 @@ private fun CardScaffold(opacity: Int, content: @Composable ColumnScope.() -> Un
         modifier = GlanceModifier
             .fillMaxWidth()
             .background(cardBgColor(opacity))
-            .cornerRadius(16.dp)
+            .cornerRadius(CARD_RADIUS)
             .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 3.dp),
         content = content
     )
@@ -332,7 +338,7 @@ private fun WidgetBody(
                                         CardScaffold(opacity) {
                                             ChildRow(child, widgetId, fontScale, wrapChild, g.id)
                                         }
-                                        Spacer(GlanceModifier.height(8.dp))
+                                        Spacer(GlanceModifier.height(CARD_GAP))
                                     }
                                 }
                             }
@@ -343,7 +349,7 @@ private fun WidgetBody(
                                 // 卡片外的透明 Spacer 才是真缝隙（padding 会被卡片背景铺满）
                                 Column {
                                     GroupCard(g, widgetId, collapsed.contains(g.id), opacity, fontScale, wrapChild)
-                                    Spacer(GlanceModifier.height(8.dp))
+                                    Spacer(GlanceModifier.height(CARD_GAP))
                                 }
                             }
                         }
