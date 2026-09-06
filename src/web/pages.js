@@ -592,6 +592,12 @@ function settingsPage(user) {
       </label>
       <p class="muted" style="font-size:12px;">开启后，从免密页登录只能看到对应模块，其他页面不可访问；关闭则为完整登录。</p>
       <hr style="margin:20px 0;border:none;border-top:1px solid #eee;">
+      <h2 style="font-size:15px;">待办偏好</h2>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:normal;">
+        <input type="checkbox" id="todoAutoParent" style="width:auto;"> 子任务全部完成后，自动完成父任务
+      </label>
+      <p class="muted" style="font-size:12px;">开启后（默认），当一个任务的所有子任务都勾选完成时，其父任务会自动标记完成并逐级向上；关闭则父任务保持原状，需手动勾选。</p>
+      <hr style="margin:20px 0;border:none;border-top:1px solid #eee;">
       <h2 style="font-size:15px;">免密 Token</h2>
       <p class="muted" style="font-size:12px;">每个模块一个 report_token，用于公开报告页链接与 Android 桌面小组件；点「复制」即可取用。从未生成过的会在打开本页时自动创建。</p>
       <div id="shareTokenBox" style="margin-top:8px;"><p class="muted" style="font-size:12px;">加载中…</p></div>

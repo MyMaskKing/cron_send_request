@@ -1521,6 +1521,8 @@ var showMsg = function(_el, text, ok){ showToast(text, ok); };
     document.getElementById('pfNick').value = d.profile.nickname;
     var ql = document.getElementById('qlRestrict');
     if (ql) ql.checked = d.profile.restrict_quicklogin != 0;
+    var tap = document.getElementById('todoAutoParent');
+    if (tap) tap.checked = d.profile.todo_auto_parent !== 0;
   } catch(e){ navTo('/login'); }
 })();
 // 免密登录限制开关：切换即保存
@@ -1530,6 +1532,14 @@ if (qlEl) qlEl.addEventListener('change', async function(){
     await api('/api/auth/quicklogin-restrict', { method:'PUT', body:{ enabled: qlEl.checked } });
     showMsg(msg, '免密登录设置已保存', true);
   } catch(err){ showMsg(msg, err.message, false); qlEl.checked = !qlEl.checked; }
+});
+// 待办偏好：子任务全部完成后自动完成父任务，切换即保存
+var tapEl = document.getElementById('todoAutoParent');
+if (tapEl) tapEl.addEventListener('change', async function(){
+  try {
+    await api('/api/auth/todo-auto-parent', { method:'PUT', body:{ enabled: tapEl.checked } });
+    showMsg(msg, '待办偏好已保存', true);
+  } catch(err){ showMsg(msg, err.message, false); tapEl.checked = !tapEl.checked; }
 });
 // 免密 Token：加载并渲染各模块 report_token + 一键复制
 var SHARE_META = {

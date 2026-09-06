@@ -99,6 +99,9 @@ function createD1Adapter(env) {
       async updateQuickloginRestrict(id, v) {
         await db.prepare('UPDATE users SET restrict_quicklogin = ? WHERE id = ?').bind(v ? 1 : 0, id).run();
       },
+      async updateTodoAutoParent(id, v) {
+        await db.prepare('UPDATE users SET todo_auto_parent = ? WHERE id = ?').bind(v ? 1 : 0, id).run();
+      },
       async count() {
         const row = await db.prepare('SELECT COUNT(*) AS c FROM users').first();
         return row ? row.c : 0;
@@ -783,6 +786,27 @@ function createD1Adapter(env) {
           doneBy != null ? doneBy : (self.created_by != null ? self.created_by : null)
         ).run();
         return { cloned: true, next_id: ins.meta.last_row_id, next_due: nextDue };
+      },
+      // 子任务全部完成后自动完成父任务（逐级向上）：
+      // 从 startId 的父任务开始, 某级父任务的全部直接子任务均已完成时把父任务也置完成并继续向上;
+      // 父任务不存在(越权)/已完成/存在未完成子任务(含重复任务刚克隆出的下一周期实例)即停止。
+      // 父任务带重复设置时走 markDoneWithRecur, 与手动勾选父任务一样克隆下一周期;
+      // userId 双校验防越权; doneBy 为本次操作人(个人/匿名场景传 null)
+      async autoCompleteAncestors(startId, userId, todayStr, doneBy) {
+        const self = await db.prepare('SELECT parent_id FROM todos WHERE id=? AND user_id=?').bind(startId, userId).first();
+        if (!self) return;
+        let parentId = self.parent_id;
+        let guard = 0;
+        while (parentId != null && guard++ < 50) {
+          const parent = await db.prepare('SELECT id, parent_id, done FROM todos WHERE id=? AND user_id=?').bind(parentId, userId).first();
+          if (!parent || parent.done) return;
+          const pending = await db.prepare(
+            'SELECT 1 AS x FROM todos WHERE parent_id=? AND done=0 LIMIT 1'
+          ).bind(parent.id).first();
+          if (pending) return;
+          await this.markDoneWithRecur(parent.id, userId, true, false, todayStr, doneBy);
+          parentId = parent.parent_id;
+        }
       },
       // 内部: 递归克隆 rootOld 及其全部后代, 返回新 root id
       // 新任务全部 done=0, done_at=null, share_token=null, recur_from_id 指向原 id

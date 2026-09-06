@@ -139,7 +139,8 @@ async function getProfile({ request, env }) {
     username: u.username,
     nickname: u.nickname || u.username,
     restrict_quicklogin: u.restrict_quicklogin != null ? u.restrict_quicklogin : 1,
-    theme: THEMES.includes(u.theme) ? u.theme : 'light'
+    theme: THEMES.includes(u.theme) ? u.theme : 'light',
+    todo_auto_parent: u.todo_auto_parent === 0 ? 0 : 1
   } });
 }
 
@@ -315,6 +316,19 @@ async function quickLoginByToken({ request, env, params }) {
 }
 
 /**
+ * PUT /api/auth/todo-auto-parent  设置待办偏好：子任务全部完成后是否自动完成父任务  body: { enabled }
+ */
+async function updateTodoAutoParent({ request, env }) {
+  const token = getTokenFromRequest(request);
+  const session = await getSession(env, token);
+  if (!session) return error('未登录', 401);
+  const body = await request.json().catch(() => ({}));
+  const storage = getStorage(env);
+  await storage.users.updateTodoAutoParent(session.user_id, body.enabled ? 1 : 0);
+  return json({ success: true, message: '设置已保存' });
+}
+
+/**
  * PUT /api/auth/quicklogin-restrict  设置免密登录访问限制  body: { enabled }
  */
 async function updateQuickloginRestrict({ request, env }) {
@@ -330,5 +344,5 @@ async function updateQuickloginRestrict({ request, env }) {
 export {
   register, login, logout, me, bootstrap, setupStatus, registerStatus,
   getProfile, updateProfile, changePassword, quickLoginByToken, updateQuickloginRestrict,
-  updateTheme
+  updateTheme, updateTodoAutoParent
 };

@@ -13,6 +13,7 @@
 -- restrict_quicklogin: 免密快速登录访问限制, 1=仅能访问对应模块页(默认)
 -- investment_strategy: 投资策略 Markdown, 每用户一条
 -- theme: 界面主题 light(默认) | dark | eye
+-- todo_auto_parent: 待办偏好, 1=子任务全部完成后父任务自动完成(默认) | 0=关闭
 CREATE TABLE IF NOT EXISTS users (
   id                   INTEGER PRIMARY KEY AUTOINCREMENT,
   username             TEXT NOT NULL UNIQUE,
@@ -24,6 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
   restrict_quicklogin  INTEGER NOT NULL DEFAULT 1,
   investment_strategy  TEXT,
   theme                TEXT NOT NULL DEFAULT 'light',
+  todo_auto_parent     INTEGER NOT NULL DEFAULT 1,
   last_login_at        TEXT,
   last_public_at       TEXT,
   created_at           TEXT NOT NULL DEFAULT (datetime('now'))
