@@ -172,7 +172,7 @@ private fun cardBgColor(opacity: Int): ColorProvider =
     )
 
 /** 卡片之间的垂直间距（dp）：调大更疏朗、调小更紧凑；分组卡片与简洁列表共用。 */
-private val CARD_GAP = 4.dp
+private val CARD_GAP = 6.dp
 
 /** 卡片圆角半径（dp）。 */
 private val CARD_RADIUS = 16.dp
