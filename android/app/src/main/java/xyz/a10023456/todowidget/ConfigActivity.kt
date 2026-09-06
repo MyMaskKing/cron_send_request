@@ -100,7 +100,7 @@ class ConfigActivity : ComponentActivity() {
                 ) {
                     // 底部弹窗：最高占屏 50%，内容少时 wrap 变矮、内容多时在面板内 verticalScroll
                     // 滚动，顶部始终留出桌面 + scrim（否则设置项变多后会撑满全屏，失去弹窗形态）
-                    val sheetMaxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.5f
+                    val sheetMaxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.6f
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
