@@ -20,7 +20,6 @@ import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.provideContent
 import androidx.glance.ImageProvider
 import androidx.glance.background
-import androidx.glance.color.ColorProvider as DayNightColor
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
@@ -38,14 +37,32 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 
-/** 小组件配色：day/night 两套，跟随系统深色（仅用于文字；圆角背景走 drawable 以兼容 Glance 1.1）。 */
-private object W {
-    val text = DayNightColor(day = Color(0xFF14141E), night = Color(0xFFF2F1F7))
-    // 次要文字（日期/面包屑/图标）：面板与卡片半透明时仍要可读，取比旧版更深/更亮的灰
-    val sub = DayNightColor(day = Color(0xFF666E8F), night = Color(0xFFB6B0CC))
-    val overdue = DayNightColor(day = Color(0xFFCF1322), night = Color(0xFFFF6B6B))
-    val brand = DayNightColor(day = Color(0xFFA855F7), night = Color(0xFFA855F7))
-}
+/**
+ * 小组件配色：浅色/深色两套，由小组件设置里的主题手动选择（WidgetFrame.widgetTheme），
+ * 不跟随系统深色。固定色用单参 ColorProvider（不随系统 uiMode 变化）。
+ */
+private class WColors(
+    val text: ColorProvider,
+    val sub: ColorProvider,
+    val overdue: ColorProvider,
+    val brand: ColorProvider
+)
+private val WLight = WColors(
+    text = ColorProvider(Color(0xFF14141E)),
+    // 次要文字（日期/面包屑/图标）：面板与卡片半透明时仍要可读
+    sub = ColorProvider(Color(0xFF666E8F)),
+    overdue = ColorProvider(Color(0xFFCF1322)),
+    brand = ColorProvider(Color(0xFFA855F7))
+)
+private val WDark = WColors(
+    text = ColorProvider(Color(0xFFF2F1F7)),
+    sub = ColorProvider(Color(0xFFB6B0CC)),
+    overdue = ColorProvider(Color(0xFFFF6B6B)),
+    brand = ColorProvider(Color(0xFFA855F7))
+)
+
+/** 按小组件主题取配色（dark=true 深色）。 */
+private fun W(dark: Boolean): WColors = if (dark) WDark else WLight
 
 /** 点击进入 App 的目标地址：登录态走 /todo，未登录且有 token 时走免密报告页 /tr/:token。 */
 private fun openUrlOf(ctx: Context, baseUrl: String, token: String): String =
@@ -108,6 +125,7 @@ class TodoAppWidget : GlanceAppWidget() {
                 fontScale = frame.fontScale,
                 wrapChild = frame.wrapChild,
                 simpleMode = frame.simpleMode,
+                dark = frame.widgetTheme == "dark",
                 failedMsg = frame.failedMsg
             )
         }
@@ -144,38 +162,35 @@ private fun fontFactor(scale: Int): Float = when (scale) {
 private fun fs(scale: Int, baseSp: Int) = (baseSp * fontFactor(scale)).sp
 
 /**
- * 内容区底色（浅灰）：标题栏之下、卡片之外的区域，卡片间缝隙也露出这个颜色。
- * alpha 即用户设置的背景不透明度。纯色 background（setBackgroundColor）全版本稳定；
- * cornerRadius 仅 API31+ 生效（低版本直角降级）。
+ * 内容区底色（中性浅灰，对齐微软 To Do 风格：灰底衬白卡片）：标题栏之下、卡片之外的
+ * 区域，卡片间缝隙也露出这个颜色。alpha 即用户设置的背景不透明度。
+ * 纯色 background（setBackgroundColor）全版本稳定；cornerRadius 仅 API31+ 生效（低版本直角降级）。
  */
-private fun panelBgColor(opacity: Int): ColorProvider =
-    DayNightColor(
-        day = Color(0xFFF2F3F7).copy(alpha = opacity / 100f),
-        night = Color(0xFF242130).copy(alpha = opacity / 100f)
+private fun panelBgColor(opacity: Int, dark: Boolean): ColorProvider =
+    ColorProvider(
+        (if (dark) Color(0xFF1C1C1E) else Color(0xFFEDEDED)).copy(alpha = opacity / 100f)
     )
 
-/** 标题行底色（灰白，比内容区深一档；夜间反转为比内容区亮一档）。 */
-private fun headerBgColor(opacity: Int): ColorProvider =
-    DayNightColor(
-        day = Color(0xFFE3E4EC).copy(alpha = opacity / 100f),
-        night = Color(0xFF332F41).copy(alpha = opacity / 100f)
+/** 标题行底色：浅色=近白、深色=次级深灰，比内容区亮一档（与卡片同色系）。 */
+private fun headerBgColor(opacity: Int, dark: Boolean): ColorProvider =
+    ColorProvider(
+        (if (dark) Color(0xFF2C2C2E) else Color(0xFFF5F5F5)).copy(alpha = opacity / 100f)
     )
 
 /**
- * 分组卡片底色：日=奶白、夜=比内容区亮一档的紫灰，与浅灰内容区拉开层次；
+ * 卡片底色：浅色=纯白、深色=三级深灰，为最亮一档，与中性灰内容区拉开层次；
  * alpha 随不透明度设置（半透明时卡片仍比内容区亮，层次感保留）。
  */
-private fun cardBgColor(opacity: Int): ColorProvider =
-    DayNightColor(
-        day = Color(0xFFFFFCF4).copy(alpha = opacity / 100f),
-        night = Color(0xFF383447).copy(alpha = opacity / 100f)
+private fun cardBgColor(opacity: Int, dark: Boolean): ColorProvider =
+    ColorProvider(
+        (if (dark) Color(0xFF38383A) else Color(0xFFFFFFFF)).copy(alpha = opacity / 100f)
     )
 
 /** 卡片之间的垂直间距（dp）：调大更疏朗、调小更紧凑；分组卡片与简洁列表共用。 */
-private val CARD_GAP = 6.dp
+private val CARD_GAP = 5.dp
 
 /** 卡片圆角半径（dp）。 */
-private val CARD_RADIUS = 16.dp
+private val CARD_RADIUS = 12.dp
 
 /**
  * 一张圆角分组卡片的容器：卡片列自带底色/圆角/内边距。
@@ -184,11 +199,11 @@ private val CARD_RADIUS = 16.dp
  * 寸土寸金：上下内边距收紧（标题距顶 8dp、末行距底 6dp）。
  */
 @Composable
-private fun CardScaffold(opacity: Int, content: @Composable ColumnScope.() -> Unit) {
+private fun CardScaffold(opacity: Int, dark: Boolean, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = GlanceModifier
             .fillMaxWidth()
-            .background(cardBgColor(opacity))
+            .background(cardBgColor(opacity, dark))
             .cornerRadius(CARD_RADIUS)
             .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 3.dp),
         content = content
@@ -208,6 +223,7 @@ private fun WidgetRoot(
     fontScale: Int,
     wrapChild: Boolean,
     simpleMode: Boolean,
+    dark: Boolean,
     failedMsg: String
 ) {
     Box(
@@ -215,14 +231,14 @@ private fun WidgetRoot(
             .fillMaxSize()
             // 浅灰内容区面板（背景铺满整个小组件，S+ 圆角裁剪；标题条贴顶满宽在其之上）；
             // opacity/fontScale 随 WidgetStateStore 帧驱动重组，设置面板拖动即实时预览。
-            .background(panelBgColor(opacity))
+            .background(panelBgColor(opacity, dark))
             .cornerRadius(22.dp),
         contentAlignment = Alignment.TopStart
     ) {
         if (!ready) {
-            NotReady(fontScale)
+            NotReady(fontScale, dark)
         } else {
-            WidgetBody(data, failed, widgetId, collapsed, opacity, fontScale, wrapChild, simpleMode, failedMsg)
+            WidgetBody(data, failed, widgetId, collapsed, opacity, fontScale, wrapChild, simpleMode, dark, failedMsg)
         }
         if (overlayState != "idle") WidgetOverlay(overlayState, overlayMsg, fontScale)
     }
@@ -260,7 +276,7 @@ private fun WidgetOverlay(state: String, msg: String, fontScale: Int) {
 }
 
 @Composable
-private fun NotReady(fontScale: Int) {
+private fun NotReady(fontScale: Int, dark: Boolean) {
     Column(
         modifier = GlanceModifier.fillMaxSize().padding(16.dp).clickable(
             actionStartActivity<MainActivity>()
@@ -272,7 +288,7 @@ private fun NotReady(fontScale: Int) {
         Spacer(GlanceModifier.height(6.dp))
         Text(
             "打开 App 登录后显示待办",
-            style = TextStyle(color = W.brand, fontWeight = FontWeight.Medium, fontSize = fs(fontScale, 13))
+            style = TextStyle(color = W(dark).brand, fontWeight = FontWeight.Medium, fontSize = fs(fontScale, 13))
         )
     }
 }
@@ -287,11 +303,12 @@ private fun WidgetBody(
     fontScale: Int,
     wrapChild: Boolean,
     simpleMode: Boolean,
+    dark: Boolean,
     failedMsg: String
 ) {
     Column(modifier = GlanceModifier.fillMaxSize()) {
         // 标题行：自带深灰白条背景，贴面板顶部满宽（S+ 被面板圆角裁剪顶边两角）
-        Header(data, widgetId, opacity, fontScale)
+        Header(data, widgetId, opacity, fontScale, dark)
         // 内容区：浅灰底（根 Box 面板色），卡片在其内；底部留白由末张卡片后的 Spacer 提供
         Column(
             modifier = GlanceModifier.fillMaxWidth().defaultWeight()
@@ -302,14 +319,14 @@ private fun WidgetBody(
                 // 有缓存时由下方列表继续展示上次数据
                 Text(
                     "⚠️ ${friendlyErrorMsg(failedMsg)}",
-                    style = TextStyle(color = W.overdue, fontSize = fs(fontScale, 11)),
+                    style = TextStyle(color = W(dark).overdue, fontSize = fs(fontScale, 11)),
                     maxLines = 2
                 )
                 Spacer(GlanceModifier.height(2.dp))
             }
             val groups = data?.groups.orEmpty()
             if (groups.isEmpty()) {
-                CardScaffold(opacity) {
+                CardScaffold(opacity, dark) {
                     Box(
                         modifier = GlanceModifier.fillMaxWidth().padding(vertical = 14.dp),
                         contentAlignment = Alignment.Center
@@ -318,7 +335,7 @@ private fun WidgetBody(
                         Text(
                             if (failed) "⚠️ 连接失败，暂无缓存数据，将自动重试" else "🎉 当前范围没有待办",
                             style = TextStyle(
-                                color = if (failed) W.overdue else W.sub,
+                                color = if (failed) W(dark).overdue else W(dark).sub,
                                 fontSize = fs(fontScale, 13)
                             )
                         )
@@ -335,8 +352,8 @@ private fun WidgetBody(
                                 item(itemId = child.id) {
                                     // 卡片外的透明 Spacer 才是真缝隙（padding 会被卡片背景铺满）
                                     Column {
-                                        CardScaffold(opacity) {
-                                            ChildRow(child, widgetId, fontScale, wrapChild, g.id)
+                                        CardScaffold(opacity, dark) {
+                                            ChildRow(child, widgetId, fontScale, wrapChild, g.id, dark)
                                         }
                                         Spacer(GlanceModifier.height(CARD_GAP))
                                     }
@@ -348,7 +365,7 @@ private fun WidgetBody(
                             item(itemId = g.id) {
                                 // 卡片外的透明 Spacer 才是真缝隙（padding 会被卡片背景铺满）
                                 Column {
-                                    GroupCard(g, widgetId, collapsed.contains(g.id), opacity, fontScale, wrapChild)
+                                    GroupCard(g, widgetId, collapsed.contains(g.id), opacity, fontScale, wrapChild, dark)
                                     Spacer(GlanceModifier.height(CARD_GAP))
                                 }
                             }
@@ -373,13 +390,14 @@ private fun GroupCard(
     isCollapsed: Boolean,
     opacity: Int,
     fontScale: Int,
-    wrapChild: Boolean
+    wrapChild: Boolean,
+    dark: Boolean
 ) {
-    CardScaffold(opacity) {
-        GroupTitleRow(g, widgetId, isCollapsed, fontScale)
+    CardScaffold(opacity, dark) {
+        GroupTitleRow(g, widgetId, isCollapsed, fontScale, dark)
         // 仅多任务分组可折叠；折叠时隐藏子行。单主任务组恒显示其唯一子行（主任务自身）。
         if (g.collapsible && isCollapsed) return@CardScaffold
-        g.children.forEach { child -> ChildRow(child, widgetId, fontScale, wrapChild, g.id) }
+        g.children.forEach { child -> ChildRow(child, widgetId, fontScale, wrapChild, g.id, dark) }
     }
 }
 
@@ -388,7 +406,8 @@ private fun GroupCard(
  * 仅 ▼/▶ 箭头点击 = 折叠/展开（CollapseAction）；右侧「＋」= 添加子任务。子 View 点击优先于整行。
  */
 @Composable
-private fun GroupTitleRow(g: WidgetGroup, widgetId: Int, isCollapsed: Boolean, fontScale: Int) {
+private fun GroupTitleRow(g: WidgetGroup, widgetId: Int, isCollapsed: Boolean, fontScale: Int, dark: Boolean) {
+    val w = W(dark)
     val solo = !g.collapsible && g.children.firstOrNull()?.id == g.id
     val ctx = androidx.glance.LocalContext.current
     val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
@@ -404,7 +423,7 @@ private fun GroupTitleRow(g: WidgetGroup, widgetId: Int, isCollapsed: Boolean, f
             // 箭头单独折叠/展开（子 View 点击优先，不触发行的进详情）；加 padding 扩大触点
             Text(
                 if (g.collapsible) (if (isCollapsed) "▶ " else "▼ ") else "• ",
-                style = TextStyle(color = W.sub, fontSize = fs(fontScale, 11)),
+                style = TextStyle(color = w.sub, fontSize = fs(fontScale, 11)),
                 modifier = GlanceModifier.padding(horizontal = 2.dp).clickable(
                     actionRunCallback<CollapseAction>(
                         actionParametersOf(
@@ -418,7 +437,7 @@ private fun GroupTitleRow(g: WidgetGroup, widgetId: Int, isCollapsed: Boolean, f
         }
         Text(
             g.title,
-            style = TextStyle(fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 13), color = W.text),
+            style = TextStyle(fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 13), color = w.text),
             maxLines = 1,
             modifier = GlanceModifier.defaultWeight()
         )
@@ -432,7 +451,7 @@ private fun GroupTitleRow(g: WidgetGroup, widgetId: Int, isCollapsed: Boolean, f
                 g.due_label,
                 style = TextStyle(
                     fontSize = fs(fontScale, 11),
-                    color = if (g.overdue) W.overdue else W.sub
+                    color = if (g.overdue) w.overdue else w.sub
                 ),
                 maxLines = 1
             )
@@ -441,7 +460,7 @@ private fun GroupTitleRow(g: WidgetGroup, widgetId: Int, isCollapsed: Boolean, f
         Spacer(GlanceModifier.width(8.dp))
         Text(
             "＋",
-            style = TextStyle(fontSize = fs(fontScale, 15), color = W.brand, fontWeight = FontWeight.Bold),
+            style = TextStyle(fontSize = fs(fontScale, 15), color = w.brand, fontWeight = FontWeight.Bold),
             modifier = GlanceModifier.clickable(
                 actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to addChildUrl))
             )
@@ -449,9 +468,9 @@ private fun GroupTitleRow(g: WidgetGroup, widgetId: Int, isCollapsed: Boolean, f
     }
 }
 
-/** 圆形勾选框（外层品牌圆 + 内层表面圆 = 环形），点击 → 完成。 */
+/** 圆形勾选框（外层品牌圆 + 内层表面圆 = 环形），点击 → 完成。内心色随主题（=卡片色）。 */
 @Composable
-private fun CheckCircle(widgetId: Int, itemId: Long) {
+private fun CheckCircle(widgetId: Int, itemId: Long, dark: Boolean) {
     Box(
         modifier = GlanceModifier
             .size(22.dp)
@@ -468,7 +487,9 @@ private fun CheckCircle(widgetId: Int, itemId: Long) {
     ) {
         Box(
             modifier = GlanceModifier.size(18.dp)
-                .background(imageProvider = ImageProvider(R.drawable.bg_circle_surface))
+                .background(imageProvider = ImageProvider(
+                    if (dark) R.drawable.bg_circle_surface_dark else R.drawable.bg_circle_surface
+                ))
         ) {}
     }
 }
@@ -478,7 +499,8 @@ private fun CheckCircle(widgetId: Int, itemId: Long) {
  * 右侧收纳 ↻ 刷新 / ＋ 新增 / ⚙️ 设置三个动作（原底栏已删除，寸土寸金）。
  */
 @Composable
-private fun Header(data: WidgetResponse?, widgetId: Int, opacity: Int, fontScale: Int) {
+private fun Header(data: WidgetResponse?, widgetId: Int, opacity: Int, fontScale: Int, dark: Boolean) {
+    val w = W(dark)
     val ctx = androidx.glance.LocalContext.current
     val token = Prefs.getToken(ctx, widgetId)
     val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
@@ -486,7 +508,7 @@ private fun Header(data: WidgetResponse?, widgetId: Int, opacity: Int, fontScale
     val addUrl = addUrlOf(ctx, baseUrl, token)
     Row(
         modifier = GlanceModifier.fillMaxWidth()
-            .background(headerBgColor(opacity))
+            .background(headerBgColor(opacity, dark))
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -499,21 +521,21 @@ private fun Header(data: WidgetResponse?, widgetId: Int, opacity: Int, fontScale
         ) {
             Text(
                 "📝 待办",
-                style = TextStyle(fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 14), color = W.text)
+                style = TextStyle(fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 14), color = w.text)
             )
             if (data != null) {
                 Spacer(GlanceModifier.width(6.dp))
-                StatChip(data.stats.pending, W.text, fontScale)
+                StatChip(data.stats.pending, w.text, fontScale, dark)
                 Spacer(GlanceModifier.width(4.dp))
-                StatChip(data.stats.overdue, W.overdue, fontScale)
+                StatChip(data.stats.overdue, w.overdue, fontScale, dark)
                 Spacer(GlanceModifier.width(4.dp))
-                StatChip(data.stats.memo, W.sub, fontScale)
+                StatChip(data.stats.memo, w.sub, fontScale, dark)
             }
         }
         Spacer(GlanceModifier.width(6.dp))
         Text(
             "↻",
-            style = TextStyle(fontSize = fs(fontScale, 16), color = W.brand, fontWeight = FontWeight.Bold),
+            style = TextStyle(fontSize = fs(fontScale, 16), color = w.brand, fontWeight = FontWeight.Bold),
             modifier = GlanceModifier.clickable(
                 actionRunCallback<RefreshAction>(
                     actionParametersOf(Keys.AppWidgetId to widgetId)
@@ -523,7 +545,7 @@ private fun Header(data: WidgetResponse?, widgetId: Int, opacity: Int, fontScale
         Spacer(GlanceModifier.width(12.dp))
         Text(
             "＋",
-            style = TextStyle(fontSize = fs(fontScale, 17), color = W.brand, fontWeight = FontWeight.Bold),
+            style = TextStyle(fontSize = fs(fontScale, 17), color = w.brand, fontWeight = FontWeight.Bold),
             modifier = GlanceModifier.clickable(
                 actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to addUrl))
             )
@@ -531,7 +553,7 @@ private fun Header(data: WidgetResponse?, widgetId: Int, opacity: Int, fontScale
         Spacer(GlanceModifier.width(12.dp))
         Text(
             "⚙️",
-            style = TextStyle(fontSize = fs(fontScale, 14), color = W.sub),
+            style = TextStyle(fontSize = fs(fontScale, 14), color = w.sub),
             modifier = GlanceModifier.clickable(
                 actionStartActivity<ConfigActivity>(
                     actionParametersOf(Keys.AppWidgetId to widgetId)
@@ -542,10 +564,12 @@ private fun Header(data: WidgetResponse?, widgetId: Int, opacity: Int, fontScale
 }
 
 @Composable
-private fun StatChip(value: Int, color: ColorProvider, fontScale: Int) {
+private fun StatChip(value: Int, color: ColorProvider, fontScale: Int, dark: Boolean) {
     Box(
         modifier = GlanceModifier
-            .background(imageProvider = ImageProvider(R.drawable.bg_chip))
+            .background(imageProvider = ImageProvider(
+                if (dark) R.drawable.bg_chip_dark else R.drawable.bg_chip
+            ))
             .padding(horizontal = 7.dp, vertical = 2.dp)
     ) {
         Text(value.toString(), style = TextStyle(color = color, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
@@ -553,7 +577,8 @@ private fun StatChip(value: Int, color: ColorProvider, fontScale: Int) {
 }
 
 @Composable
-private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int, wrapChild: Boolean, rootId: Long) {
+private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int, wrapChild: Boolean, rootId: Long, dark: Boolean) {
+    val w = W(dark)
     val ctx = androidx.glance.LocalContext.current
     val token = Prefs.getToken(ctx, widgetId)
     val baseUrl = Prefs.getBaseUrl(ctx, widgetId)
@@ -562,7 +587,7 @@ private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int, wrapChild
         modifier = GlanceModifier.fillMaxWidth().padding(start = 6.dp, top = 3.dp, bottom = 3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        CheckCircle(widgetId, child.id)
+        CheckCircle(widgetId, child.id, dark)
         Spacer(GlanceModifier.width(8.dp))
         Column(modifier = GlanceModifier.defaultWeight().clickable(
             actionStartActivity<MainActivity>(actionParametersOf(Keys.Url to editUrl))
@@ -570,14 +595,14 @@ private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int, wrapChild
             if (child.path.isNotEmpty()) {
                 Text(
                     child.path.joinToString(" → "),
-                    style = TextStyle(color = W.sub, fontSize = fs(fontScale, 10)),
+                    style = TextStyle(color = w.sub, fontSize = fs(fontScale, 10)),
                     maxLines = 1
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     child.title,
-                    style = TextStyle(fontSize = fs(fontScale, 13), color = W.text),
+                    style = TextStyle(fontSize = fs(fontScale, 13), color = w.text),
                     // 子任务显示模式：默认单行省略（maxLines=1）；选"完整换行"给具体大值 50。
                     // 不能用 Int.MAX_VALUE——Glance 对默认值(MAX_VALUE)不发射 setMaxLines，
                     // 而 LazyColumn→ListView 的 item TextView 被复用会保留旧 maxLines=1，导致切不换行。
@@ -591,7 +616,7 @@ private fun ChildRow(child: WidgetItem, widgetId: Int, fontScale: Int, wrapChild
                         child.due_label,
                         style = TextStyle(
                             fontSize = fs(fontScale, 11),
-                            color = if (child.overdue) W.overdue else W.sub
+                            color = if (child.overdue) w.overdue else w.sub
                         ),
                         maxLines = 1
                     )

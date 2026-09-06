@@ -69,6 +69,14 @@ object Prefs {
     fun setSimpleMode(context: Context, widgetId: Int, simple: Boolean) =
         sp(context).edit().putBoolean("simple_$widgetId", simple).apply()
 
+    /** 小组件主题："light"（默认）| "dark"，在小组件设置里手动切换，不跟随系统深色。
+     *  注意区别于全局 app_theme（App 内网页的浅色/暗色/护眼，见 getTheme）。 */
+    fun getWidgetTheme(context: Context, widgetId: Int): String =
+        sp(context).getString("wtheme_$widgetId", "light") ?: "light"
+
+    fun setWidgetTheme(context: Context, widgetId: Int, theme: String) =
+        sp(context).edit().putString("wtheme_$widgetId", theme).apply()
+
     fun getBaseUrl(context: Context, widgetId: Int): String {
         val per = sp(context).getString("baseurl_$widgetId", "") ?: ""
         return if (per.isNotBlank()) AppConfig.normalize(per) else AppConfig.getBaseUrl(context)

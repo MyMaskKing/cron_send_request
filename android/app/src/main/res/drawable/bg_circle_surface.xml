@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <solid android:color="@color/widget_bg" />
+    <!-- 浅色主题勾选环内心（= 浅色卡片色 #FFFFFF），代码按主题选 resId，不随系统深色 -->
+    <solid android:color="#FFFFFFFF" />
 </shape>

@@ -31,6 +31,7 @@ object WidgetStateStore {
         val fontScale: Int, // 字号档位 0=小 1=中 2=大
         val wrapChild: Boolean, // 子任务标题：false=单行省略（默认），true=过长换行完整显示
         val simpleMode: Boolean, // 显示模式：false=分组卡片（默认），true=简洁列表（每任务一张卡片）
+        val widgetTheme: String, // 小组件主题："light"（默认）| "dark"，手动切换不跟随系统
         val failedMsg: String // 最近一次拉取失败的原始错误信息（空串表示无失败）
     )
 
@@ -66,6 +67,7 @@ object WidgetStateStore {
             fontScale = Prefs.getFontScale(context, widgetId),
             wrapChild = Prefs.getWrapChild(context, widgetId),
             simpleMode = Prefs.getSimpleMode(context, widgetId),
+            widgetTheme = Prefs.getWidgetTheme(context, widgetId),
             failedMsg = Prefs.getFailedMsg(context, widgetId)
         )
     }

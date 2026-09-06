@@ -81,6 +81,7 @@ class ConfigActivity : ComponentActivity() {
         val fontScale = Prefs.getFontScale(this, appWidgetId)
         val wrapChild = Prefs.getWrapChild(this, appWidgetId)
         val simpleMode = Prefs.getSimpleMode(this, appWidgetId)
+        val widgetTheme = Prefs.getWidgetTheme(this, appWidgetId)
         val baseUrl = AppConfig.getBaseUrl(this)
         val sid = Prefs.getSid(this)
 
@@ -113,6 +114,7 @@ class ConfigActivity : ComponentActivity() {
                             initialFontScale = fontScale,
                             initialWrapChild = wrapChild,
                             initialSimpleMode = simpleMode,
+                            initialWidgetTheme = widgetTheme,
                             baseUrl = baseUrl,
                             sid = sid,
                             onTest = { t -> testConnection(t) },
@@ -120,7 +122,8 @@ class ConfigActivity : ComponentActivity() {
                             onFontScale = { v -> previewFontScale(v) },
                             onWrapChild = { v -> previewWrapChild(v) },
                             onSimpleMode = { v -> previewSimpleMode(v) },
-                            onSave = { t, s, o, f, w, sm -> save(t, s, o, f, w, sm) }
+                            onWidgetTheme = { v -> previewWidgetTheme(v) },
+                            onSave = { t, s, o, f, w, sm, th -> save(t, s, o, f, w, sm, th) }
                         )
                     }
                 }
@@ -166,6 +169,17 @@ class ConfigActivity : ComponentActivity() {
         WidgetStateStore.publish(this, appWidgetId)
         // 模式切换会改变 LazyColumn 数据集结构（item 数量与 stable id 集合变化），存活 session
         // 的增量重组对 collection 刷新不可靠，补一次全量重绘兜底（与 Worker 的 publish+update 双保险一致）
+        kotlinx.coroutines.MainScope().launch {
+            runCatching { TodoAppWidget().updateAll(this@ConfigActivity) }
+        }
+    }
+
+    /** 实时预览：小组件主题（浅色/深色）写 SP 后发布并重绘；主题不跟随系统，由设置手动切换。 */
+    private fun previewWidgetTheme(value: String) {
+        if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
+        Prefs.setWidgetTheme(this, appWidgetId, value)
+        WidgetStateStore.publish(this, appWidgetId)
+        // 主题切换是整卡配色变化，存活 session 增量重组可能不刷新 drawable 背景，补全量重绘兜底
         kotlinx.coroutines.MainScope().launch {
             runCatching { TodoAppWidget().updateAll(this@ConfigActivity) }
         }
@@ -224,7 +238,7 @@ class ConfigActivity : ComponentActivity() {
         }
     }
 
-    private fun save(token: String, scope: String, opacity: Int, fontScale: Int, wrapChild: Boolean, simpleMode: Boolean) {
+    private fun save(token: String, scope: String, opacity: Int, fontScale: Int, wrapChild: Boolean, simpleMode: Boolean, widgetTheme: String) {
         if (Prefs.getSid(this).isBlank() && token.isBlank()) {
             Toast.makeText(this, "请先在 App 内登录，或填写 report_token", Toast.LENGTH_SHORT).show()
             return
@@ -236,6 +250,7 @@ class ConfigActivity : ComponentActivity() {
             Prefs.setFontScale(this@ConfigActivity, appWidgetId, fontScale)
             Prefs.setWrapChild(this@ConfigActivity, appWidgetId, wrapChild)
             Prefs.setSimpleMode(this@ConfigActivity, appWidgetId, simpleMode)
+            Prefs.setWidgetTheme(this@ConfigActivity, appWidgetId, widgetTheme)
             WidgetStateStore.publish(this@ConfigActivity, appWidgetId)
             RefreshWorker.enqueue(this@ConfigActivity)
             WidgetRepo.refresh(this@ConfigActivity, appWidgetId)
@@ -260,6 +275,7 @@ private fun ConfigSheet(
     initialFontScale: Int,
     initialWrapChild: Boolean,
     initialSimpleMode: Boolean,
+    initialWidgetTheme: String,
     baseUrl: String,
     sid: String,
     onTest: (String) -> Unit,
@@ -267,7 +283,8 @@ private fun ConfigSheet(
     onFontScale: (Int) -> Unit,
     onWrapChild: (Boolean) -> Unit,
     onSimpleMode: (Boolean) -> Unit,
-    onSave: (String, String, Int, Int, Boolean, Boolean) -> Unit
+    onWidgetTheme: (String) -> Unit,
+    onSave: (String, String, Int, Int, Boolean, Boolean, String) -> Unit
 ) {
     var token by remember { mutableStateOf(initialToken) }
     var scope by remember { mutableStateOf(initialScope) }
@@ -275,6 +292,7 @@ private fun ConfigSheet(
     var fontScale by remember { mutableStateOf(initialFontScale) }
     var wrapChild by remember { mutableStateOf(initialWrapChild) }
     var simpleMode by remember { mutableStateOf(initialSimpleMode) }
+    var widgetTheme by remember { mutableStateOf(initialWidgetTheme) }
     val loggedIn = sid.isNotBlank()
     val scopes = listOf(
         "cur" to "今日 + 逾期（推荐）",
@@ -342,6 +360,36 @@ private fun ConfigSheet(
                         .clickable {
                             fontScale = i
                             onFontScale(i)
+                        }
+                        .padding(horizontal = 18.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        label,
+                        color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 14.sp
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Text("主题", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 小组件主题手动切换（浅色/深色），不跟随系统深色
+            listOf("light" to "浅色", "dark" to "深色").forEach { (v, label) ->
+                val selected = widgetTheme == v
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = if (selected) brand else Color.Transparent,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .clickable {
+                            widgetTheme = v
+                            onWidgetTheme(v)
                         }
                         .padding(horizontal = 18.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
@@ -452,7 +500,7 @@ private fun ConfigSheet(
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TextButton(onClick = { onTest(if (loggedIn) "" else token) }) { Text("测试连接") }
             Spacer(Modifier.weight(1f))
-            Button(onClick = { onSave(if (loggedIn) "" else token, scope, opacity.toInt(), fontScale, wrapChild, simpleMode) }) {
+            Button(onClick = { onSave(if (loggedIn) "" else token, scope, opacity.toInt(), fontScale, wrapChild, simpleMode, widgetTheme) }) {
                 Text("保存")
             }
         }

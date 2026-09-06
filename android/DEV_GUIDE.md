@@ -101,16 +101,16 @@ App 涉及三类凭证，**普通用户只需登录，不用手动管 token**：
 全部在 **`WidgetUi.kt`**。卡片间距与圆角已抽成文件顶部常量：
 
 ```kotlin
-private val CARD_GAP = 4.dp     // 卡片之间的垂直间距（分组卡片、简洁列表共用）
-private val CARD_RADIUS = 16.dp // 卡片圆角半径
+private val CARD_GAP = 5.dp     // 卡片之间的垂直间距（分组卡片、简洁列表共用）
+private val CARD_RADIUS = 12.dp // 卡片圆角半径
 ```
 
 常用调整位置一览：
 
 | 想调什么 | 改哪里 | 当前值 |
 |------|------|------|
-| 卡片间距 | 顶部常量 `CARD_GAP` | 4.dp |
-| 卡片圆角 | 顶部常量 `CARD_RADIUS`（`CardScaffold` 引用） | 16.dp |
+| 卡片间距 | 顶部常量 `CARD_GAP` | 5.dp |
+| 卡片圆角 | 顶部常量 `CARD_RADIUS`（`CardScaffold` 引用） | 12.dp |
 | 整个小组件外轮廓圆角 | `WidgetRoot` 与 `WidgetOverlay` 里的 `.cornerRadius(22.dp)`（**两处一起改**；仅 API31+ 生效，低版本直角降级） | 22.dp |
 | 卡片内边距（文字到卡片边缘） | `CardScaffold` 的 `.padding(start=12, end=12, top=6, bottom=3)` | 左右 12 / 上 6 / 下 3 |
 | 卡片到组件边缘距离 | `WidgetBody` 内容区 Column 的 `.padding(start=10, end=10, top=8)` | 左右 10 / 顶 8 |
@@ -118,16 +118,29 @@ private val CARD_RADIUS = 16.dp // 卡片圆角半径
 | 勾选圆与标题距离 | `ChildRow` 里 `Spacer(GlanceModifier.width(8.dp))` | 8.dp |
 | 勾选圆大小 | `CheckCircle` 的 `.size(22.dp)` / 内圆 `.size(18.dp)` | 22 / 18 |
 | 字号档位 | `fontFactor()`（0=小 0.88、1=中 1、2=大 1.15）；各 `fs(fontScale, N)` 的 N 是基准 sp | — |
-| 卡片底色 | `cardBgColor()`（日=奶白 `#FFFCF4` / 夜=`#383447`，alpha 随不透明度设置） | — |
-| 面板底色 / 标题栏底色 | `panelBgColor()` / `headerBgColor()` | — |
-| 品牌色（勾选圆/按钮/链接） | 全局 `W`（`DayNightColor`）与配置面板的 `brand = Color(0xFFA855F7)` | 紫色 |
+| 卡片底色 | `cardBgColor(opacity, dark)`（浅色=纯白 `#FFFFFF` / 深色=`#38383A`，alpha 随不透明度） | — |
+| 面板底色（卡片外灰底） | `panelBgColor(opacity, dark)`（浅=`#EDEDED` / 深=`#1C1C1E`） | — |
+| 标题栏底色 | `headerBgColor(opacity, dark)`（浅=`#F5F5F5` / 深=`#2C2C2E`） | — |
+| 文字/图标色 | `W(dark).text / .sub / .overdue / .brand`（配色对象 `WLight` / `WDark`） | — |
+| 勾选环内心色 | drawable **双套**：`bg_circle_surface`（浅 `#FFFFFF`）/ `bg_circle_surface_dark`（深 `#38383A`），`CheckCircle` 按 `dark` 选 resId；**必须与卡片底色一致**才呈空心环 | — |
+| 统计 chip 底 | drawable **双套**：`bg_chip`（浅 `#E8E8E8`）/ `bg_chip_dark`（深 `#48484A`），`StatChip` 按 `dark` 选 | — |
+| 品牌色（勾选圆/按钮/链接） | `W(dark).brand` 与配置面板 `brand = Color(0xFFA855F7)`（浅深同为紫） | 紫色 |
+
+**主题机制（浅色/深色，不跟随系统）：**
+
+- 小组件主题在**小组件设置面板**里手动切（「主题：浅色/深色」），存 SP 键 `wtheme_$widgetId`（`"light"` 默认 / `"dark"`），**不跟随手机系统深色模式**。
+- 链路与其他 UI 偏好一致：`Prefs.getWidgetTheme/setWidgetTheme` → `WidgetFrame.widgetTheme` → `provideGlance` 里 `val dark = frame.widgetTheme == "dark"` → 逐层透传给各 Composable。
+- 配色**不**再用 `DayNightColor(day,night)`（那是自动跟系统）；改为 `WLight/WDark` 两套固定色 + 单参 `ColorProvider(Color)`（不随 uiMode 变），`W(dark)` 按主题取；三个背景函数都收 `dark` 参数。
+- drawable 形状色（勾选环内心、统计 chip 底）无法用代码色控制，做成 `xxx` / `xxx_dark` 两个 XML，代码按 `dark` 选 `R.drawable.xxx_dark`。
+- 主题切换预览：写 SP + `publish` + 主线程 `updateAll`（drawable resId 变化需全量重绘兜底，同显示模式）。
+- 注意区别：App 内 WebView 网页的浅色/暗色/护眼是另一套（账号 `users.theme`，全局 `app_theme`），与小组件主题互不相干。
 
 **Glance 布局坑（改之前必读）：**
 
 1. **卡片缝隙只能用卡片外的 `Spacer(height = CARD_GAP)`**。Glance 的 `padding` 翻译成 `View.setPadding`，背景会铺满 padding 区，给卡片加 margin 无效。
 2. `LazyColumn` 的每个 `item` 尽量带**稳定 `itemId`**（用任务/分组的全局 id）。数据集结构变化（如显示模式切换、增删分组）时无 id item 在增量重组下可能不刷新。
-3. 改 UI 设置类偏好（不透明度/字号/换行/显示模式）要走完整链路：`Prefs` 存取 → `WidgetStateStore.WidgetFrame` 加字段 + `readFrame` 读取 → `provideGlance/WidgetRoot/WidgetBody` 透传 → `ConfigActivity` 面板开关（写 SP 后 `publish`，模式切换类结构变化再补一次主线程 `updateAll` 兜底）。
-4. 颜色必须用 `DayNightColor` / `ColorProvider` 走日/夜双套，禁止硬编码单色。
+3. 改 UI 设置类偏好（不透明度/字号/换行/显示模式/主题）要走完整链路：`Prefs` 存取 → `WidgetStateStore.WidgetFrame` 加字段 + `readFrame` 读取 → `provideGlance/WidgetRoot/WidgetBody` 透传 → `ConfigActivity` 面板开关（写 SP 后 `publish`，模式/主题/drawable 切换类变化再补一次主线程 `updateAll` 兜底）。
+4. 颜色按手动主题走：文字/背景用 `W(dark)` 与 `xxxBgColor(opacity, dark)` 的固定 `ColorProvider(Color)`；drawable 形状色出 `_dark` 双套按 `dark` 选 resId。不要用回 `DayNightColor(day,night)`（会跟随系统，与手动主题冲突）。
 
 ---
 
