@@ -970,6 +970,16 @@ function initListPick(container, items, vals) {
   return { getValues: values, getString: function(){ return values().join(','); } };
 }
 
+// 推送前校验：通知渠道多选必须至少选中一项，否则弹窗拦截并返回 false（保存推送配置/立即推送共用）
+function requirePushChannels(pick) {
+  var ids = pick && pick.getValues ? pick.getValues() : [];
+  if (!ids.length) {
+    alertModal('请先选择至少一个通知渠道；还没有渠道可到「通知渠道」页添加。', { ok: false });
+    return false;
+  }
+  return true;
+}
+
 // 推送格式选项按渠道类型联动：email 只支持 text/html；wechat/webhook 额外支持 markdown
 function fmtOptionsFor(type) {
   var base = [['text','text'],['html','html']];
@@ -2735,6 +2745,7 @@ async function loadReportConfig() {
 }
 var rcHourPick = null;
 document.getElementById('rcSave').addEventListener('click', async function(){
+  if (!requirePushChannels(rcChannelPick)) return;
   var payload = {
     channel_ids: rcChannelPick ? rcChannelPick.getValues() : [],
     format: document.getElementById('rcFormat').value,
@@ -2745,6 +2756,7 @@ document.getElementById('rcSave').addEventListener('click', async function(){
   catch(e){ alertModal(e.message, {ok:false}); }
 });
 document.getElementById('rcSend').addEventListener('click', async function(){
+  if (!requirePushChannels(rcChannelPick)) return;
   var btn = this; btn.disabled = true; btn.textContent = '发送中...';
   try { setLoadingProgress(90); var r = await api('/api/fund/report/send', { method:'POST', loadingText: '正在发送基金日报…' }); alertModal(r.message || '已推送'); }
   catch(e){ alertModal(e.message, { ok:false }); }
@@ -3592,6 +3604,7 @@ async function loadPush() {
 }
 var pushSave = document.getElementById('pushSave');
 if (pushSave) pushSave.addEventListener('click', async function(){
+  if (!requirePushChannels(wPushChannelPick)) return;
   try {
     await api('/api/push/weight', { method:'PUT', body:{
       channel_ids: wPushChannelPick ? wPushChannelPick.getValues() : [],
@@ -3604,6 +3617,7 @@ if (pushSave) pushSave.addEventListener('click', async function(){
 });
 var pushSend = document.getElementById('pushSend');
 if (pushSend) pushSend.addEventListener('click', async function(){
+  if (!requirePushChannels(wPushChannelPick)) return;
   var btn = this; btn.disabled = true; btn.textContent = '推送中...';
   try { setLoadingProgress(90); var r = await api('/api/push/weight/send', { method:'POST', loadingText: '正在发送体重日报…' }); alertModal(r.message || '已推送'); }
   catch(e){ alertModal(e.message, { ok:false }); }
@@ -4333,6 +4347,7 @@ async function loadPush() {
   document.getElementById('pushEn').checked = !!d.config.enabled;
 }
 document.getElementById('pushSave').addEventListener('click', async function(){
+  if (!requirePushChannels(aPushChannelPick)) return;
   try {
     await api('/api/push/asset', { method:'PUT', body:{
       channel_ids: aPushChannelPick ? aPushChannelPick.getValues() : [],
@@ -4346,6 +4361,7 @@ document.getElementById('pushSave').addEventListener('click', async function(){
 });
 var aPushSend = document.getElementById('pushSend');
 if (aPushSend) aPushSend.addEventListener('click', async function(){
+  if (!requirePushChannels(aPushChannelPick)) return;
   var btn = this; btn.disabled = true; btn.textContent = '推送中...';
   try { setLoadingProgress(90); var r = await api('/api/push/asset/send', { method:'POST', loadingText: '正在发送资产月报…' }); alertModal(r.message || '已推送'); }
   catch(e){ alertModal(e.message, { ok:false }); }
@@ -6919,6 +6935,7 @@ async function loadPush() {
   document.getElementById('pushEn').checked = !!d.config.enabled;
 }
 bindClickBusy(document.getElementById('pushSave'), async function(){
+  if (!requirePushChannels(tPushChannelPick)) return;
   await api('/api/push/todo', { method:'PUT', body:{
     channel_ids: tPushChannelPick ? tPushChannelPick.getValues() : [],
     format: document.getElementById('pushFmt').value,
@@ -6928,6 +6945,7 @@ bindClickBusy(document.getElementById('pushSave'), async function(){
   alertModal('推送配置已保存');
 });
 bindClickBusy(document.getElementById('pushSend'), async function(){
+  if (!requirePushChannels(tPushChannelPick)) return;
   setLoadingProgress(90);
   var r = await api('/api/push/todo/send', { method:'POST', loadingText: '正在发送待办日报…' });
   alertModal(r.message || '已推送');
