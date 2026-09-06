@@ -62,6 +62,13 @@ object Prefs {
     fun setWrapChild(context: Context, widgetId: Int, wrap: Boolean) =
         sp(context).edit().putBoolean("wrapchild_$widgetId", wrap).apply()
 
+    /** 显示模式：false=分组卡片（默认），true=简洁列表（只平铺子任务行，无任务组标题/折叠） */
+    fun getSimpleMode(context: Context, widgetId: Int): Boolean =
+        sp(context).getBoolean("simple_$widgetId", false)
+
+    fun setSimpleMode(context: Context, widgetId: Int, simple: Boolean) =
+        sp(context).edit().putBoolean("simple_$widgetId", simple).apply()
+
     fun getBaseUrl(context: Context, widgetId: Int): String {
         val per = sp(context).getString("baseurl_$widgetId", "") ?: ""
         return if (per.isNotBlank()) AppConfig.normalize(per) else AppConfig.getBaseUrl(context)

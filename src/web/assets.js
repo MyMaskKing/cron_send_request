@@ -1648,7 +1648,7 @@ async function loadDataShare(){
   // 加入共享
   h += '<div style="padding:10px;background:var(--surface-2);border-radius:6px;">';
   h += '<div style="font-weight:600;margin-bottom:6px;">加入共享</div>';
-  h += '<div class="row" style="align-items:center;"><input id="dsJoinCode" placeholder="输入家人给的共享码" style="flex:1;letter-spacing:1px;text-transform:uppercase;"> <button class="btn sm" id="dsJoin">加入</button></div>';
+  h += '<div class="row" style="align-items:center;"><input id="dsJoinCode" placeholder="输入家人给的共享码" style="flex:1;letter-spacing:1px;"> <button class="btn sm" id="dsJoin">加入</button></div>';
   if (mine.length) {
     h += '<div style="margin-top:8px;font-size:13px;">我已加入：' + mine.map(function(s){
       return esc(s.owner_name) + '（' + esc(dsModNames(s.modules)) + '） <button class="btn sm gray" style="padding:0 6px;font-size:11px;" onclick="dsLeave(' + s.member_id + ')">退出</button>';
@@ -6720,7 +6720,7 @@ function scCreate() {
 function scJoin() {
   openModal('加入共享分类',
     '<p class="muted" style="margin:0 0 8px;">输入家人分享的 8 位邀请码（或直接打开家人发的邀请链接）。</p>' +
-    '<input id="scJoinCode" placeholder="邀请码" style="width:100%;padding:8px;border:1px solid #d4d8e0;border-radius:6px;box-sizing:border-box;text-transform:uppercase;letter-spacing:2px;">' +
+    '<input id="scJoinCode" placeholder="邀请码" style="width:100%;padding:8px;border:1px solid #d4d8e0;border-radius:6px;box-sizing:border-box;letter-spacing:2px;">' +
     '<div style="text-align:right;margin-top:14px;"><button class="btn gray" onclick="closeModal()">取消</button> <button class="btn" id="scJoinOk">加入</button></div>');
   bindClickBusy(document.getElementById('scJoinOk'), async function(){
     var code = (document.getElementById('scJoinCode').value || '').trim();

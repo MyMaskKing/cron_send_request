@@ -106,7 +106,8 @@ class TodoAppWidget : GlanceAppWidget() {
                 overlayMsg = frame.uiMsg,
                 opacity = frame.opacity,
                 fontScale = frame.fontScale,
-                wrapChild = frame.wrapChild
+                wrapChild = frame.wrapChild,
+                simpleMode = frame.simpleMode
             )
         }
     }
@@ -198,7 +199,8 @@ private fun WidgetRoot(
     overlayMsg: String,
     opacity: Int,
     fontScale: Int,
-    wrapChild: Boolean
+    wrapChild: Boolean,
+    simpleMode: Boolean
 ) {
     Box(
         modifier = GlanceModifier
@@ -212,7 +214,7 @@ private fun WidgetRoot(
         if (!ready) {
             NotReady(fontScale)
         } else {
-            WidgetBody(data, failed, widgetId, collapsed, opacity, fontScale, wrapChild)
+            WidgetBody(data, failed, widgetId, collapsed, opacity, fontScale, wrapChild, simpleMode)
         }
         if (overlayState != "idle") WidgetOverlay(overlayState, overlayMsg, fontScale)
     }
@@ -275,7 +277,8 @@ private fun WidgetBody(
     collapsed: Set<Long>,
     opacity: Int,
     fontScale: Int,
-    wrapChild: Boolean
+    wrapChild: Boolean,
+    simpleMode: Boolean
 ) {
     Column(modifier = GlanceModifier.fillMaxSize()) {
         // 标题行：自带深灰白条背景，贴面板顶部满宽（S+ 被面板圆角裁剪顶边两角）
@@ -305,12 +308,26 @@ private fun WidgetBody(
                 }
             } else {
                 LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
-                    groups.forEach { g ->
-                        item(itemId = g.id) {
-                            // 卡片外的透明 Spacer 才是真缝隙（padding 会被卡片背景铺满）
-                            Column {
-                                GroupCard(g, widgetId, collapsed.contains(g.id), opacity, fontScale, wrapChild)
-                                Spacer(GlanceModifier.height(8.dp))
+                    if (simpleMode) {
+                        // 简洁模式：不按任务组分组，所有子任务（含无子任务主任务的回退行）
+                        // 平铺到一张卡片，无分组标题/折叠/＋按钮
+                        item {
+                            CardScaffold(opacity) {
+                                groups.forEach { g ->
+                                    g.children.forEach { child ->
+                                        ChildRow(child, widgetId, fontScale, wrapChild, g.id)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        groups.forEach { g ->
+                            item(itemId = g.id) {
+                                // 卡片外的透明 Spacer 才是真缝隙（padding 会被卡片背景铺满）
+                                Column {
+                                    GroupCard(g, widgetId, collapsed.contains(g.id), opacity, fontScale, wrapChild)
+                                    Spacer(GlanceModifier.height(8.dp))
+                                }
                             }
                         }
                     }
