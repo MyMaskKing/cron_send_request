@@ -190,7 +190,8 @@ async function createTodo({ request, env }) {
   return json({ success: true, message: '任务已添加', id });
 }
 
-/** PUT /api/todo/:id  修改任务  body: { title, priority?, due_date?, category?, child_due? } */
+/** PUT /api/todo/:id  修改任务  body: { title, priority?, due_date?, category?, child_due?, shared_cat_id? }
+ *  shared_cat_id 仅顶层任务生效：数字=移入该共享分类（须为分类成员），null=移出回个人（仅分类 owner）；子任务忽略。 */
 async function updateTodo({ request, env, params }) {
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
@@ -249,6 +250,35 @@ async function updateTodo({ request, env, params }) {
     payload.recur_weekday = recFields.recur_weekday;
   }
   await storage.todo.update(id, acc.ownerUid, payload);
+  // 共享分类归属变更（仅顶层主任务；子任务继承父任务归属，忽略该字段）。
+  // body 显式带 shared_cat_id 键才处理（前端编辑保存始终携带；null=个人/移出，数字=移入该分类）。
+  if (isRoot && Object.prototype.hasOwnProperty.call(body, 'shared_cat_id')) {
+    const wantCatId = body.shared_cat_id ? parseInt(body.shared_cat_id, 10) : null;
+    const curCatId = t.shared_cat_id != null ? t.shared_cat_id : null;
+    if (wantCatId !== curCatId) {
+      let newOwnerId = acc.ownerUid;
+      let newCatId = curCatId;
+      if (curCatId == null && wantCatId != null) {
+        // 个人 → 共享：目标分类成员即可移入（与 createTodo 同口径），行 owner 转为分类 owner
+        const cat = await storage.sharedCat.findCatById(wantCatId);
+        if (!cat) return error('共享分类不存在', 404);
+        const member = await storage.sharedCat.findMember(wantCatId, dc.uid);
+        if (!member) return error('你不是该共享分类成员', 403);
+        newOwnerId = cat.owner_user_id;
+        newCatId = wantCatId;
+      } else if (curCatId != null && wantCatId == null) {
+        // 共享 → 个人：仅分类 owner 可移出（editor 不能动别人创建的共享任务）
+        if (acc.role !== 'owner') return error('仅分类创建者可把任务移出共享分类', 403);
+        newOwnerId = t.user_id; // 行 owner 本就是分类 owner，不变；仅摘 shared_cat_id
+        newCatId = null;
+      } else if (curCatId != null && wantCatId !== curCatId) {
+        return error('暂不支持在共享分类之间直接移动，请先移出再移入', 400);
+      }
+      // 整树（root + 全部后代）一次性迁移，保证每行 user_id/shared_cat_id 一致
+      const ids = [id, ...(await storage.todo.collectDescendantIds(id))];
+      await storage.todo.reassignSubtree(ids, newOwnerId, newCatId);
+    }
+  }
   return json({ success: true, message: '任务已更新' });
 }
 

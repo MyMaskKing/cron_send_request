@@ -903,6 +903,17 @@ function createD1Adapter(env) {
         const placeholders = idList.map(() => '?').join(',');
         await db.prepare(`DELETE FROM todos WHERE id IN (${placeholders})`).bind(...idList).run();
       },
+      // 整棵任务树归属迁移：root + 全部后代统一改 user_id(行归属人) 与 shared_cat_id。
+      // 调用方须先完成权限校验并保证 ids 覆盖整树（[rootId, ...collectDescendantIds(rootId)]）；
+      // 漏改任一行会导致该行 user_id 与新归属不一致，后续双校验静默失败（勾选/编辑无效但返回成功）。
+      // newCatId 为 null 表示移出共享分类回个人清单。
+      async reassignSubtree(ids, newOwnerId, newCatId) {
+        if (!ids || ids.length === 0) return;
+        const placeholders = ids.map(() => '?').join(',');
+        await db.prepare(
+          `UPDATE todos SET user_id=?, shared_cat_id=? WHERE id IN (${placeholders})`
+        ).bind(newOwnerId, newCatId == null ? null : newCatId, ...ids).run();
+      },
       async findByShareToken(token) {
         return await db.prepare('SELECT * FROM todos WHERE share_token=?').bind(token).first();
       },

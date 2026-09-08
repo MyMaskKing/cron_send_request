@@ -6385,7 +6385,8 @@ function todoFormRead() {
   // child_due 勾选框仅主任务表单存在; 不存在(子任务/协作页锁定)时不输出该键, 后端即不切换模式
   var cdEl = document.getElementById('tfChildDue');
   if (cdEl) out.child_due = cdEl.checked ? 1 : 0;
-  if (sharedCatId) out.shared_cat_id = sharedCatId;
+  // 始终携带: null=无分类/个人分类(编辑共享任务时即"移出共享"), 数字=移入该共享分类
+  out.shared_cat_id = sharedCatId;
   return out;
 }
 function todoTodayStr(){ var d = new Date(Date.now() + 8*3600*1000); return d.toISOString().slice(0,10); }
@@ -6556,18 +6557,50 @@ function openTodoEdit(node) {
     : '编辑任务';
   openModal(_modalTitle, todoFormHtml(node, false, isChild, fopts) +
     '<div style="margin-top:12px;"><button class="btn" id="tfSave">保存</button> <button class="btn gray" onclick="closeModal()">取消</button></div>');
-  // 编辑时分类归属锁定(共享任务显示其共享分类但不可改; 个人任务也不能在编辑中改归属)
+  // 编辑时分类归属规则:
+  //   个人顶层任务 → 共享分类可选(移入); 共享顶层任务 → 共享选项灰显回显, 选"无分类"/个人分类即移出(仅分类 owner);
+  //   非 owner 成员(editor) → 整个分类下拉禁用(别人创建的共享任务不可移入/移出); 子任务 → 归属继承父任务, 共享选项禁用
   var _catPref = node.shared_cat_id != null ? ('sc:' + node.shared_cat_id) : (node.category || '');
-  todoFillCategoryOptions(_rows, _catPref, { disableShared: true });
+  var _isSharedRoot = !isChild && node.shared_cat_id != null;
+  var _myCatRole = null;
+  if (_isSharedRoot) {
+    var _mc = _sharedCats.filter(function(c){ return c.cat_id === node.shared_cat_id; })[0];
+    _myCatRole = _mc ? _mc.role : null;
+  }
+  todoFillCategoryOptions(_rows, _catPref, { disableShared: !(!isChild && node.shared_cat_id == null) });
+  if (_isSharedRoot && _myCatRole !== 'owner') {
+    var _catSelEl = document.getElementById('tfCatSel');
+    if (_catSelEl) _catSelEl.disabled = true;
+  }
+  var _doSave = async function(body){
+    await api('/api/todo/' + node.id, { method:'PUT', body: body });
+    closeModal(); await loadTodos();
+    // 主任务切到"子任务各自设日期"后自身无日期, 空容器在"今日+逾期"等筛选下会消失 → 自动跳到"全部"
+    if (!isChild && body.child_due === 1) switchTodoFilter('all');
+  };
   bindClickBusy(document.getElementById('tfSave'), async function(){
     var body = todoFormRead();
     if (!body.title) { alertModal('请填写标题', {ok:false}); return; }
     // child_due 模式下子任务截止日期必填(与快捷添加框同口径)
     if (isChild && fopts.childDueMode && !body.due_date) { alertModal('请选择截止日期（默认今天）', {ok:false}); return; }
-    await api('/api/todo/' + node.id, { method:'PUT', body: body });
-    closeModal(); await loadTodos();
-    // 主任务切到"子任务各自设日期"后自身无日期, 空容器在"今日+逾期"等筛选下会消失 → 自动跳到"全部"
-    if (!isChild && body.child_due === 1) switchTodoFilter('all');
+    // 归属变更(移入/移出共享分类)影响整棵任务树可见性, 二次确认(复用 confirmModal; 取消即放弃本次编辑)
+    var _fromCat = node.shared_cat_id != null ? node.shared_cat_id : null;
+    var _toCat = body.shared_cat_id ? parseInt(body.shared_cat_id, 10) : null;
+    if (!isChild && _toCat !== _fromCat && (_toCat != null || _fromCat != null)) {
+      var _movingIn = _toCat != null;
+      var _scName = _movingIn
+        ? ((_sharedCats.filter(function(c){ return c.cat_id === _toCat; })[0] || {}).name || '共享分类')
+        : '';
+      confirmModal(
+        _movingIn ? '移入共享分类' : '移出共享分类',
+        _movingIn
+          ? '该任务及其全部子任务将移入「' + _scName + '」，分类全体成员可见、可编辑（仅创建者可删除）。确认移入？'
+          : '该任务及其全部子任务将移回你的个人清单，其他分类成员将不再可见。确认移出？',
+        function(){ return _doSave(body); }
+      );
+      return;
+    }
+    await _doSave(body);
   });
 }
 function drawTree() {
