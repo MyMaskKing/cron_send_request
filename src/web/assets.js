@@ -4783,11 +4783,13 @@ function shiftDateLocal(dueDate, recurrence, jumpToCurrent, todayStr, interval, 
 }
 // 分类计数(顶层任务口径): 目录展示与卡片列表可见性一致 —— 只数顶层任务
 // 返回 { __all__: N, __none__: N, '工作': N, ... }
+// 抽屉分类计数: 仅统计未完成的顶层任务(与时间筛选今日/逾期等未完成口径一致; 已完成不计)
 function todoCatCounts(rows) {
   var m = { __all__: 0, __none__: 0 };
   rows.forEach(function(r){
     if (r.parent_id != null) return;
     if (r.shared_cat_id != null) return; // 共享分类任务不计入个人文本分类
+    if (r.done) return; // 已完成任务不占分类计数
     m.__all__++;
     if (!r.category) m.__none__++;
     else { m[r.category] = (m[r.category] || 0) + 1; }
@@ -4999,13 +5001,13 @@ function renderTodoDrawer(rows, onSelect) {
   box.appendChild(section3);
 
   // 共享分类段(仅登录态页面有 _sharedCats 数据; 免密页为空数组即不渲染)
-  // key='sc:<catId>', 由 todoRowsByCategory 按 shared_cat_id 筛选; 计数为该分类下顶层任务数
+  // key='sc:<catId>', 由 todoRowsByCategory 按 shared_cat_id 筛选; 计数为该分类下未完成的顶层任务数
   var scs = (typeof _sharedCats !== 'undefined' && _sharedCats) ? _sharedCats : [];
   if (scs.length) {
-    // 一次遍历统计各共享分类的顶层任务数, 避免每个分类都 filter 全量 rows
+    // 一次遍历统计各共享分类未完成的顶层任务数, 避免每个分类都 filter 全量 rows
     var scCount = {};
     rows.forEach(function(r){
-      if (r.parent_id == null && r.shared_cat_id != null) {
+      if (r.parent_id == null && r.shared_cat_id != null && !r.done) {
         scCount[r.shared_cat_id] = (scCount[r.shared_cat_id] || 0) + 1;
       }
     });
