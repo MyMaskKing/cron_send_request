@@ -5010,11 +5010,14 @@ function renderTodoDrawer(rows, onSelect) {
   // key='sc:<catId>', 由 todoRowsByCategory 按 shared_cat_id 筛选; 计数为该分类下未完成的顶层任务数
   var scs = (typeof _sharedCats !== 'undefined' && _sharedCats) ? _sharedCats : [];
   if (scs.length) {
-    // 一次遍历统计各共享分类未完成的顶层任务数, 避免每个分类都 filter 全量 rows
+    // 一次遍历统计各共享分类未完成的顶层任务数与其中的备忘录数, 避免每个分类都 filter 全量 rows
+    // 备忘录口径同时间筛选: 未完成 + 无截止日期 + 非 child_due 容器
     var scCount = {};
+    var scMemo = {};
     rows.forEach(function(r){
       if (r.parent_id == null && r.shared_cat_id != null && !r.done) {
         scCount[r.shared_cat_id] = (scCount[r.shared_cat_id] || 0) + 1;
+        if (!r.due_date && !r.child_due) scMemo[r.shared_cat_id] = (scMemo[r.shared_cat_id] || 0) + 1;
       }
     });
     var section4 = document.createElement('div');
@@ -5033,6 +5036,9 @@ function renderTodoDrawer(rows, onSelect) {
       var cc = document.createElement('span');
       cc.className = 'todo-drawer__count';
       cc.textContent = '(' + (scCount[c.cat_id] || 0) + ')';
+      // 悬浮明细: 未完成(=括号数字) / 备忘录
+      it.title = '未完成：' + (scCount[c.cat_id] || 0) +
+        '｜备忘录：' + (scMemo[c.cat_id] || 0);
       it.appendChild(l); it.appendChild(cc);
       it.addEventListener('click', function(){ if (onSelect) onSelect(key); });
       section4.appendChild(it);
