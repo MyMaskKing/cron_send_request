@@ -6420,7 +6420,7 @@ function todoFormRead() {
   return out;
 }
 function todoTodayStr(){ var d = new Date(Date.now() + 8*3600*1000); return d.toISOString().slice(0,10); }
-// 共享：绘制"每日新建/完成"折线图。series = { labels[], created[], done[] }
+// 待办活动趋势三线图：新建(created)/完成(done) 为当日流量；未完成(open) 为截至当日的存量水位（橙色虚线，不填充）
 var _todoChartInst = null;
 function drawTodoChart(canvasId, series) {
   var el = document.getElementById(canvasId);
@@ -6429,8 +6429,9 @@ function drawTodoChart(canvasId, series) {
   _todoChartInst = new Chart(el, {
     type: 'line',
     data: { labels: series.labels, datasets: [
-      { label: '到期', data: series.created, borderColor: '#4a6cf7', backgroundColor: 'rgba(74,108,247,.12)', fill: true, tension: .3 },
-      { label: '完成', data: series.done, borderColor: '#52c41a', backgroundColor: 'rgba(82,196,26,.12)', fill: true, tension: .3 }
+      { label: '新建', data: series.created, borderColor: '#4a6cf7', backgroundColor: 'rgba(74,108,247,.12)', fill: true, tension: .3 },
+      { label: '完成', data: series.done, borderColor: '#52c41a', backgroundColor: 'rgba(82,196,26,.12)', fill: true, tension: .3 },
+      { label: '未完成', data: series.open, borderColor: '#fa8c16', backgroundColor: 'rgba(250,140,22,.10)', fill: false, tension: .3, borderDash: [5, 4] }
     ] },
     options: { plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
   });

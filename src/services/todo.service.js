@@ -318,53 +318,84 @@ function msDay(ms) {
 }
 
 /**
- * 构造图表序列：按 range 决定按天/按月，产出连续标签与对应创建/完成计数
- * ≤60 天按天，半年/1年/3年按月
- * @param {Object} raw - storage.chartRaw 结果 { created:[{d,c}], done:[{d,c}] }
- * @param {string} range - 7d|30d|60d|6m|1y|3y
+ * 构造图表序列：按 range 决定按天/按月，产出连续标签与 新建/完成/未完成存量 三条序列
+ * ≤60 天按天，半年/1年/3年按月。
+ * 存量（open）反推：以 raw.openNow（今天的未完成任务数）为今天水位，
+ *   昨日存量 = 今日存量 − 今日新建 + 今日完成；月格取该月最后一天的水位（当月取 today）。
+ * @param {Object} raw - storage.chartRaw 结果 { created:[{d,c}], done:[{d,c}], openNow:number }
+ * @param {string} range - month|7d|30d|60d|6m|1y|3y
  * @param {string} today - 北京时区当天 YYYY-MM-DD（区间末点）
- * @returns {Object} { range, unit, labels[], created[], done[] }
+ * @returns {Object} { range, unit, labels[], created[], done[], open[] }
  */
 function buildChartSeries(raw, range, today) {
   const cfg = CHART_RANGES[range] || CHART_RANGES['7d'];
   const createdMap = {}, doneMap = {};
   (raw.created || []).forEach(r => { if (r.d) createdMap[r.d] = r.c; });
   (raw.done || []).forEach(r => { if (r.d) doneMap[r.d] = r.c; });
+  const DAY = 86400000;
+  const todayMs = dayMs(today);
 
-  const labels = [], created = [], done = [];
+  // 生成 [startMs, today] 连续北京日（YYYY-MM-DD）
+  const dayRange = (startMs) => {
+    const out = [];
+    for (let ms = startMs; ms <= todayMs; ms += DAY) out.push(msDay(ms));
+    return out;
+  };
+  // 由今天水位 openNow 反向递推区间内每天的未完成存量：open(d-1)=open(d)-created(d)+done(d)
+  const backfillOpen = (days) => {
+    const map = {};
+    let cur = Number.isFinite(raw.openNow) ? raw.openNow : 0;
+    map[days[days.length - 1]] = cur;
+    for (let i = days.length - 1; i > 0; i--) {
+      cur = cur - (createdMap[days[i]] || 0) + (doneMap[days[i]] || 0);
+      map[days[i - 1]] = cur;
+    }
+    return map;
+  };
+
+  const labels = [], created = [], done = [], open = [];
   if (cfg.unit === 'month-current') {
     // 当月: 从 today 所在月 1 号起, 到 today 为止, 每天一格
-    const d = +today.slice(8, 10);
-    const endMs = dayMs(today);
-    for (let i = d - 1; i >= 0; i--) {
-      const day = msDay(endMs - i * 86400000);
+    const n = +today.slice(8, 10);
+    const days = dayRange(todayMs - (n - 1) * DAY);
+    const openMap = backfillOpen(days);
+    days.forEach(day => {
       labels.push(day.slice(5)); // MM-DD
       created.push(createdMap[day] || 0);
       done.push(doneMap[day] || 0);
-    }
+      open.push(openMap[day]);
+    });
   } else if (cfg.unit === 'day') {
-    const endMs = dayMs(today);
-    for (let i = cfg.span - 1; i >= 0; i--) {
-      const day = msDay(endMs - i * 86400000);
+    const days = dayRange(todayMs - (cfg.span - 1) * DAY);
+    const openMap = backfillOpen(days);
+    days.forEach(day => {
       labels.push(day.slice(5)); // MM-DD
       created.push(createdMap[day] || 0);
       done.push(doneMap[day] || 0);
-    }
+      open.push(openMap[day]);
+    });
   } else {
-    // 按月：聚合当月所有天的计数
+    // 按月：新建/完成聚合当月每日之和；存量取月内最后一天水位（历史月=月末，当月=today）
     const y = +today.slice(0, 4), m = +today.slice(5, 7) - 1;
+    const firstMs = Date.UTC(y, m - (cfg.span - 1), 1);
+    const days = dayRange(firstMs);
+    const openMap = backfillOpen(days);
     for (let i = cfg.span - 1; i >= 0; i--) {
-      const d = new Date(Date.UTC(y, m - i, 1));
-      const ym = d.toISOString().slice(0, 7); // YYYY-MM
+      const monthDate = new Date(Date.UTC(y, m - i, 1));
+      const ym = monthDate.toISOString().slice(0, 7); // YYYY-MM
       labels.push(ym);
       let cc = 0, dc = 0;
       for (const k in createdMap) if (k.slice(0, 7) === ym) cc += createdMap[k];
       for (const k in doneMap) if (k.slice(0, 7) === ym) dc += doneMap[k];
       created.push(cc);
       done.push(dc);
+      // 该月最后一个有数据意义的日子：月末与 today 取较早者（当月只走到 today）
+      const monthEnd = msDay(Date.UTC(y, m - i + 1, 0));
+      const snap = monthEnd > today ? today : monthEnd;
+      open.push(openMap[snap] != null ? openMap[snap] : 0);
     }
   }
-  return { range, unit: cfg.unit, labels, created, done };
+  return { range, unit: cfg.unit, labels, created, done, open };
 }
 
 /**

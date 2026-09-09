@@ -935,29 +935,32 @@ function createD1Adapter(env) {
         ).bind(rootId).all();
         return results || [];
       },
-      // 图表原始数据：按截止日期(due_date)分组的每日到期量与其中完成量
-      // created 键沿用原名，语义为"该截止日到期的任务数"；done 为其中已完成数
-      // 仅统计设了 due_date 的任务（顶层任务；子任务日期继承主任务、自身 due_date 为空不计入）
-      // idList 传入则仅统计这些 id（用于免密协作页限定某清单子树），否则统计该用户全部
-      // offsetHours 保留兼容调用签名，此口径下不再使用（due_date 本就是北京日期串）
-      // 返回 { created: [{d, c}], done: [{d, c}] }，d 为 YYYY-MM-DD
+      // 图表原始数据（按北京日的任务活动量）：
+      //   created —— 当天新建：created_at 是 UTC，+8 小时取北京日
+      //   done    —— 当天完成：done=1 且 done_at 为该北京日（必须带 done=1，
+      //              取消勾选的一条路径会在 done=0 时残留 done_at）
+      //   openNow —— 当前未完成存量基线（done=0，含备忘录与未来任务），供 service 反推每日存量
+      // 个人口径仅统计非共享任务(shared_cat_id IS NULL)；idList 传入则仅统计这些 id（单清单 /t/:token 子树图）
+      // offsetHours 保留兼容调用签名，此口径下不再使用
+      // 返回 { created: [{d, c}], done: [{d, c}], openNow: number }，d 为 YYYY-MM-DD
       async chartRaw(userId, offsetHours = 8, idList = null) {
-        // 个人口径仅统计非共享任务(shared_cat_id IS NULL), 共享分类完成量不进个人趋势;
-        // idList 子树分支(单清单 /t/:token 图表)不限定, 整棵子树照常统计
         let scope = 'user_id=? AND shared_cat_id IS NULL', args = [userId];
         if (idList && idList.length) {
           scope = `id IN (${idList.map(() => '?').join(',')})`;
           args = idList;
         }
         const createdQ = await db.prepare(
-          `SELECT due_date AS d, COUNT(*) AS c
-           FROM todos WHERE ${scope} AND due_date IS NOT NULL GROUP BY due_date`
+          `SELECT date(created_at, '+8 hours') AS d, COUNT(*) AS c
+           FROM todos WHERE ${scope} GROUP BY d`
         ).bind(...args).all();
         const doneQ = await db.prepare(
-          `SELECT due_date AS d, COUNT(*) AS c
-           FROM todos WHERE ${scope} AND due_date IS NOT NULL AND done=1 GROUP BY due_date`
+          `SELECT substr(done_at, 1, 10) AS d, COUNT(*) AS c
+           FROM todos WHERE ${scope} AND done=1 AND done_at IS NOT NULL GROUP BY d`
         ).bind(...args).all();
-        return { created: createdQ.results || [], done: doneQ.results || [] };
+        const openQ = await db.prepare(
+          `SELECT COUNT(*) AS c FROM todos WHERE ${scope} AND done=0`
+        ).bind(...args).first();
+        return { created: createdQ.results || [], done: doneQ.results || [], openNow: openQ ? openQ.c : 0 };
       }
     },
 
