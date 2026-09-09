@@ -4931,9 +4931,9 @@ function renderTodoDrawer(rows, onSelect) {
       var l = document.createElement('span'); l.className = 'todo-drawer__label'; l.textContent = btn.textContent.trim();
       var c = document.createElement('span'); c.className = 'todo-drawer__count'; c.textContent = '(' + (timeCounts[key] || 0) + ')';
       it.appendChild(l); it.appendChild(c);
-      // 「全部」悬浮明细: 未完成(含备忘录) / 备忘录 / 已完成
+      // 「全部」悬浮明细: 未完成(=计划中数量) / 备忘录 / 已完成; 三项互斥且之和等于全部
       if (key === 'all') {
-        it.title = '未完成：' + (timeCounts.all - timeCounts.done) +
+        it.title = '未完成（计划中）：' + timeCounts.planned +
           '｜备忘录：' + timeCounts.memo +
           '｜已完成：' + timeCounts.done;
       }
@@ -5221,6 +5221,22 @@ function applyTodoView(getRowsFn, onDrawTree) {
       applyTodoView(getRowsFn, onDrawTree);
     });
   }
+}
+// 数据变化(勾选/增删改, loadTodos 收尾)后用最新 rows 重算抽屉计数:
+// applyTodoView 仅在切视图/筛选时重算抽屉, 不随 loadTodos 执行, 否则勾选后计数停在旧值(已完成仍被计数)。
+// 仅全屏态且抽屉容器存在时重绘内容(不动开合状态); onSelect 复用最近一次 applyTodoView 的上下文。
+function refreshTodoDrawer(rows) {
+  if (_todoView === 'default') return;
+  var box = document.getElementById('drawerList');
+  if (!box) return;
+  renderTodoDrawer(rows, function(key){
+    _todoCategory = key === '__all__' ? null : key;
+    if (window.innerWidth <= 640) {
+      _todoDrawerOpen = false;
+      try { localStorage.setItem('todoDrawer', '0'); } catch(e){}
+    }
+    applyTodoView(_todoEscCtx.getRows, _todoEscCtx.onDraw);
+  });
 }
 // 视图三态循环(旧, 已弃用): 保留以避免破坏未迁移调用点; 新按钮分工见下面三个函数
 function cycleTodoView(getRowsFn, onDrawTree) {
@@ -6524,6 +6540,8 @@ async function loadTodos() {
   document.getElementById('stDone').textContent = todoDoneByFilter(_rows, _filter, todayStr(), _curRange);
   updateStatsHint(_filter, _curRange);
   drawTree();
+  // 同步重算抽屉计数(勾选/增删改后数字立即更新, 避免已完成任务仍占计数)
+  refreshTodoDrawer(_rows);
   // App 原生壳: 列表已与服务端同步(增删改/勾选/排序/共享分类变动的统一收尾),
   // 通知立即刷新桌面小组件, 不等 15 分钟周期 Worker; 普通浏览器无此函数, no-op.
   if (typeof window._appShellTodoChanged === 'function') window._appShellTodoChanged();
