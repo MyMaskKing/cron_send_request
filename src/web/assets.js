@@ -4931,6 +4931,12 @@ function renderTodoDrawer(rows, onSelect) {
       var l = document.createElement('span'); l.className = 'todo-drawer__label'; l.textContent = btn.textContent.trim();
       var c = document.createElement('span'); c.className = 'todo-drawer__count'; c.textContent = '(' + (timeCounts[key] || 0) + ')';
       it.appendChild(l); it.appendChild(c);
+      // 「全部」悬浮明细: 未完成(含备忘录) / 备忘录 / 已完成
+      if (key === 'all') {
+        it.title = '未完成：' + (timeCounts.all - timeCounts.done) +
+          '｜备忘录：' + timeCounts.memo +
+          '｜已完成：' + timeCounts.done;
+      }
       it.addEventListener('click', function(){
         // 触发原按钮 click, 由主页面 handler 更新 #todoFilter active + drawTree
         btn.click();
@@ -5047,8 +5053,8 @@ function todoTimeCounts(rows) {
   var m = { all: 0, planned: 0, cur: 0, today: 0, overdue: 0, future: 0, memo: 0, done: 0 };
   todoBuildTree(rows).forEach(function(r){
     m.all++;
-    if (r.due_date || r.child_due) m.planned++; // 计划中: 顶层自身有日期 或 child_due 容器(子任务带日期)
-    if (r.done) { m.done++; return; }
+    if (r.done) { m.done++; return; } // 已完成仅进 done 桶; 计划中等未完成口径不计
+    if (r.due_date || r.child_due) m.planned++; // 计划中(仅未完成): 顶层自身有日期 或 child_due 容器(子任务带日期)
     var due = todoRootDue(r);
     if (!due) { if (!r.child_due) m.memo++; return; } // child_due 空容器(分组壳)不计备忘录
     if (due === today) { m.today++; m.cur++; }
