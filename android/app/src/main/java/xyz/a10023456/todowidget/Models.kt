@@ -18,7 +18,9 @@ data class WidgetStats(
     val done: Int = 0,
     val pending: Int = 0,
     val overdue: Int = 0,
-    val memo: Int = 0
+    val memo: Int = 0,
+    /** 今日到期的未完成叶子任务数（标题栏 📅 统计；旧后端不下发时为 0） */
+    val today: Int = 0
 )
 
 @Serializable

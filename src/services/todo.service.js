@@ -145,7 +145,7 @@ function rootDueOf(root) {
  * 备忘录（无有效截止日期的未完成叶子）单独计入 memo，不算进 pending
  * @param {Array} rows - todos 扁平行
  * @param {string} today - 北京时区当天 YYYY-MM-DD，用于逾期判断
- * @returns {Object} { total, done, pending, overdue, memo }
+ * @returns {Object} { total, done, pending, overdue, memo, today }
  */
 function countStats(rows, today) {
   const byId = new Map();
@@ -162,7 +162,7 @@ function countStats(rows, today) {
     }
     return false;
   };
-  let total = 0, done = 0, overdue = 0, memo = 0, pending = 0;
+  let total = 0, done = 0, overdue = 0, memo = 0, pending = 0, dueToday = 0;
   for (const r of rows) {
     if (hasChild.has(r.id)) continue; // 非叶子（父任务）跳过
     if (hasDoneAncestor(r)) continue;
@@ -175,8 +175,9 @@ function countStats(rows, today) {
     if (!due) { memo++; continue; }        // 无日期未完成 = 备忘录，不计入 pending
     pending++;
     if (today && due < today) overdue++;
+    else if (today && due === today) dueToday++; // 今日到期的未完成叶子（小组件标题栏统计用）
   }
-  return { total, done, pending, overdue, memo };
+  return { total, done, pending, overdue, memo, today: dueToday };
 }
 
 /**

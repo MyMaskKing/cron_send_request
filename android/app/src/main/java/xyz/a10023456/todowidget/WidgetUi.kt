@@ -529,13 +529,10 @@ private fun Header(data: WidgetResponse?, widgetId: Int, opacity: Int, fontScale
                 "📝 待办",
                 style = TextStyle(fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 14), color = w.text)
             )
-            if (data != null) {
+            // 统计胶囊: 今日 | 逾期 同处一个胶囊; 两者都为 0 时不渲染
+            if (data != null && (data.stats.today > 0 || data.stats.overdue > 0)) {
                 Spacer(GlanceModifier.width(6.dp))
-                StatChip(data.stats.pending, w.text, fontScale, dark)
-                Spacer(GlanceModifier.width(4.dp))
-                StatChip(data.stats.overdue, w.overdue, fontScale, dark)
-                Spacer(GlanceModifier.width(4.dp))
-                StatChip(data.stats.memo, w.sub, fontScale, dark)
+                TodayOverdueChip(data.stats.today, data.stats.overdue, fontScale, dark)
             }
         }
         Spacer(GlanceModifier.width(6.dp))
@@ -569,8 +566,16 @@ private fun Header(data: WidgetResponse?, widgetId: Int, opacity: Int, fontScale
     }
 }
 
+/**
+ * 标题栏统计胶囊（单胶囊，今日与逾期拆开显示）：
+ *   今日>0 且逾期>0 → 📅 3 | 1（竖线灰色、逾期数红色）
+ *   仅今日         → 📅 3（常规色）
+ *   仅逾期（全逾期）→ 📅 2（数字整体红色）
+ *   两者都为 0     → 调用方不渲染本胶囊
+ */
 @Composable
-private fun StatChip(value: Int, color: ColorProvider, fontScale: Int, dark: Boolean) {
+private fun TodayOverdueChip(today: Int, overdue: Int, fontScale: Int, dark: Boolean) {
+    val w = W(dark)
     Box(
         modifier = GlanceModifier
             .background(imageProvider = ImageProvider(
@@ -578,7 +583,23 @@ private fun StatChip(value: Int, color: ColorProvider, fontScale: Int, dark: Boo
             ))
             .padding(horizontal = 7.dp, vertical = 2.dp)
     ) {
-        Text(value.toString(), style = TextStyle(color = color, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("📅", style = TextStyle(fontSize = fs(fontScale, 12)))
+            Spacer(GlanceModifier.width(4.dp))
+            when {
+                today > 0 && overdue > 0 -> {
+                    Text(today.toString(), style = TextStyle(color = w.text, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
+                    Spacer(GlanceModifier.width(5.dp))
+                    Text("|", style = TextStyle(color = w.sub, fontSize = fs(fontScale, 12)))
+                    Spacer(GlanceModifier.width(5.dp))
+                    Text(overdue.toString(), style = TextStyle(color = w.overdue, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
+                }
+                today > 0 ->
+                    Text(today.toString(), style = TextStyle(color = w.text, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
+                else ->
+                    Text(overdue.toString(), style = TextStyle(color = w.overdue, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
+            }
+        }
     }
 }
 
