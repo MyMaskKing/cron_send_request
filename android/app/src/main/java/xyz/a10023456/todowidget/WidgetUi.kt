@@ -18,6 +18,8 @@ import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.provideContent
+import androidx.glance.ColorFilter
+import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.background
 import androidx.glance.layout.Alignment
@@ -566,11 +568,22 @@ private fun Header(data: WidgetResponse?, widgetId: Int, opacity: Int, fontScale
     }
 }
 
+/** 胶囊内 13dp 单色小图标（vector 白底 + tint 着色，深浅色背景均跟随） */
+@Composable
+private fun ChipIcon(resId: Int, color: ColorProvider) {
+    Image(
+        provider = ImageProvider(resId),
+        contentDescription = null,
+        colorFilter = ColorFilter.tint(color),
+        modifier = GlanceModifier.size(13.dp)
+    )
+}
+
 /**
  * 标题栏统计胶囊（单胶囊，今日与逾期拆开显示）：
- *   今日>0 且逾期>0 → 📅 3 | 1（竖线灰色、逾期数红色）
- *   仅今日         → 📅 3（常规色）
- *   仅逾期（全逾期）→ 📅 2（数字整体红色）
+ *   今日>0 且逾期>0 → [日历]3 | [闹钟]1（竖线灰色、逾期图标与数字红色）
+ *   仅今日         → [日历]3（常规色）
+ *   仅逾期（全逾期）→ [闹钟]2（图标数字整体红色）
  *   两者都为 0     → 调用方不渲染本胶囊
  */
 @Composable
@@ -584,20 +597,28 @@ private fun TodayOverdueChip(today: Int, overdue: Int, fontScale: Int, dark: Boo
             .padding(horizontal = 7.dp, vertical = 2.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("📅", style = TextStyle(fontSize = fs(fontScale, 12)))
-            Spacer(GlanceModifier.width(4.dp))
             when {
                 today > 0 && overdue > 0 -> {
+                    ChipIcon(R.drawable.ic_chip_today, w.text)
+                    Spacer(GlanceModifier.width(4.dp))
                     Text(today.toString(), style = TextStyle(color = w.text, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
                     Spacer(GlanceModifier.width(5.dp))
                     Text("|", style = TextStyle(color = w.sub, fontSize = fs(fontScale, 12)))
                     Spacer(GlanceModifier.width(5.dp))
+                    ChipIcon(R.drawable.ic_chip_overdue, w.overdue)
+                    Spacer(GlanceModifier.width(3.dp))
                     Text(overdue.toString(), style = TextStyle(color = w.overdue, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
                 }
-                today > 0 ->
+                today > 0 -> {
+                    ChipIcon(R.drawable.ic_chip_today, w.text)
+                    Spacer(GlanceModifier.width(4.dp))
                     Text(today.toString(), style = TextStyle(color = w.text, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
-                else ->
+                }
+                else -> {
+                    ChipIcon(R.drawable.ic_chip_overdue, w.overdue)
+                    Spacer(GlanceModifier.width(4.dp))
                     Text(overdue.toString(), style = TextStyle(color = w.overdue, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
+                }
             }
         }
     }
