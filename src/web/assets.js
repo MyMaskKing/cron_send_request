@@ -5036,8 +5036,8 @@ function renderTodoDrawer(rows, onSelect) {
       var cc = document.createElement('span');
       cc.className = 'todo-drawer__count';
       cc.textContent = '(' + (scCount[c.cat_id] || 0) + ')';
-      // 悬浮明细: 未完成(=括号数字) / 备忘录
-      it.title = '未完成：' + (scCount[c.cat_id] || 0) +
+      // 悬浮明细: 计划中(=该分类视图下"计划中"筛选数量) / 备忘录; 两者之和=括号内未完成总数
+      it.title = '未完成（计划中）：' + ((scCount[c.cat_id] || 0) - (scMemo[c.cat_id] || 0)) +
         '｜备忘录：' + (scMemo[c.cat_id] || 0);
       it.appendChild(l); it.appendChild(cc);
       it.addEventListener('click', function(){ if (onSelect) onSelect(key); });
