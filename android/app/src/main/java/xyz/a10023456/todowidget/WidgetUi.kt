@@ -47,6 +47,7 @@ private class WColors(
     val text: ColorProvider,
     val sub: ColorProvider,
     val overdue: ColorProvider,
+    val today: ColorProvider,
     val brand: ColorProvider
 )
 private val WLight = WColors(
@@ -54,12 +55,15 @@ private val WLight = WColors(
     // 次要文字（日期/面包屑/图标）：面板与卡片半透明时仍要可读
     sub = ColorProvider(Color(0xFF666E8F)),
     overdue = ColorProvider(Color(0xFFCF1322)),
+    // 今日（进行中）：蓝，与逾期红组成状态色；浅 chip 底上用偏深蓝保证对比
+    today = ColorProvider(Color(0xFF2563EB)),
     brand = ColorProvider(Color(0xFFA855F7))
 )
 private val WDark = WColors(
     text = ColorProvider(Color(0xFFF2F1F7)),
     sub = ColorProvider(Color(0xFFB6B0CC)),
     overdue = ColorProvider(Color(0xFFFF6B6B)),
+    today = ColorProvider(Color(0xFF60A5FA)),
     brand = ColorProvider(Color(0xFFA855F7))
 )
 
@@ -581,8 +585,8 @@ private fun ChipIcon(resId: Int, color: ColorProvider) {
 
 /**
  * 标题栏统计胶囊（单胶囊，今日与逾期拆开显示）：
- *   今日>0 且逾期>0 → [日历]3 | [闹钟]1（竖线灰色、逾期图标与数字红色）
- *   仅今日         → [日历]3（常规色）
+ *   今日>0 且逾期>0 → [日历]3 | [闹钟]1（今日蓝=进行中，竖线灰，逾期图标与数字红）
+ *   仅今日         → [日历]3（蓝色）
  *   仅逾期（全逾期）→ [闹钟]2（图标数字整体红色）
  *   两者都为 0     → 调用方不渲染本胶囊
  */
@@ -599,9 +603,9 @@ private fun TodayOverdueChip(today: Int, overdue: Int, fontScale: Int, dark: Boo
         Row(verticalAlignment = Alignment.CenterVertically) {
             when {
                 today > 0 && overdue > 0 -> {
-                    ChipIcon(R.drawable.ic_chip_today, w.text)
+                    ChipIcon(R.drawable.ic_chip_today, w.today)
                     Spacer(GlanceModifier.width(4.dp))
-                    Text(today.toString(), style = TextStyle(color = w.text, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
+                    Text(today.toString(), style = TextStyle(color = w.today, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
                     Spacer(GlanceModifier.width(5.dp))
                     Text("|", style = TextStyle(color = w.sub, fontSize = fs(fontScale, 12)))
                     Spacer(GlanceModifier.width(5.dp))
@@ -610,9 +614,9 @@ private fun TodayOverdueChip(today: Int, overdue: Int, fontScale: Int, dark: Boo
                     Text(overdue.toString(), style = TextStyle(color = w.overdue, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
                 }
                 today > 0 -> {
-                    ChipIcon(R.drawable.ic_chip_today, w.text)
+                    ChipIcon(R.drawable.ic_chip_today, w.today)
                     Spacer(GlanceModifier.width(4.dp))
-                    Text(today.toString(), style = TextStyle(color = w.text, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
+                    Text(today.toString(), style = TextStyle(color = w.today, fontWeight = FontWeight.Bold, fontSize = fs(fontScale, 12)))
                 }
                 else -> {
                     ChipIcon(R.drawable.ic_chip_overdue, w.overdue)
